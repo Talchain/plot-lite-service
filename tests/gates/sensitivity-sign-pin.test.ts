@@ -24,16 +24,25 @@
  *     is unit-pinned in tests/evpi-emission.test.ts.
  */
 
+import { makeOptionResultV2 } from '../helpers/isl-option-fixture.js';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 
 function robustnessPayload(options: any[]) {
   return {
-    options: options.map((opt: any, idx: number) => ({
-      option_id: opt.id,
+    options: options.map((opt: any, idx: number) => makeOptionResultV2({
+      // ROADMAP 2.744 sweep — RAW ISL V2 wire, routed through the contract-derived
+      // builder. `option_id` was V1's identity name (V2 declares `id`) and `rank`
+      // is declared on NEITHER ISL option schema; both were inert at the consumer
+      // (run.ts reads `r.option_id ?? r.id`, and nothing reads `rank` on the V2
+      // path) — but the literal was a hand-maintained mirror, which is the defect.
+      id: opt.id,
       win_probability: idx === 0 ? 0.7 : 0.3,
       outcome: { mean: 0.7 - idx * 0.2, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 },
-      rank: idx + 1,
+      // `status` is in OptionResultV2's REQUIRED set, so a real V2 option always
+      // carries one; omitting it made this fixture the legacy V1 shape, which
+      // run.ts treats as 'computed' anyway — so this states what it relied on.
+      status: 'computed',
     })),
     edges: [], edges_provenance: 'isl:/api/v1/robustness/analyze/v2' as const,
     edge_sensitivity_status: 'available' as const,

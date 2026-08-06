@@ -9,6 +9,8 @@
  * keep a local response builder and reference this file in a comment.
  */
 
+import { makeOptionResultV2 } from './isl-option-fixture.js';
+
 /** Minimal valid /v2/run request body (2 options — schema minimum). */
 export function makeValidRunBody(extra: Record<string, unknown> = {}) {
   return {
@@ -36,19 +38,25 @@ export function makeComputedIslResponse(meanA = 0.7) {
   return {
     analysis_status: 'computed',
     seed_used: 42,
+    // ROADMAP 2.744 sweep — routed through the contract-derived builder.
+    // These stood for ISL's RAW V2 wire but named the identity field `option_id`,
+    // which is V1's (`OptionResult`); V2's is `id`. The rename is provably inert
+    // at the consumer — run.ts emits `option_id: r.option_id ?? r.id` AND
+    // `id: r.id ?? optionId`, so both response fields are unchanged — but the
+    // fixture now cannot drift from `OptionResultV2` without failing loudly.
     options: [
-      {
-        option_id: 'opt-a',
+      makeOptionResultV2({
+        id: 'opt-a',
         outcome: { mean: meanA, std: 0.05, p10: meanA - 0.1, p50: meanA, p90: meanA + 0.1, n_samples: 100, n_valid_samples: 100, validity_ratio: 1.0 },
         win_probability: 0.7,
         status: 'computed',
-      },
-      {
-        option_id: 'opt-b',
+      }),
+      makeOptionResultV2({
+        id: 'opt-b',
         outcome: { mean: 0.4, std: 0.05, p10: 0.3, p50: 0.4, p90: 0.5, n_samples: 100, n_valid_samples: 100, validity_ratio: 1.0 },
         win_probability: 0.3,
         status: 'computed',
-      },
+      }),
     ],
     factor_sensitivity: [],
     robustness: { confidence: 0.8, level: 'high', is_robust: true, fragile_edges: [], robust_edges: [] },

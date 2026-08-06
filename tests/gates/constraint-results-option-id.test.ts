@@ -10,6 +10,7 @@
  * constraint_probabilities maps are unchanged — this pins the DISCLOSURE, not the
  * first-option ambiguity itself (D-4 keeps the derivation, discloses it).
  */
+import { makeOptionResultV2 } from '../helpers/isl-option-fixture.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 
@@ -48,14 +49,18 @@ function buildSurrogateOptions(body: any) {
             : 0,
         }
       : undefined;
-    return {
-      option_id: opt.id,
+    return makeOptionResultV2({
+      // ROADMAP 2.744 sweep — RAW ISL V2 wire, routed through the contract-derived
+      // builder. `option_id` was V1's identity name (V2 declares `id`) and `rank`
+      // is declared on NEITHER ISL option schema; both were inert at the consumer
+      // (run.ts reads `r.option_id ?? r.id`, and nothing reads `rank` on the V2
+      // path) — but the literal was a hand-maintained mirror, which is the defect.
+      id: opt.id,
       outcome: { mean: 0.7 - idx * 0.05, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 },
-      rank: idx + 1,
       win_probability: 0.5 - idx * 0.1,
       status: 'computed',
       ...(analysis !== undefined && { constraint_analysis: analysis }),
-    };
+    });
   });
 }
 

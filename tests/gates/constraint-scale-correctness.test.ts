@@ -183,6 +183,40 @@ let mockOptionStatus: string | undefined = undefined;
 // used to build a MIXED response (one errored option + one valid-constraints option).
 let mockOptionResults: any[] | undefined = undefined;
 
+/**
+ * ROADMAP 2.744 residue — the DEFAULT mocked-ISL option, routed through the
+ * contract-derived builder instead of a hand-written literal.
+ *
+ * The literal this replaces carried the same mirror errors 2.744 fixed in the
+ * four explicit fixtures below, on the path that feeds EVERY OTHER case in this
+ * file:
+ *   - `option_id: opt.id` — the V1 name; V2's identity field is `id`
+ *   - `rank: idx + 1`     — not a property of OptionResultV2 at all
+ *   - status OMITTED unless `mockOptionStatus` was set — but `status` is in
+ *     ISL's `required` set, so a real V2 option ALWAYS carries one. An absent
+ *     status is the legacy V1 shape, which run.ts's `isCrownableCandidate` /
+ *     `isFailedIslOption` / `isNotFullyComputedIslOption` all treat as
+ *     equivalent to 'computed' — so the default now SAYS 'computed' rather
+ *     than standing in for a V1 wire this V2 harness never meant to exercise.
+ *
+ * `makeOptionResultV2` derives the legal property set, the required set and the
+ * status enum from the vendored Pydantic-generated isl-openapi.json and throws
+ * on any undeclared key, missing required key, or out-of-enum status.
+ *
+ * The `outcome` block is carried over VERBATIM (percentiles fixed at
+ * 0.5/0.7/0.9 while `mean` varies with idx) — the builder does not validate
+ * inside `outcome`, and changing those numbers would have altered the
+ * denormalisation this suite's other assertions read.
+ */
+function makeDefaultOption(opt: any, idx: number) {
+  return makeOptionResultV2({
+    id: opt.id,
+    outcome: { mean: 0.7 + idx * 0.1, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 },
+    status: mockOptionStatus ?? 'computed',
+    ...(mockConstraintAnalysis && { constraint_analysis: mockConstraintAnalysis }),
+  });
+}
+
 const mockISLService = {
   isEnabled(): boolean { return true; },
   async isAvailable(): Promise<boolean> { return true; },
@@ -198,13 +232,7 @@ const mockISLService = {
   },
   async analyseRobustness(_graph: any, _goalNodeId: string, options: any[]) {
     return {
-      options: mockOptionResults ?? options.map((opt: any, idx: number) => ({
-        option_id: opt.id,
-        outcome: { mean: 0.7 + idx * 0.1, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 },
-        rank: idx + 1,
-        ...(mockOptionStatus && { status: mockOptionStatus }),
-        ...(mockConstraintAnalysis && { constraint_analysis: mockConstraintAnalysis }),
-      })),
+      options: mockOptionResults ?? options.map((opt: any, idx: number) => makeDefaultOption(opt, idx)),
       edges: [], edges_provenance: 'isl:/api/v1/robustness/analyze/v2' as const,
       edge_sensitivity_status: 'available' as const, factors: [], value_of_information: [],
       factors_provenance: 'unavailable' as const, factor_sensitivity_status: 'skipped_no_factor_values' as const,
@@ -220,13 +248,7 @@ const mockISLService = {
     const options = body.options || [];
     return {
       data: {
-        options: mockOptionResults ?? options.map((opt: any, idx: number) => ({
-          option_id: opt.id,
-          outcome: { mean: 0.7 + idx * 0.1, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 },
-          rank: idx + 1,
-          ...(mockOptionStatus && { status: mockOptionStatus }),
-          ...(mockConstraintAnalysis && { constraint_analysis: mockConstraintAnalysis }),
-        })),
+        options: mockOptionResults ?? options.map((opt: any, idx: number) => makeDefaultOption(opt, idx)),
         edges: [], factors: [], value_of_information: [], overall_robustness: 'robust',
         robustness_score: 0.8, fragile_edges: [], robust_edges: [],
       } as T,
