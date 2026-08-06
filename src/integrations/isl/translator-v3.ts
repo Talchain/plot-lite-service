@@ -589,6 +589,27 @@ export function buildParameterUncertaintiesV3(
       // defaulting to 0.0 when absent (robustness_analyzer_v2.py:852-855,
       // 891-892, 3490-3494 @ 7d144c7f).
       //
+      // ⚠ SCOPE BOUNDARY (ROADMAP 2.721, derived at the bytes 8 Aug 2026):
+      // the ranges on this path are SYSTEM-derived declared-uniform SUPPORTS,
+      // not user-stated ranges. CEE's drafter mints
+      // `prior: {distribution:'uniform', range_min, range_max}` on a 0–1
+      // qualitative index from brief WORDING ("low"→[0,0.4] … — the
+      // "External prior anchoring" table, defaults-v187/v19), and no
+      // user-elicited range can reach this field: CEE's `prior_range_edit`
+      // system event is `fact_and_commit` — a judgement receipt that never
+      // writes the graph — and the calibration path (2.627) refuses to mint
+      // prior bounds from user statements. σ = width/√12 is the exact
+      // moment-match for a declared uniform support and is CORRECT here.
+      //
+      // A USER-STATED range is a ~50% credible interval (Neil's 2.521 Q1
+      // ruling): its σ is 0.7413·width — 2.57× LARGER — fitted ISL-side per
+      // `parallel-briefs/RANGE-TO-DISTRIBUTION-SPEC-2026-08-08.md` (§4.4
+      // states this coexistence rule explicitly). A human-stated range must
+      // NEVER route through this conversion; it would silently understate the
+      // user's uncertainty and normalise their slips (the swap below is a
+      // producer-noise repair for LLM-minted priors, not a licence to reorder
+      // what a human said).
+      //
       // ⚠ KNOWN GAP, pre-existing and NOT introduced here: an external-prior
       // factor has no `observed_state`, so ISL centres its sampling on 0.0
       // rather than on the prior midpoint. Sending a `mean` never fixed that —
