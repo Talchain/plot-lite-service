@@ -574,4 +574,43 @@ describe('2.670 · Tier 7 still catches a fabricated flip value, at the display 
     );
     expect(result.failure_codes).toContain(M1ReviewFailureCodes.MODIFIED_VALUES);
   });
+
+  /**
+   * ⚠ THIS TEST EXISTS BECAUSE A MUTANT SURVIVED, and the survival was the
+   * finding. The mutant that extends the case-2 rounding licence into case 1
+   * (`named === Number(expected.toFixed(writtenDecimals(token)))`) passed the
+   * whole suite — because every unit-bearing fixture above holds an INTEGER
+   * expected value, and `toFixed` on an integer is a no-op. The mutant was
+   * therefore equivalent AGAINST THOSE FIXTURES ONLY, not in general: with a
+   * fractional expected value it accepts a display the pristine guard rejects.
+   *
+   * A surviving mutant is a claim either way and has to be settled with a
+   * discriminating fixture rather than asserted equivalent (trap 13c). This is
+   * that fixture: 12243.7 with the display "12244 GBP". Pristine REJECTS (the
+   * numbers differ); the rounding-extension mutant ACCEPTS. Without it, the
+   * exactness of case 1 was pinned by nothing.
+   */
+  it('case 1 stays EXACT for a FRACTIONAL value ("12244 GBP" vs 12243.7)', () => {
+    const expectedFlip = 12243.7;
+    // Pin the precondition: the fixture must be fractional, or it re-creates
+    // exactly the blind spot this test was written to close.
+    expect(
+      Number.isInteger(expectedFlip),
+      'fixture must be fractional, else toFixed is a no-op and the mutant survives again'
+    ).toBe(false);
+
+    const result = validateM1Review(
+      reviewWithFlip({
+        factor_id: 'f1',
+        factor_label: 'Budget',
+        current_display: '16000 GBP',
+        flip_display: '12244 GBP',
+        narrative: 'Rounded currency is still a different number.',
+      }),
+      contextWith([
+        { factor_id: 'f1', factor_label: 'Budget', current_value: 16000, flip_value: expectedFlip, unit: 'GBP' },
+      ] as ValidationContext['flipThresholdData'])
+    );
+    expect(result.failure_codes).toContain(M1ReviewFailureCodes.MODIFIED_VALUES);
+  });
 });
