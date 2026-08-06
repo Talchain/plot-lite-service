@@ -391,12 +391,18 @@ describe('2.670 · Tier 7 still catches a fabricated flip value, at the display 
   it('accepts a percentage whose ×100 is NOT exact in IEEE-754 (0.29 → "29%")', () => {
     const raw = 0.29;
     // Pin the precondition: this fixture must actually exercise the tolerance.
-    // Without this, a value like 0.35 (exact) would make the test pass for a
-    // reason that has nothing to do with the tolerance it claims to prove.
+    // Without this, a value like 0.35 (whose ×100 is exact) would make the test
+    // pass for a reason that has nothing to do with the tolerance it claims.
+    //
+    // ⚠ Expressed against `Math.round(raw * 100)`, NOT against the literal 29.
+    // The first version of this pin compared to the literal, so swapping the
+    // fixture to 0.35 left it GREEN (35 !== 29) and the pin caught nothing — a
+    // precondition guard that only fired for the one value it was written
+    // beside. Derived from `raw` itself, it fires for any exact fixture.
     expect(
       raw * 100,
-      'fixture must have real float error, else this test proves nothing'
-    ).not.toBe(29);
+      'fixture must have real IEEE-754 float error at ×100, else this test proves nothing about tolerance'
+    ).not.toBe(Math.round(raw * 100));
 
     const result = validateM1Review(
       reviewWithFlip({
