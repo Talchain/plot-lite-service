@@ -906,6 +906,348 @@
         "request_id",
         "seed"
       ]
+    },
+    "v2-run-goal-threshold-delta": {
+      "fixture": "tests/fixtures/isl-pinned/egress/v2-run-goal-threshold-delta.json",
+      "endpoint": "/api/v1/robustness/analyze/v2",
+      "liveness": "live",
+      "wire_bytes_sha256": "174f8e0e6a26fe7b85787254678df17d809e75f05eb0cc6272a92d07645ac7c1",
+      "model": "RobustnessRequestV2",
+      "parses": true,
+      "validation_errors": [],
+      "parsed_dump": {
+        "request_id": "req_slice2_pairing_goal",
+        "graph": {
+          "nodes": [
+            {
+              "id": "fac_headcount",
+              "kind": "factor",
+              "label": "Headcount",
+              "observed_state": {
+                "value": 0.4,
+                "baseline": 0.3,
+                "unit": "people",
+                "std": 0.08,
+                "raw_value": 40.0,
+                "cap": 100.0,
+                "factor_type": "quantitative",
+                "uncertainty_drivers": [
+                  "hiring_pipeline"
+                ]
+              },
+              "intercept": 0.0,
+              "epsilon_std": 0.0
+            },
+            {
+              "id": "fac_market",
+              "kind": "factor",
+              "label": "Market growth",
+              "intercept": 0.0,
+              "epsilon_std": 0.0
+            },
+            {
+              "id": "fac_cost",
+              "kind": "factor",
+              "label": "Cost",
+              "observed_state": {
+                "value": 0.55
+              },
+              "intercept": 0.0,
+              "epsilon_std": 0.0
+            },
+            {
+              "id": "con_cost_cap",
+              "kind": "constraint",
+              "label": "Cost cap",
+              "observed_state": {
+                "value": 0.55
+              },
+              "intercept": 0.0,
+              "epsilon_std": 0.0
+            },
+            {
+              "id": "fac_no_obs",
+              "kind": "factor",
+              "label": "Unmeasured",
+              "intercept": 0.0,
+              "epsilon_std": 0.0
+            },
+            {
+              "id": "goal_margin",
+              "kind": "outcome",
+              "label": "Margin",
+              "intercept": 0.0,
+              "epsilon_std": 0.0
+            }
+          ],
+          "edges": [
+            {
+              "from": "fac_headcount",
+              "to": "goal_margin",
+              "exists_probability": 0.9,
+              "strength": {
+                "mean": 0.5,
+                "std": 0.1
+              }
+            },
+            {
+              "from": "fac_market",
+              "to": "goal_margin",
+              "exists_probability": 0.8,
+              "strength": {
+                "mean": 0.3,
+                "std": 0.12
+              }
+            },
+            {
+              "from": "fac_cost",
+              "to": "goal_margin",
+              "exists_probability": 0.85,
+              "strength": {
+                "mean": -0.4,
+                "std": 0.09
+              }
+            }
+          ]
+        },
+        "options": [
+          {
+            "id": "opt_a",
+            "label": "Hire",
+            "interventions": {
+              "fac_headcount": 0.8
+            }
+          },
+          {
+            "id": "opt_b",
+            "label": "Hold",
+            "interventions": {
+              "fac_headcount": 0.2
+            }
+          }
+        ],
+        "goal_node_id": "goal_margin",
+        "n_samples": 2000,
+        "seed": 1993666114,
+        "analysis_types": [
+          "comparison",
+          "sensitivity",
+          "robustness"
+        ],
+        "parameter_uncertainties": [
+          {
+            "node_id": "fac_headcount",
+            "distribution": "normal",
+            "std": 0.08
+          },
+          {
+            "node_id": "fac_cost",
+            "distribution": "normal",
+            "std": 0.1
+          },
+          {
+            "node_id": "fac_market",
+            "distribution": "normal",
+            "std": 0.11547005383792515
+          }
+        ],
+        "goal_threshold": 0.72,
+        "goal_threshold_frame": "delta",
+        "include_e_values": true,
+        "include_factor_flips": true,
+        "include_voi": true,
+        "goal_constraints": [
+          {
+            "constraint_id": "auto_goal_threshold",
+            "node_id": "goal_margin",
+            "operator": ">=",
+            "value": 0.72,
+            "label": "Goal target"
+          }
+        ]
+      },
+      "parsed_top_level_keys": [
+        "analysis_types",
+        "goal_constraints",
+        "goal_node_id",
+        "goal_threshold",
+        "goal_threshold_frame",
+        "graph",
+        "include_e_values",
+        "include_factor_flips",
+        "include_voi",
+        "n_samples",
+        "options",
+        "parameter_uncertainties",
+        "request_id",
+        "seed"
+      ]
+    },
+    "v2-run-goal-threshold-level": {
+      "fixture": "tests/fixtures/isl-pinned/egress/v2-run-goal-threshold-level.json",
+      "endpoint": "/api/v1/robustness/analyze/v2",
+      "liveness": "live",
+      "wire_bytes_sha256": "044b4011b60cd27642aa534c436098f5e4b10bc173d4dea582f998d5b2e7f85c",
+      "model": "RobustnessRequestV2",
+      "parses": true,
+      "validation_errors": [],
+      "parsed_dump": {
+        "request_id": "req_slice2_pairing_goal",
+        "graph": {
+          "nodes": [
+            {
+              "id": "fac_headcount",
+              "kind": "factor",
+              "label": "Headcount",
+              "observed_state": {
+                "value": 0.4,
+                "baseline": 0.3,
+                "unit": "people",
+                "std": 0.08,
+                "raw_value": 40.0,
+                "cap": 100.0,
+                "factor_type": "quantitative",
+                "uncertainty_drivers": [
+                  "hiring_pipeline"
+                ]
+              },
+              "intercept": 0.0,
+              "epsilon_std": 0.0
+            },
+            {
+              "id": "fac_market",
+              "kind": "factor",
+              "label": "Market growth",
+              "intercept": 0.0,
+              "epsilon_std": 0.0
+            },
+            {
+              "id": "fac_cost",
+              "kind": "factor",
+              "label": "Cost",
+              "observed_state": {
+                "value": 0.55
+              },
+              "intercept": 0.0,
+              "epsilon_std": 0.0
+            },
+            {
+              "id": "con_cost_cap",
+              "kind": "constraint",
+              "label": "Cost cap",
+              "observed_state": {
+                "value": 0.55
+              },
+              "intercept": 0.0,
+              "epsilon_std": 0.0
+            },
+            {
+              "id": "fac_no_obs",
+              "kind": "factor",
+              "label": "Unmeasured",
+              "intercept": 0.0,
+              "epsilon_std": 0.0
+            },
+            {
+              "id": "goal_margin",
+              "kind": "outcome",
+              "label": "Margin",
+              "intercept": 0.0,
+              "epsilon_std": 0.0
+            }
+          ],
+          "edges": [
+            {
+              "from": "fac_headcount",
+              "to": "goal_margin",
+              "exists_probability": 0.9,
+              "strength": {
+                "mean": 0.5,
+                "std": 0.1
+              }
+            },
+            {
+              "from": "fac_market",
+              "to": "goal_margin",
+              "exists_probability": 0.8,
+              "strength": {
+                "mean": 0.3,
+                "std": 0.12
+              }
+            },
+            {
+              "from": "fac_cost",
+              "to": "goal_margin",
+              "exists_probability": 0.85,
+              "strength": {
+                "mean": -0.4,
+                "std": 0.09
+              }
+            }
+          ]
+        },
+        "options": [
+          {
+            "id": "opt_a",
+            "label": "Hire",
+            "interventions": {
+              "fac_headcount": 0.8
+            }
+          },
+          {
+            "id": "opt_b",
+            "label": "Hold",
+            "interventions": {
+              "fac_headcount": 0.2
+            }
+          }
+        ],
+        "goal_node_id": "goal_margin",
+        "n_samples": 2000,
+        "seed": 1993666114,
+        "analysis_types": [
+          "comparison",
+          "sensitivity",
+          "robustness"
+        ],
+        "parameter_uncertainties": [
+          {
+            "node_id": "fac_headcount",
+            "distribution": "normal",
+            "std": 0.08
+          },
+          {
+            "node_id": "fac_cost",
+            "distribution": "normal",
+            "std": 0.1
+          },
+          {
+            "node_id": "fac_market",
+            "distribution": "normal",
+            "std": 0.11547005383792515
+          }
+        ],
+        "goal_threshold": 0.72,
+        "goal_threshold_frame": "level",
+        "include_e_values": true,
+        "include_factor_flips": true,
+        "include_voi": true
+      },
+      "parsed_top_level_keys": [
+        "analysis_types",
+        "goal_node_id",
+        "goal_threshold",
+        "goal_threshold_frame",
+        "graph",
+        "include_e_values",
+        "include_factor_flips",
+        "include_voi",
+        "n_samples",
+        "options",
+        "parameter_uncertainties",
+        "request_id",
+        "seed"
+      ]
     }
   },
   "captured_live": {

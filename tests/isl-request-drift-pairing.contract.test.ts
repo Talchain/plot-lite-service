@@ -124,8 +124,9 @@ const ENDPOINT_MANIFEST: ManifestRow[] = [
     plotLiveness: 'live',
     islMounted: true,
     why:
-      'The only endpoint PLoT both calls live and ISL mounts. Four producers target it: ' +
-      'routes/v2/run.ts (base), analysis/flip-thresholds.ts (both probe branches), ' +
+      'The only endpoint PLoT both calls live and ISL mounts. EIGHT producers over four call sites target it: ' +
+      'routes/v2/run.ts (base; caller-supplied constraint weight; and the two goal-stamped shapes added by ' +
+      'ROADMAP 2.762 — frame "level" and frame "delta"), analysis/flip-thresholds.ts (both probe branches), ' +
       'integrations/isl/index.ts analyseRobustness (from routes/v1/run.ts), and the dead analyseFactorSensitivity.',
   },
   {
@@ -389,10 +390,40 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
 
     for (const producer of PRODUCERS) {
       describe(`${producer.name} → ${producer.endpoint}`, () => {
+        const fixture = FIXTURES.get(producer.name);
+        const entry = TRANSCRIPT.egress[producer.name];
+
+        /**
+         * ⚠ FAIL LOUD, NOT AT THE COLLECTOR (ROADMAP 2.762).
+         *
+         * These two lookups used to be non-null-asserted and dereferenced HERE,
+         * at collection time. A producer added without its artefacts therefore
+         * killed the whole FILE with `TypeError: Cannot read properties of
+         * undefined (reading 'model')` and **zero tests collected** — vitest
+         * pointing at a line in this harness instead of at the missing fixture,
+         * and every assertion below silently not running. Measured, not
+         * theorised: it is what 2.762 hit on adding the first new producer since
+         * the slice was written.
+         *
+         * The bijection is NOT relaxed — it is still required, and the
+         * POSITIVE CONTROL above asserts it over the whole set. This guard only
+         * changes an unreadable collector crash into a NAMED red that says which
+         * producer and which artefact, which is the difference between a gate
+         * that reports a gap and a gate that looks broken.
+         */
+        if (fixture === undefined || entry === undefined) {
+          it('BIJECTION: this producer has no committed fixture and/or no replay entry', () => {
+            expect(
+              { committedFixture: fixture !== undefined, replayEntry: entry !== undefined },
+              `${producer.name} is listed in PRODUCERS but its committed artefacts are missing. ` +
+                `The pairing cannot say anything about a producer it has never replayed.\n${REGENERATE}`,
+            ).toEqual({ committedFixture: true, replayEntry: true });
+          });
+          return;
+        }
+
         it('re-derived wire bytes are the exact bytes the pinned model was fed', async () => {
           const { bodyText, body } = await derive(producer);
-          const fixture = FIXTURES.get(producer.name)!;
-          const entry = TRANSCRIPT.egress[producer.name]!;
 
           // POSITIVE CONTROL first: real bytes at the right endpoint.
           expect(bodyText.length).toBeGreaterThan(50);
@@ -407,7 +438,6 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
           expect(body).toEqual(fixture.body);
         });
 
-        const entry = TRANSCRIPT.egress[producer.name]!;
         const modelName = entry.model;
 
         if (modelName && producer.liveness !== 'live') {
@@ -452,7 +482,6 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
 
         if (modelName && entry.parses === true) {
           it('METHOD 1 (executed model): the only rejected paths are the declared exemptions', () => {
-            const fixture = FIXTURES.get(producer.name)!;
             const rejected = rejectedPaths(fixture.body, entry);
             const unexplained = rejected.filter(
               (p) => !(PLOT_TO_ISL_CONTRACT.knownUndeclared ?? []).includes(p),
@@ -466,7 +495,6 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
           });
 
           it('METHOD 2 (pinned artifact) agrees with METHOD 1 — neither derivation is alone', () => {
-            const fixture = FIXTURES.get(producer.name)!;
             const fromExecutedModel = rejectedPaths(fixture.body, entry).sort();
             const fromSchema = [
               ...new Set(undeclaredPaths(fixture.body, modelName, OPENAPI).map((h) => h.normalised)),
@@ -524,6 +552,137 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
         const fixture = FIXTURES.get(producer.name)!;
         expect(rejectedPaths(fixture.body, entry)).not.toContain('parameter_uncertainties[].mean');
       }
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // ROADMAP 2.762 — the goal-threshold class, proved against a pin that predates it
+  // ---------------------------------------------------------------------------
+  describe('PRESENCE PROOF, goal-threshold class — pinned to the PRE-2.749 artefact, never to "current"', () => {
+    beforeEach(() => installEgressCapture());
+    afterEach(() => uninstallEgressCapture());
+
+    /**
+     * ISL's committed openapi.json at `35149dd1` — the pin this repo carried from
+     * 1 Aug until the 2.749 re-pin on 6 Aug 2026. FROZEN, and regenerated NEVER:
+     * it is a historical artefact, so a hash literal here is a hash of an
+     * immutable file, not a mirror of anything that can move.
+     *
+     * WHY IT IS IN THE TREE AT ALL. Between those dates PLoT emitted
+     * `goal_threshold_frame` (translator-v3.ts:767, ROADMAP 2.258) while this pin
+     * did not DECLARE it, so ISL's `extra="ignore"` would have discarded it
+     * silently. The gate stayed green — not through an exemption, but because no
+     * fixture in the pairing emitted `goal_threshold` at all, so no body carrying
+     * a frame was ever walked. Adding the goal-stamped producers proves today's
+     * pin is clean; it does NOT, on its own, prove the gate can SEE the class of
+     * defect it missed. Replaying the SAME producers against the SAME instrument
+     * at the pin that had the hole is what proves that, and it is the reason this
+     * block is a standing test rather than a paragraph in a PR body.
+     *
+     * Trap 12b: the reference is the historical document, not "whatever is
+     * deployed now", so this control cannot decay into a tautology the next time
+     * ISL moves.
+     */
+    const PREPIN_ISL_SHA = '35149dd148e0192ee1c44ec05336818371e30f81';
+    const PREPIN_FILE = 'tests/fixtures/isl-pinned/isl-openapi-PREPIN-35149dd1.json';
+    const PREPIN_SHA256 = '96bd9627aa76c76e4e280657a7972ae8ea221833f520788cd22938ab571d86ac';
+    const PREPIN: OpenApiDoc = JSON.parse(readFileSync(resolve(REPO_ROOT, PREPIN_FILE), 'utf8'));
+
+    /** The producers this row added, by name. */
+    const GOAL_STAMPED = ['v2-run-goal-threshold-level', 'v2-run-goal-threshold-delta'];
+
+    const undeclaredIn = (body: unknown, doc: OpenApiDoc): string[] =>
+      [...new Set(undeclaredPaths(body, 'RobustnessRequestV2', doc).map((h) => h.normalised))].sort();
+
+    /** Drive one producer by NAME and return the body it put on the wire. */
+    async function wireBodyOf(name: string): Promise<Record<string, unknown>> {
+      const producer = PRODUCERS.find((p) => p.name === name);
+      expect(producer, `producer ${name} has been renamed or deleted`).toBeDefined();
+      const captures = await producer!.run();
+      expect(captures).toHaveLength(1);
+      return captures[0]!.body as Record<string, unknown>;
+    }
+
+    it('the frozen pre-pin artefact is the exact historical bytes it claims to be', () => {
+      expect(sha256File(PREPIN_FILE)).toBe(PREPIN_SHA256);
+      // And it is genuinely the PREVIOUS pin, not the current one wearing a name.
+      expect(PREPIN_ISL_SHA).not.toBe(PIN.isl.sha);
+    });
+
+    it('POSITIVE CONTROL: the pre-pin artefact is a working document, and its ONLY goal-side gap is the frame', () => {
+      // Trap 13: an absence reading is worthless unless the instrument can show a
+      // presence on the same input. Three independent presences here.
+      expect(Object.keys(PREPIN.components.schemas).length).toBeGreaterThan(50);
+      const props = Object.keys(
+        PREPIN.components.schemas.RobustnessRequestV2!.properties as object,
+      );
+      // It DOES declare goal_threshold — so a `goal_threshold` reading of
+      // "declared" below is the document speaking, not the walker giving up.
+      expect(props).toContain('goal_threshold');
+      expect(props).toContain('goal_constraints');
+      // …and it does NOT declare the frame. That single difference is the defect.
+      expect(props).not.toContain('goal_threshold_frame');
+      expect(
+        Object.keys(OPENAPI.components.schemas.RobustnessRequestV2!.properties as object),
+      ).toContain('goal_threshold_frame');
+    });
+
+    it('POSITIVE CONTROL: the walker still REPORTS against the pre-pin artefact (it is not silently inert)', async () => {
+      // A stale-document control that reported nothing for every input would make
+      // every reading below vacuous. It does not: the caller-supplied constraint
+      // weight is undeclared at BOTH pins, and is reported at both.
+      const body = await wireBodyOf('v2-run-base-constraint-weight');
+      expect(undeclaredIn(body, PREPIN)).toEqual(['goal_constraints[].weight']);
+      expect(undeclaredIn(body, OPENAPI)).toEqual(['goal_constraints[].weight']);
+    });
+
+    for (const name of GOAL_STAMPED) {
+      it(`${name}: the pairing REPORTS goal_threshold_frame undeclared at the pre-pin, and is CLEAN at the current pin`, async () => {
+        const body = await wireBodyOf(name);
+
+        // PIN THE PRECONDITION IN-TEST (trap 13b, third face). Without this the
+        // "clean at the current pin" half passes just as happily when the
+        // producer has stopped emitting the fields altogether — a guard whose
+        // discrimination depends on a fixture that nothing pins.
+        expect(body.goal_threshold, `${name} no longer emits goal_threshold`).toBe(0.72);
+        expect(
+          body.goal_threshold_frame,
+          `${name} no longer emits goal_threshold_frame — the whole proof below would be vacuous`,
+        ).toBe(name.endsWith('level') ? 'level' : 'delta');
+
+        // THE PROOF. Same producer, same walker, two pins.
+        expect(
+          undeclaredIn(body, PREPIN),
+          `${name} should show goal_threshold_frame UNDECLARED against ISL @${PREPIN_ISL_SHA} — ` +
+            'the state in which ISL silently discarded it under extra:"ignore".',
+        ).toEqual(['goal_threshold_frame']);
+        expect(
+          undeclaredIn(body, OPENAPI),
+          `${name} should be clean against the current pin (ISL @${PIN.isl.sha}), which declares the frame.`,
+        ).toEqual([]);
+      });
+    }
+
+    it('THE HOLE, MEASURED: every pre-2.762 producer is goal-free, so NONE of them could report the frame at either pin', async () => {
+      // This is the finding itself, stated as an executable claim rather than as
+      // prose in a commit message: the gate did not stay green because it
+      // forgave the frame — it stayed green because nothing it walked contained
+      // one. Note the assertion is over what the producers put ON THE WIRE, not
+      // over a grep of the fixture files.
+      const emittingFrame: string[] = [];
+      const reportingFrameAtPrePin: string[] = [];
+      for (const producer of PRODUCERS) {
+        if (producer.endpoint !== '/api/v1/robustness/analyze/v2') continue;
+        const body = await wireBodyOf(producer.name);
+        if ('goal_threshold_frame' in body) emittingFrame.push(producer.name);
+        if (undeclaredIn(body, PREPIN).includes('goal_threshold_frame')) {
+          reportingFrameAtPrePin.push(producer.name);
+        }
+      }
+      // Exactly the producers this row added — no more, no fewer. A third
+      // goal-stamped producer, or the loss of one of these, lands here.
+      expect(emittingFrame.sort()).toEqual([...GOAL_STAMPED].sort());
+      expect(reportingFrameAtPrePin.sort()).toEqual([...GOAL_STAMPED].sort());
     });
   });
 

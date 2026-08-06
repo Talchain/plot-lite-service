@@ -27,6 +27,7 @@ import { ISLClient } from '../../src/integrations/isl/client.js';
 import {
   toISLRobustnessRequest,
   type ISLRobustnessRequestV3,
+  type GoalThresholdFrameType,
 } from '../../src/integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties } from '../../src/integrations/isl/constraint-pu-injection.js';
 import { createISLInferenceFn } from '../../src/analysis/flip-thresholds.js';
@@ -290,6 +291,88 @@ const CONSTRAINTS_WITH_WEIGHT: GoalConstraint[] = [
   { constraint_id: 'c1', node_id: 'con_cost_cap', operator: '<=', value: 0.7, label: 'Cost cap', weight: 0.6 },
 ] as unknown as GoalConstraint[];
 
+/**
+ * ROADMAP 2.762 — the GOAL-STAMPED shapes.
+ *
+ * WHY THESE EXIST. Before this, all 14 pairing fixtures (9 producers + 5
+ * captured-live bodies) were goal-threshold-free — `goal_threshold` appeared in
+ * none of them. So the pairing was structurally BLIND to `goal_threshold` and
+ * `goal_threshold_frame`: a body carrying them was never walked against ISL's
+ * model, and an undeclared frame could not be reported by a gate that never saw
+ * one. That is exactly what happened between 1 and 6 Aug 2026 — PLoT emitted
+ * `goal_threshold_frame` (translator-v3.ts:767, ROADMAP 2.258) while the then-pin
+ * `35149dd1` did not declare it, so ISL's `extra="ignore"` would have discarded
+ * it silently, and the gate stayed GREEN. Not an exemption; a COVERAGE HOLE.
+ * The 2.749 re-pin fixed the pin. These producers close the hole.
+ *
+ * ⚠ THE TWO SHAPES ARE NOT ARBITRARY — they are the only two the live producer
+ * can emit, derived from routes/v2/run.ts rather than invented (trap 16's
+ * inverse: a fixture you wrote yourself is not evidence about the wire, and a
+ * body outside the producer's output domain proves nothing).
+ *
+ *   'level' → auto-synthesis is REFUSED on frame grounds (run.ts:5534-5541:
+ *     `frameIsSampleFrame = frame === 'delta'`, so a LEVEL target refuses with
+ *     reason `'level'`). The compiled constraint set therefore stays EMPTY, the
+ *     precedence branch never runs, and the 2.266 carry (run.ts:6612-6614) keeps
+ *     the target. Wire: goal_threshold + frame, and NO goal_constraints.
+ *
+ *   'delta' → auto-synthesis FIRES and sends `auto_goal_threshold` (run.ts:5576+),
+ *     and the 2.239 carry (run.ts:6593-6597) re-establishes the threshold FROM
+ *     the constraint actually being sent, so the two describe the same number.
+ *     Wire: goal_threshold + frame + that one constraint. This is the ONLY live
+ *     shape in which `goal_threshold` and `goal_constraints` ride together.
+ *
+ * A "delta with no constraints" body is therefore NOT reachable on this path,
+ * and is deliberately not fabricated here.
+ *
+ * The value sits strictly inside (0,1): run.ts:6651-6664 clears a threshold on
+ * either bound of ISL's normalised goal scale, so 0 or 1 would never reach the
+ * wire either.
+ */
+const GOAL_THRESHOLD = 0.72;
+
+/**
+ * The constraint routes/v2/run.ts synthesises verbatim (run.ts:5576-5584) when
+ * the frame attests `'delta'`. `_internal` is PLoT-only and is stripped by the
+ * translator's explicit member map, so it is omitted here rather than added and
+ * relied upon to disappear.
+ */
+const AUTO_GOAL_CONSTRAINT: GoalConstraint[] = [
+  {
+    constraint_id: 'auto_goal_threshold',
+    node_id: 'goal_margin',
+    operator: '>=',
+    value: GOAL_THRESHOLD,
+    label: 'Goal target',
+  },
+] as unknown as GoalConstraint[];
+
+function buildV2GoalStampedRequest(frame: GoalThresholdFrameType): ISLRobustnessRequestV3 {
+  const graph = buildGraph();
+  // Derived from the frame, not chosen alongside it — see the block comment.
+  const constraints: GoalConstraint[] = frame === 'delta' ? AUTO_GOAL_CONSTRAINT : [];
+  const request = toISLRobustnessRequest(
+    graph,
+    OPTIONS,
+    'goal_margin',
+    'req_slice2_pairing_goal',
+    2000,
+    GOAL_THRESHOLD,
+    constraints.length > 0 ? constraints : undefined,
+    'seed-slice2',
+    undefined, // includePathDecomposition
+    undefined, // prebuiltParameterUncertainties
+    undefined, // factorCorrelations
+    frame,
+  );
+  // Same post-translator mutation the live /v2/run path applies (Phase 4b+).
+  // For the 'delta' shape the only constraint targets the GOAL node, which
+  // `classifyConstraintPu` skips (`reason: 'goal_node'`) — so this injects
+  // nothing here, exactly as it injects nothing live.
+  injectConstraintParameterUncertainties(request, constraints, graph.nodes, 'goal_margin');
+  return request;
+}
+
 function buildV2Request(constraints: GoalConstraint[]): ISLRobustnessRequestV3 {
   const graph = buildGraph();
   const request = toISLRobustnessRequest(
@@ -373,6 +456,43 @@ export const PRODUCERS: ProducerSpec[] = [
     liveness: 'live',
     note: 'Same producer with a caller-supplied goal_constraints[].weight, so the second knownUndeclared exemption is observable rather than latent.',
     run: () => runV2Base(CONSTRAINTS_WITH_WEIGHT),
+  },
+  {
+    name: 'v2-run-goal-threshold-level',
+    endpoint: '/api/v1/robustness/analyze/v2',
+    site: 'routes/v2/run.ts → islService.callAnalysisEndpoint (goal target attested as an absolute LEVEL)',
+    liveness: 'live',
+    note:
+      'ROADMAP 2.762. Carries goal_threshold + goal_threshold_frame:"level" and NO goal_constraints — the shape ' +
+      'routes/v2/run.ts emits when the goal node stamps a LEVEL frame, because auto-synthesis refuses on frame ' +
+      'grounds and the 2.266 carry keeps the target. Before this producer NO fixture in the pairing emitted ' +
+      'goal_threshold at all, so the frame field was structurally unobservable to the gate.',
+    run: async () => {
+      await newClient().request({
+        endpoint: '/api/v1/robustness/analyze/v2',
+        body: buildV2GoalStampedRequest('level'),
+        requestId: 'req_slice2_pairing_goal',
+      });
+      return takeCaptured();
+    },
+  },
+  {
+    name: 'v2-run-goal-threshold-delta',
+    endpoint: '/api/v1/robustness/analyze/v2',
+    site: 'routes/v2/run.ts → islService.callAnalysisEndpoint (goal target attested in the SAMPLE frame)',
+    liveness: 'live',
+    note:
+      'ROADMAP 2.762. The other live goal-stamped shape: goal_threshold + goal_threshold_frame:"delta" + the ' +
+      'auto-synthesised `auto_goal_threshold` constraint, whose value the 2.239 carry makes identical to the ' +
+      'threshold. The only live shape in which goal_threshold and goal_constraints travel together.',
+    run: async () => {
+      await newClient().request({
+        endpoint: '/api/v1/robustness/analyze/v2',
+        body: buildV2GoalStampedRequest('delta'),
+        requestId: 'req_slice2_pairing_goal',
+      });
+      return takeCaptured();
+    },
   },
   {
     name: 'flip-probe-clone',
