@@ -32,6 +32,8 @@ import {
 import { DecisionReviewEvents, M1ReviewWarningCodes, ReviewSkipReasons, WARNING_GRADE_CODES } from './validation/m1-review-constants.js';
 import { correctUngroundedNumbers, type IslResultsForCorrection } from './validation/number-corrector.js';
 import { resolveFlipValues, type ISLInferenceFn } from '../analysis/flip-thresholds.js';
+import { denormaliseFlipThresholds } from '../lib/flip-threshold-denormaliser.js';
+import { toPromptFlipThresholdData } from '../lib/flip-threshold-prompt-input.js';
 import {
   interventionTargetIdsFromOptions,
   isOptionControlledLever,
@@ -150,33 +152,81 @@ export async function orchestrateDecisionReview(
   // Use pre-resolved flip data from run.ts if available (avoids redundant ISL calls).
   // Otherwise fall back to resolving via binary search (backward compatibility).
   if (input.preResolvedFlipData) {
+    // Already denormalised AND prompt-filtered by run.ts (2.676) — forwarded
+    // verbatim, never reprocessed here.
     request.flip_threshold_data = input.preResolvedFlipData;
-  } else if (islInferenceFn && request.flip_threshold_data.length > 0 && request.winner.id) {
-    try {
-      const flipResult = await resolveFlipValues(
+  } else {
+    if (islInferenceFn && request.flip_threshold_data.length > 0 && request.winner.id) {
+      try {
+        const flipResult = await resolveFlipValues(
+          request.flip_threshold_data,
+          islInferenceFn,
+          request.winner.id
+        );
+        request.flip_threshold_data = flipResult.results;
+        logger?.info({
+          event: 'flip_threshold_resolved',
+          request_id: input.requestId,
+          factors: flipResult.diagnostics.length > 0 ? flipResult.diagnostics : request.flip_threshold_data.map((f) => ({
+            factor_id: f.factor_id,
+            flip_reason: f.flip_reason,
+            flip_value: f.flip_value,
+            iterations_used: f.iterations_used,
+            probes_used: f.probes_used,
+          })),
+        });
+      } catch (err) {
+        logger?.warn({
+          event: 'flip_threshold_resolve_failed',
+          request_id: input.requestId,
+          error: (err as Error).message,
+        });
+        // Continue with heuristic values — don't block the review
+      }
+    }
+
+    // ROADMAP 2.685 — the fallback rows get the SAME denormalise-or-drop rule
+    // the main path shipped for 2.676, applied by COMPOSING the same leaves
+    // (`denormaliseFlipThresholds` + `toPromptFlipThresholdData`), never a
+    // re-implementation that could drift.
+    //
+    // Why: `computeFlipThresholdData` reads `observed_state.value` — the
+    // NORMALISED number — and pairs it with the user's `unit`. CEE's
+    // decision_review prompt is told these are user units, and Tier-7
+    // (`validateFlipThresholds`, via `buildValidationContext(request)`) then
+    // enforces the review's `current_display` against this SAME array. So on
+    // this path a normalised 0.5 wearing "GBP" either ships as a fabricated
+    // magnitude or — when the model honestly corrects it — trips BLOCKING
+    // `MODIFIED_VALUES` and kills the entire review. Fallback rows are all
+    // `flip_value: null`, so `current_value`/`current_display` is the whole
+    // exposure.
+    //
+    // Placed AFTER the legacy resolveFlipValues branch on purpose: the binary
+    // search probes ISL in NORMALISED space, so lifting must not run before
+    // it; and any flip values it finds are normalised too, so they need the
+    // same lift-or-drop on the way out.
+    if (request.flip_threshold_data.length > 0) {
+      const optionLabels = input.options.map((o) => ({ id: o.id, label: o.label ?? o.id }));
+      const denormalised = denormaliseFlipThresholds(
         request.flip_threshold_data,
-        islInferenceFn,
-        request.winner.id
+        undefined,
+        optionLabels,
+        input.graph
       );
-      request.flip_threshold_data = flipResult.results;
-      logger?.info({
-        event: 'flip_threshold_resolved',
-        request_id: input.requestId,
-        factors: flipResult.diagnostics.length > 0 ? flipResult.diagnostics : request.flip_threshold_data.map((f) => ({
-          factor_id: f.factor_id,
-          flip_reason: f.flip_reason,
-          flip_value: f.flip_value,
-          iterations_used: f.iterations_used,
-          probes_used: f.probes_used,
-        })),
-      });
-    } catch (err) {
-      logger?.warn({
-        event: 'flip_threshold_resolve_failed',
-        request_id: input.requestId,
-        error: (err as Error).message,
-      });
-      // Continue with heuristic values — don't block the review
+      const promptSafe = toPromptFlipThresholdData(denormalised);
+      const refused = denormalised.length - promptSafe.length;
+      if (refused > 0) {
+        // Counts only — never a factor id, never a value (same discipline as
+        // run.ts's `decision_review_flip_rows_scale_refused`).
+        logger?.info({
+          event: 'decision_review_flip_rows_scale_refused',
+          request_id: input.requestId,
+          refused,
+          total: denormalised.length,
+          source: 'fallback_builder',
+        });
+      }
+      request.flip_threshold_data = promptSafe;
     }
   }
 
