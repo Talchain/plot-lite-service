@@ -319,6 +319,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "nodes",
   "nodes_normalised",
   "noise_distribution",
+  "normalisation_code",
   "normalization_errors",
   "normalization_ms",
   "observed_state",
