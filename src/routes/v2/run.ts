@@ -130,6 +130,10 @@ import { getISLClientConfig } from '../../integrations/isl/client.js';
 // with the probe. Flip values now arrive closed-form on the ISL envelope.
 import { mapIslFactorFlipValues } from '../../integrations/isl/adapters/factor-flip-values.js';
 import { denormaliseFlipThresholds, type DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
+// ROADMAP 2.676: the ONE conversion from denormalised rows to decision_review
+// prompt input, so the numbers the prompt quotes and the numbers the response
+// publishes cannot drift apart again.
+import { toPromptFlipThresholdData } from '../../lib/flip-threshold-prompt-input.js';
 import { classifyFlipThresholdsStatus } from '../../lib/flip-threshold-status.js';
 import {
   classifyFlipThresholdsMarginStatus,
@@ -8100,6 +8104,25 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               review_skip_reason: ReviewSkipReasons.BRIEF_MISSING,
             };
           } else try {
+            // ROADMAP 2.676 — see the field comment below. Computed here rather
+            // than inline so the REFUSALS can be counted: a row dropped for
+            // being un-liftable is a card the user does not get, and a drop
+            // nobody can observe is the estate's own silent-drop defect class.
+            // Counts only — never a factor id, never a value.
+            const promptFlipRows =
+              flipThresholds !== undefined ? toPromptFlipThresholdData(flipThresholds) : undefined;
+            if (promptFlipRows !== undefined && flipThresholds !== undefined) {
+              const refused = flipThresholds.length - promptFlipRows.length;
+              if (refused > 0) {
+                req.log.info({
+                  event: 'decision_review_flip_rows_scale_refused',
+                  request_id: requestId,
+                  refused,
+                  total: flipThresholds.length,
+                });
+              }
+            }
+
             const decisionReviewInput: DecisionReviewInput = {
               brief: body.brief,
               graph: filteredGraph,
@@ -8108,8 +8131,37 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               m1Coaching,
               responseHash: responseHash ?? requestId,
               requestId,
-              // Pass pre-resolved flip data so orchestrator skips redundant ISL calls
-              preResolvedFlipData: resolvedFlipData,
+              // Pass pre-resolved flip data so orchestrator skips redundant ISL
+              // calls.
+              //
+              // ⚠ ROADMAP 2.676 — DERIVED FROM `flipThresholds`, NOT FROM
+              // `resolvedFlipData`. This used to read `resolvedFlipData`, i.e.
+              // the rows as ISL emitted them, in NORMALISED [0,1] space —
+              // while the response's own `flip_thresholds` block shipped the
+              // denormalised pair computed ~270 lines above. CEE's
+              // decision_review prompt is told these values are user units and
+              // instructs the model to quote them WITH the unit appended, so
+              // the same HTTP response carried `16000 GBP → 12243 GBP` at top
+              // level and `"0.5 GBP" → "0.382593 GBP"` inside the review
+              // (measured on the deployed builds:
+              // `PHASE0-EVIDENCE-2026-07-28/probe2676-2026-08-07/`).
+              //
+              // The same array is ALSO what Tier-7 validates the returned
+              // review against — `buildValidationContext(request)` reads
+              // `request.flip_threshold_data`, which the orchestrator assigns
+              // from this field. So the un-denormalised rows made the integrity
+              // guard enforce identity against the WRONG number, and a model
+              // that wrote the honest figure had its ENTIRE review discarded
+              // (`MODIFIED_VALUES`, blocking). One cause, two faces; both close
+              // here.
+              //
+              // `undefined` is preserved as `undefined`: when ISL emitted no
+              // block — or when denormalisation itself threw, leaving
+              // `flipThresholds` unset while `resolvedFlipData` survived — the
+              // orchestrator's own fallback must stay reachable, and passing
+              // the normalised rows on that path is the very defect being
+              // closed.
+              preResolvedFlipData: promptFlipRows,
             };
 
             const ceeBaseUrl = process.env.CEE_BASE_URL?.trim() ?? '';

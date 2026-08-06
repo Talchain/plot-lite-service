@@ -1,0 +1,88 @@
+{
+  "narrative_summary": "New sales channel leads by 22 percentage points, but the link from Marketing intensity to Maximise annual profit is fragile and could alter the outcome. There is notable uncertainty here, so alternative options or more grounding may be needed.",
+  "story_headlines": {
+    "opt_marketing_push": "Marketing push could come out ahead if marketing proves more effective at driving profits than modelled.",
+    "opt_new_channel": "New sales channel leads due to higher simulated profit, as long as assumptions about marketing's effect hold true."
+  },
+  "robustness_explanation": {
+    "summary": "The ordering holds in about 61% of variations, so shifts in key assumptions could disrupt the lead.",
+    "primary_risk": "The link from Marketing intensity to Maximise annual profit is fragile, and changes here could flip the outcome.",
+    "stability_factors": [
+      "The link from Sales channel reach to Maximise annual profit provides some support for the result."
+    ],
+    "fragility_factors": [
+      "The link from Marketing intensity to Maximise annual profit could change the leader if its effect is reconsidered."
+    ]
+  },
+  "readiness_rationale": "There are still structural gaps: the analysis only compares two options and lacks a baseline, and the influence of Unit price may not be fully grounded in evidence. Settling these issues could materially affect the outcome.",
+  "evidence_enhancements": {
+    "fac_price": {
+      "specific_action": "Collect historical sales data to validate typical unit prices achieved across similar channels.",
+      "decision_hygiene": "Estimate likely prices independently before reviewing the dataset."
+    },
+    "fac_retention": {
+      "specific_action": "Conduct customer surveys or analyse churn statistics to better estimate realistic retention rates.",
+      "decision_hygiene": "Write down your prior assumption on retention rate before collecting new data."
+    }
+  },
+  "scenario_contexts": {
+    "fac_marketing->goal": {
+      "trigger_description": "If Marketing intensity proves to have a stronger or weaker direct link to Maximise annual profit than expected...",
+      "consequence": "...then Marketing push could overtake New sales channel."
+    }
+  },
+  "bias_findings": [
+    {
+      "type": "DOMINANT_FACTOR",
+      "source": "structural",
+      "description": "One factor, Unit price, appears to carry most modelled impact. Is this weight evidence-backed or assumed?",
+      "affected_elements": [
+        "fac_price"
+      ]
+    },
+    {
+      "type": "NARROW_FRAMING",
+      "source": "structural",
+      "description": "Only two options are modelled without a baseline. Could a 'do nothing' or status quo option provide a more reliable anchor for comparisons?",
+      "affected_elements": []
+    }
+  ],
+  "key_assumptions": [
+    "The link from Marketing intensity to Maximise annual profit assumes current campaign returns will persist.",
+    "Profit projections depend on the accuracy of modelled Unit price and Customer retention rate.",
+    "The model rests on only two options and may not capture all feasible strategies."
+  ],
+  "decision_quality_prompts": [
+    {
+      "principle": "Outside view and reference class forecasting",
+      "applies_because": "With high uncertainty and only simulation-based estimates, outside evidence could reduce risks of a costly error.",
+      "question": "What key evidence would quickly reveal whether Marketing push is safer than New sales channel?"
+    },
+    {
+      "principle": "Structured dissent and devil's advocacy",
+      "applies_because": "A single factor dominating results raises a risk of anchoring or bias.",
+      "question": "Who would challenge whether Unit price's influence should dominate this decision model?"
+    }
+  ],
+  "flip_thresholds": [
+    {
+      "factor_id": "fac_price",
+      "factor_label": "Unit price",
+      "current_display": "0.5 GBP",
+      "flip_display": "0.382593 GBP",
+      "narrative": "If Unit price decreases from 0.5 GBP to 0.382593 GBP, Marketing push becomes the leading option."
+    },
+    {
+      "factor_id": "fac_retention",
+      "factor_label": "Customer retention rate",
+      "current_display": "0.29",
+      "flip_display": "0.407407",
+      "narrative": "If Customer retention rate increases from 0.29 to 0.407407, Marketing push would lead."
+    }
+  ],
+  "framing_check": {
+    "addresses_goal": false,
+    "concern": "No baseline or status quo is included, so the comparison may not anchor to actual business-as-usual outcomes.",
+    "suggested_reframe": "Add a 'Status Quo' option to clarify if either alternative truly outperforms doing nothing."
+  }
+}
