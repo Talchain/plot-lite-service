@@ -5978,8 +5978,29 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // toISLRobustnessRequest below — filteredGraph.nodes is not mutated
         // between here and the request build, so the request sends byte-identical
         // PUs while paying for the pass only once. This also closes the
-        // lockstep-drift hazard: the plan count can no longer diverge from what
-        // the request actually carries.
+        // lockstep-drift hazard for the FACTOR PUs: the plan count can no longer
+        // diverge from what the request actually carries.
+        //
+        // ⚠ ROADMAP 2.878 — THAT EXACTNESS CLAIM IS NOW NARROWER THAN IT READS,
+        // AND THE CAVEAT IS DELIBERATE. `activeGoalConstraints` is REASSIGNED
+        // further down (at the delta-frame refusal) to drop constraints PLoT
+        // declines to forward, so the identifier denotes TWO DIFFERENT SETS
+        // either side of that point: the full set here at plan time, the
+        // forwarded set at request-build time. The CONSTRAINT-PU count planned
+        // here can therefore exceed what `injectConstraintParameterUncertainties`
+        // actually injects (it is handed `constraintsForISL`).
+        //
+        // This is a PRICING divergence, not a correctness one — the request
+        // still carries exactly the PUs for the constraints it forwards; only
+        // the EVPI depth pricing may have been computed against one more
+        // constrained node than survives. Bounded, not asserted: measured at
+        // ZERO divergence across the fixtures exercised so far, because a
+        // refused constraint's target node is usually still constrained by a
+        // sibling. **Reachability of a non-zero divergence is UNKNOWN** — it
+        // needs a refused delta that is the ONLY constraint on its target node.
+        // Recorded here rather than silently left as a stale exactness claim;
+        // the settling experiment is to instrument the two counts and drive a
+        // single-constraint-per-node refusal.
         const factorParameterUncertainties = buildParameterUncertaintiesV3(filteredGraph.nodes) ?? [];
         const factorPuNodeIds = new Set(factorParameterUncertainties.map((pu) => pu.node_id));
         // One id→node map shared by the plan-time constraint-PU selection and the

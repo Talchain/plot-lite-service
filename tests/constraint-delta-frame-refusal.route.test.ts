@@ -34,6 +34,45 @@
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 
+/**
+ * ROADMAP 2.878 F3 — BIND TO THE EMISSION, NOT TO THE SITE OR THE NAME.
+ *
+ * Two earlier guards both failed, in the same way one level apart:
+ *   · guard A enumerated log sites and scanned for quantity field NAMES — blind
+ *     to a whole record logged BY REFERENCE, because the keys never appear in
+ *     the source text (mutant R6 survived it);
+ *   · guard B fixed that by asserting the `plot.constraint_refused` site logs a
+ *     key PROJECTION — but it is scoped to that one event name, so a NEW site
+ *     logging the same record under a DIFFERENT event name walks past it
+ *     (mutant M-F3c survived it, and survived all five guards).
+ *
+ * Both are mirrors of where the code happens to be today. The property is not
+ * "this site is safe"; it is **"no log line this service emits ever carries a
+ * decision quantity"** — so the guard has to observe the EMISSION.
+ *
+ * `createServer` wires `formatters: { log: redactLogRecord }`, which pino calls
+ * for the root logger AND every child, i.e. for every record from every site.
+ * Wrapping it and capturing its RETURN value observes exactly what ships to the
+ * log sink, after redaction, regardless of which site produced it or what the
+ * event is called. A new leaking site is covered the moment it is written.
+ *
+ * (Capturing the boundary's OUTPUT rather than its input is deliberate — the
+ * input is pre-redaction and would flag values the boundary correctly digests.)
+ */
+const logCapture = vi.hoisted(() => ({ records: [] as Record<string, unknown>[] }));
+
+vi.mock('../src/logging/log-boundary.js', async () => {
+  const actual = await vi.importActual<any>('../src/logging/log-boundary.js');
+  return {
+    ...actual,
+    redactLogRecord: (rec: Record<string, unknown>) => {
+      const out = actual.redactLogRecord(rec);
+      logCapture.records.push(out);
+      return out;
+    },
+  };
+});
+
 /** Every `goal_constraints` array ISL was handed, in call order. */
 let islRequests: any[][] = [];
 
@@ -274,6 +313,55 @@ describe('2.878 F1 — a refused delta must not destroy its siblings verdicts', 
     expect(filtered.find((f: any) => f.constraint_id === 'cost-reduce')).toBeUndefined();
     expect((body.critiques ?? []).find((x: any) => x.code === 'CONSTRAINT_REFUSED_FRAME_FIDELITY'))
       .toBeUndefined();
+  });
+
+  it('DEFECT (F3): NO EMITTED LOG LINE carries a decision quantity — bound to the emission, not the site', async () => {
+    // A value distinctive enough that finding it anywhere is unambiguous, and
+    // long enough that MIN_TOKEN_LEN cannot be the reason it is absent.
+    const MARKER = -0.1567891234;
+
+    logCapture.records = [];
+    await run(baseUrl, [
+      ...TWO_LEVELS,
+      { ...reduction('delta'), constraint_id: 'cost-marker', value: MARKER },
+    ]);
+    const records = logCapture.records;
+
+    // ⚠ POSITIVE CONTROL — an absence assertion over an empty capture passes by
+    // testing nothing (this repo has shipped exactly that: a leak test that
+    // captured 0 bytes because pino writes via sonic-boom). Prove the
+    // instrument sees emissions AT ALL, and specifically sees the site under
+    // test, before concluding anything from an absence.
+    expect(records.length).toBeGreaterThan(0);
+    expect(records.map((r) => r.event)).toContain('plot.constraint_refused');
+
+    // Walk every emitted record exhaustively — keys and primitive values.
+    const keys: string[] = [];
+    const values: unknown[] = [];
+    const walk = (v: unknown): void => {
+      if (Array.isArray(v)) { v.forEach(walk); return; }
+      if (v && typeof v === 'object') {
+        for (const [k, val] of Object.entries(v)) { keys.push(k); walk(val); }
+        return;
+      }
+      values.push(v);
+    };
+    records.forEach(walk);
+
+    // Sanity: the walker actually descended into nested structures.
+    expect(keys).toContain('event');
+    expect(keys.length).toBeGreaterThan(records.length);
+
+    // THE PROPERTY. No quantity-bearing key, from any site, under any event.
+    for (const forbidden of ['stated_value', 'would_have_sent', 'original_value', 'normalised_value']) {
+      expect(keys).not.toContain(forbidden);
+    }
+
+    // …and the stated quantity itself never reaches a log line, whatever key it
+    // might be hiding under. This is the arm that survives a site being renamed
+    // or a new one being added.
+    expect(values).not.toContain(MARKER);
+    expect(values.map((v) => String(v))).not.toContain(String(MARKER));
   });
 
   it('DEFECT (F9): a refused constraint discloses NO scale provenance — with a positive control', async () => {

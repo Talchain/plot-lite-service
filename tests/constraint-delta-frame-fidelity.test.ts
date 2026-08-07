@@ -264,8 +264,21 @@ describe('2.878 — the guard is not a SIGN check: the positive half of the delt
     // AUDIT THE PREDICATE'S DOMAIN, not just the named case. The reduction
     // constraint is negative, so a guard written as `value < 0` would pass every
     // other test in this file while leaving the whole positive half of the delta
-    // domain corrupted. "increase throughput by 0.05" against the cost node's
-    // [0,200] scale becomes 0.00025 — a 200x understatement, silently.
+    // domain unguarded. "increase throughput by 0.05" against the cost node's
+    // [0,200] scale is substituted by 0.00025.
+    //
+    // ⚠ THAT SUBSTITUTION IS NOT A MEASURED ERROR, AND AN EARLIER VERSION OF
+    // THIS COMMENT CALLED IT "a 200x understatement, silently". Withdrawn: for
+    // any min-0 range the map reduces to `v / width`, which IS the correct
+    // NORMALISED-SPACE delta — so the number is only wrong under the RAW-UNIT
+    // reading, and `intervention-normaliser.ts` states that which reading ISL
+    // takes is NOT established at the bytes. It is **unverifiable in either
+    // direction**, which is precisely why refusing is right: under genuine
+    // uncertainty a gap beats a number nobody can check.
+    //
+    // The point this test actually makes is therefore about the PREDICATE, not
+    // about the magnitude: a sign-keyed guard would not fire here at all, so
+    // half the delta domain would pass through unexamined.
     const c = REDUCTION_CONSTRAINT({
       constraint_id: 'gc-increase-positive-delta',
       operator: '>=',
