@@ -30,6 +30,7 @@ import {
 // the egress guard validates against the same schema at runtime, so importing
 // the type is agreement with the contract rather than an invented one.
 import type { EnrichmentFactorEvppiEntry } from '@talchain/schemas/boundary';
+import type { GoalThresholdFrameType } from '@talchain/schemas';
 
 // Import CEE types for factor enrichments
 import type { FactorEnrichment } from '../cee/types.js';
@@ -358,6 +359,26 @@ export interface GoalConstraint {
   label?: string;
   /** Reserved for post-PoC weighted constraint prioritization */
   weight?: number;
+  /**
+   * ROADMAP 2.855 / 2.798 — the FRAME `value` is stated in, forwarded from CEE.
+   *
+   * ISL BLOCKS ON THIS. Since the fail-closed half of 2.796 landed, a constraint
+   * without it is refused with `CONSTRAINT_FRAME_UNSPECIFIED` and the ENTIRE
+   * `constraint_analysis` block is omitted — so until PLoT forwards it, no goal
+   * constraint can deliver a result at all. PLoT does NOT mint, default or infer
+   * this: it is the producer's attestation and a defaulted frame is a
+   * manufactured one. Absent in ⇒ absent out ⇒ ISL refuses, honestly.
+   *
+   * ⚠ DECLARED HERE ON PURPOSE, NOT ONLY ON `ISLGoalConstraint`. This file is
+   * one of the sources `tools/gen-structural-keys.mjs` reads, so declaring it
+   * here makes the structural-keys drift gate fail loud and forces the registry
+   * to be regenerated. A field added ONLY to the translator's wire type passes
+   * that gate green while silently becoming un-registered decision content.
+   *
+   * Typed from the contract's own enum (`GoalThresholdFrame`, the same two
+   * members the node channel uses) rather than a local literal union — trap 12.
+   */
+  value_frame?: GoalThresholdFrameType;
 }
 
 /**
