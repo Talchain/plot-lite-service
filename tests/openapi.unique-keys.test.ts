@@ -14,7 +14,7 @@ describe('OpenAPI YAML unique keys', () => {
     const seenByIndent: Map<number, Set<string>> = new Map();
     let lastIndent = 0;
     let blockIndent: number | null = null; // when inside a block scalar (|), ignore keys until dedent
-    const keyRe = /^(\s*)(?!-\s)([A-Za-z0-9_\/[\]$#{}.'\"-]+):\s*(?:\S.*)?$/;
+    const keyRe = /^(\s*)(?!-\s)([A-Za-z0-9_/[\]$#{}.'"-]+):\s*(?:\S.*)?$/;
     const listRe = /^(\s*)-\s/;
 
     for (const line of lines) {

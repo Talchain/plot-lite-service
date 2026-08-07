@@ -182,6 +182,30 @@ export function parseIslErrorReason(body: string | null | undefined): string | u
   for (const candidate of candidates) {
     if (typeof candidate !== 'string') continue;
     // Strip control characters so one field cannot forge extra log lines.
+    //
+    // ROADMAP 2.879 — `no-control-regex` fires on the class below, and this is
+    // the one case the rule is explicitly NOT for. The rule exists to catch
+    // control characters an author did not mean to write; here they are the
+    // entire subject of the expression. This is a log-injection defence on an
+    // ATTACKER-INFLUENCED string (an ISL error body), and the range it names —
+    // the whole C0 block, where CR and LF live, plus DEL — is exactly the set
+    // that can forge extra NDJSON log lines downstream. Narrowing it to please
+    // the linter would weaken a live security control, and re-expressing the
+    // same codepoints via `new RegExp` or `String.fromCharCode` would be
+    // obfuscation rather than a fix: `no-control-regex` inspects the RegExp
+    // constructor too, so that would only hide the intent from the next reader.
+    //
+    // NOTE this is NOT the deliberate NUL sentinel of CLAUDE.md trap 17, which
+    // PR #319's own body guessed it might be. Derived at the bytes in this
+    // tree: `file(1)` reports this file as "Unicode text, UTF-8 text" and a
+    // byte scan finds ZERO NUL bytes in it. Trap 17's sentinel lives in CEE's
+    // `edit-graph-referee-gate.ts`. Unrelated — ROADMAP 2.119 does not apply.
+    //
+    // The suppression is backed by evidence rather than asserted: every
+    // codepoint of the stripped range is pinned by
+    // tests/plot-2202b-isl-error-reason.test.ts ("the stripped set is the FULL
+    // C0 range plus DEL"), which reds if this class is narrowed.
+    // eslint-disable-next-line no-control-regex -- intentional C0+DEL log-injection strip; see above
     const cleaned = candidate.replace(/[\u0000-\u001f\u007f]/g, ' ').trim();
     if (cleaned === '') continue;
     return cleaned.length > ISL_ERROR_REASON_MAX_LEN

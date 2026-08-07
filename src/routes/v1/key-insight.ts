@@ -43,13 +43,13 @@ import { CEE_TIMEOUT_MS } from '../../config/timeouts.js';
  * Patterns for classifying goal types
  */
 const CONTINUOUS_PATTERNS = [
-  /reach\s+[\$£€]?\d/i,           // "Reach $20k", "Reach £20k"
+  /reach\s+[$£€]?\d/i,           // "Reach $20k", "Reach £20k"
   /increase.*to\s+\d/i,           // "Increase to 100"
   /reduce.*to\s+\d/i,             // "Reduce to 5%"
   /grow.*to\s+\d/i,               // "Grow to $1M"
   /achieve\s+\d/i,                // "Achieve 90%"
-  /hit\s+[\$£€]?\d/i,             // "Hit $50k"
-  /target[:\s]+[\$£€]?\d/i,       // "Target: $100k"
+  /hit\s+[$£€]?\d/i,             // "Hit $50k"
+  /target[:\s]+[$£€]?\d/i,       // "Target: $100k"
   /\d+[%kKmM]\s*(mrr|arr|revenue|growth|churn|retention)/i,  // "20k MRR"
   /(mrr|arr|revenue|growth|churn|retention).*\d+[%kKmM]/i,   // "MRR of 20k"
   /under\s+\d/i,                  // "Keep under 5%"
