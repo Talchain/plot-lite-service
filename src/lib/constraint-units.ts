@@ -38,61 +38,162 @@
  * then refusing is the only honest disposal, and it costs coverage rather than
  * truth.
  *
- * ⚠ THE FAMILY MAP IS A HAND-MAINTAINED LIST, AND THAT IS DELIBERATE — BUT ITS
- * ERROR DIRECTION IS NOT NEUTRAL. `classifyUnitCompatibility` FAILS CLOSED: a
- * token absent from every family reconciles only with a byte-identical token,
- * and mismatches with anything else. So a SHORT list costs COVERAGE (an honest
- * refusal where a rescale would in fact have been fine) and can never cost
- * TRUTH (it cannot bless a mismatch it does not know about). Per the estate's
- * derived-guard doctrine, a derived predicate can prove agreement but never
- * completeness, so `constraint-units.corpus.test.ts` carries a HAND-WRITTEN
- * corpus of the units actually seen on the wire — that is the guard that
- * notices the list is short, and it is not derived from the list.
+ * ⚠ COMPATIBILITY KEYS ON THE **SCALE**, NEVER ON THE DIMENSION — AND THE TWO
+ * ARE DIFFERENT QUESTIONS. `unitDimension` answers *"what quantity does this
+ * token measure?"* (money, time, headcount). `unitScale` answers *"which unit,
+ * magnitude included?"* (`£` vs `$`; `months` vs `weeks`). Only the second
+ * licenses dividing a threshold by a scale. An earlier revision of this module
+ * grouped tokens by DIMENSION and treated same-dimension as reconciled; that
+ * blessed `months` against a `weeks` cap — *"within 6 months"* normalised to
+ * **0.25** where the truth is 1.083, a 4.33× stricter target, carrying
+ * `decision_grade: true`. That is the very defect this module exists to refuse,
+ * re-opened one level up. The two concepts are now named apart and only
+ * `UnitScale` gates; `constraint-unit-mismatch.test.ts` carries a DERIVED guard
+ * asserting that every pair of distinct scales sharing a dimension classifies
+ * `mismatched`, so collapsing them again REDs by name.
+ *
+ * ⚠ THE SCALE TABLE IS A HAND-MAINTAINED LIST, AND THAT IS DELIBERATE — BUT ITS
+ * ERROR DIRECTION IS NOT NEUTRAL, AND IT IS NOT NEUTRAL IN ONE DIRECTION ONLY.
+ * `classifyUnitCompatibility` FAILS CLOSED on tokens it does not know: a token
+ * absent from every group reconciles only with a byte-identical token, and
+ * mismatches with anything else. So a **SHORT** list costs COVERAGE (an honest
+ * refusal where a rescale would in fact have been fine) and cannot cost truth.
+ * **BUT A COARSE LIST COSTS TRUTH**, because a group is an assertion that its
+ * members are interchangeable — and a wrong one is believed, not refused. This
+ * module previously claimed a hand list "can never cost TRUTH (it cannot bless a
+ * mismatch it does not know about)". That is true of SHORTNESS and FALSE OF
+ * COARSENESS: the old map did not merely fail to know about `months`/`weeks`,
+ * it knew about the pair and blessed it. **A fail-closed guard is only as honest
+ * as the GRANULARITY of its categories** — every token added to an existing
+ * group is a claim that it is the same unit as its group-mates, and that claim
+ * carries the truth risk that membership itself cannot fail closed against.
+ *
+ * Hence TWO guards, neither superseding the other (the estate's derived-guard
+ * doctrine: derivation proves agreement and can never prove completeness):
+ *   - DERIVED, in `constraint-unit-mismatch.test.ts` — the predicate behaves,
+ *     and same-dimension/different-scale stays `mismatched`. Catches consumers
+ *     and the two concepts drifting back together. Blind to a short list.
+ *   - HAND-WRITTEN, in `constraint-units.corpus.test.ts` — the tokens actually
+ *     seen on the wire, and pair VERDICTS written from what the tokens mean and
+ *     not read back off this table. That is the only guard that can notice the
+ *     table is short, or that a group is wrong.
  */
 
 /**
  * Percent unit vocabulary — the SINGLE SOURCE for both `isPercentUnit`
- * (house doctrine: '%' always normalises against 100) and the `percent`
- * family below. Re-listing these tokens anywhere else re-opens the drift this
+ * (house doctrine: '%' always normalises against 100) and the `percent` scale
+ * group below. Re-listing these tokens anywhere else re-opens the drift this
  * constant closes.
  */
 export const PERCENT_UNIT_TOKENS: readonly string[] = ['%', 'percent', 'pct', 'percentage'];
 
-/** Coarse quantity kinds a declared unit token can name. */
-export type UnitFamily = 'percent' | 'fraction' | 'count' | 'currency' | 'duration';
+/**
+ * The QUANTITY a declared unit token measures. Informational only — this is
+ * explicitly NOT what compatibility keys on (see the module header).
+ */
+export type UnitDimension = 'percent' | 'fraction' | 'count' | 'currency' | 'duration';
 
 /**
- * Canonical family → tokens. Populated from what PRODUCERS were measured to
- * emit plus the vocabulary the types themselves document, NOT from what a unit
- * "ought to" be:
- *   - constraint `unit`, real captures: 'count', 'fraction'
+ * The UNIT itself, magnitude included. Two tokens share a scale only when they
+ * are interchangeable with NO conversion factor. **This is what
+ * `classifyUnitCompatibility` keys on.**
+ */
+export type UnitScale =
+  | 'percent'
+  | 'fraction'
+  | 'count'
+  | 'currency_unspecified'
+  | 'currency_gbp'
+  | 'currency_usd'
+  | 'currency_eur'
+  | 'duration_years'
+  | 'duration_quarters'
+  | 'duration_months'
+  | 'duration_weeks'
+  | 'duration_days'
+  | 'duration_hours'
+  | 'duration_minutes';
+
+/**
+ * THE SINGLE TABLE. Every index below is DERIVED from it — there is no second
+ * hand-maintained list to drift.
+ *
+ * Populated from what PRODUCERS were measured to emit plus the vocabulary the
+ * types themselves document, NOT from what a unit "ought to" be:
+ *   - constraint `unit`, real captures: 'count', 'fraction', '£'
  *   - constraint `unit`, `types/engine-v3.ts:383` doc: 'months', 'days', '%', 'currency'
  *   - node `observed_state.unit`, real captures: '%', '£'
- * Everything else here is a conservative sibling of a measured token.
+ *   - CEE, measured read-only at `staging` 8278efc2 (there is no enum on `unit`
+ *     anywhere in CEE, so this is a floor and not a bound): 'hours', 'hour',
+ *     'minutes'
+ * Everything else here is a conservative sibling of a measured/documented token.
+ *
+ * ⚠ MEMBERSHIP IS A TRUTH CLAIM, NOT A COVERAGE CONVENIENCE. Putting a token in
+ * a group asserts it needs NO conversion factor against its group-mates. Adding
+ * a NEW GROUP is safe in the fail-closed direction (an unknown token already
+ * mismatches everything but itself, so a new group can only ever ADD
+ * reconciliation between its own aliases). Adding a token to an EXISTING group
+ * is the dangerous edit, and is what produced the `months`/`weeks` defect.
  */
-const UNIT_FAMILY_TOKENS: Readonly<Record<UnitFamily, readonly string[]>> = {
-  percent: PERCENT_UNIT_TOKENS,
-  fraction: ['fraction', 'fractional', 'ratio', 'proportion', 'probability'],
-  count: ['count', 'counts', 'number', 'people', 'headcount', 'employees', 'fte', 'units', 'items'],
-  currency: ['currency', 'money', '£', '$', '€', 'gbp', 'usd', 'eur', 'pounds', 'dollars', 'euros'],
-  duration: ['months', 'month', 'days', 'day', 'weeks', 'week', 'years', 'year', 'quarters', 'quarter'],
-};
+const UNIT_SCALE_TABLE: readonly {
+  scale: UnitScale;
+  dimension: UnitDimension;
+  tokens: readonly string[];
+}[] = [
+  { scale: 'percent', dimension: 'percent', tokens: PERCENT_UNIT_TOKENS },
+  {
+    scale: 'fraction',
+    dimension: 'fraction',
+    tokens: ['fraction', 'fractional', 'ratio', 'proportion', 'probability'],
+  },
+  {
+    scale: 'count',
+    dimension: 'count',
+    tokens: ['count', 'counts', 'number', 'people', 'headcount', 'employees', 'fte', 'units', 'items'],
+  },
+  // ⚠ `currency`/`money` name the DIMENSION and no scale: a threshold declared
+  // "currency" could be dollars, and dividing it by a `£` cap is an unattested
+  // FX assumption — the same dimension-for-unit substitution this module
+  // refuses everywhere else. They therefore form their own group and reconcile
+  // only with each other, never with a NAMED currency. (Cost is coverage only,
+  // and speculative: `currency` is a PLoT doc-string token, not one any
+  // measured CEE emission carries.)
+  { scale: 'currency_unspecified', dimension: 'currency', tokens: ['currency', 'money'] },
+  { scale: 'currency_gbp', dimension: 'currency', tokens: ['£', 'gbp', 'pounds'] },
+  { scale: 'currency_usd', dimension: 'currency', tokens: ['$', 'usd', 'dollars'] },
+  { scale: 'currency_eur', dimension: 'currency', tokens: ['€', 'eur', 'euros'] },
+  { scale: 'duration_years', dimension: 'duration', tokens: ['years', 'year'] },
+  { scale: 'duration_quarters', dimension: 'duration', tokens: ['quarters', 'quarter'] },
+  { scale: 'duration_months', dimension: 'duration', tokens: ['months', 'month'] },
+  { scale: 'duration_weeks', dimension: 'duration', tokens: ['weeks', 'week'] },
+  { scale: 'duration_days', dimension: 'duration', tokens: ['days', 'day'] },
+  { scale: 'duration_hours', dimension: 'duration', tokens: ['hours', 'hour'] },
+  { scale: 'duration_minutes', dimension: 'duration', tokens: ['minutes', 'minute'] },
+];
 
-/** Reverse index, DERIVED from `UNIT_FAMILY_TOKENS` (never a second hand-list). */
-const FAMILY_BY_TOKEN: ReadonlyMap<string, UnitFamily> = (() => {
-  const m = new Map<string, UnitFamily>();
-  for (const family of Object.keys(UNIT_FAMILY_TOKENS) as UnitFamily[]) {
-    for (const token of UNIT_FAMILY_TOKENS[family]) m.set(token, family);
-  }
+/** Reverse index, DERIVED from `UNIT_SCALE_TABLE` (never a second hand-list). */
+const SCALE_BY_TOKEN: ReadonlyMap<string, UnitScale> = (() => {
+  const m = new Map<string, UnitScale>();
+  for (const row of UNIT_SCALE_TABLE) for (const token of row.tokens) m.set(token, row.scale);
   return m;
 })();
 
-/** Every family key, exported so a corpus/union test can iterate the map itself. */
-export const UNIT_FAMILIES: readonly UnitFamily[] = Object.keys(UNIT_FAMILY_TOKENS) as UnitFamily[];
+/** Scale → dimension, DERIVED from the same table. */
+const DIMENSION_BY_SCALE: ReadonlyMap<UnitScale, UnitDimension> = new Map(
+  UNIT_SCALE_TABLE.map((r) => [r.scale, r.dimension] as const),
+);
 
-/** The tokens declared for one family (read-only view, for tests + callers). */
-export function unitTokensForFamily(family: UnitFamily): readonly string[] {
-  return UNIT_FAMILY_TOKENS[family];
+/** Every declared scale, exported so a derived/corpus test can iterate the table itself. */
+export const UNIT_SCALES: readonly UnitScale[] = UNIT_SCALE_TABLE.map((r) => r.scale);
+
+/** The tokens declared for one scale (read-only view, for tests + callers). */
+export function unitTokensForScale(scale: UnitScale): readonly string[] {
+  return UNIT_SCALE_TABLE.find((r) => r.scale === scale)?.tokens ?? [];
+}
+
+/** The dimension a scale measures (read-only view, for tests + callers). */
+export function dimensionOfScale(scale: UnitScale): UnitDimension | undefined {
+  return DIMENSION_BY_SCALE.get(scale);
 }
 
 /**
@@ -106,10 +207,24 @@ export function canonicaliseUnit(unit: unknown): string | undefined {
   return u.length > 0 ? u : undefined;
 }
 
-/** The family a declared unit belongs to, or `undefined` if none claims it. */
-export function unitFamily(unit: unknown): UnitFamily | undefined {
+/**
+ * The SCALE a declared unit belongs to, or `undefined` if none claims it.
+ * **This is the identity compatibility is decided on.**
+ */
+export function unitScale(unit: unknown): UnitScale | undefined {
   const u = canonicaliseUnit(unit);
-  return u === undefined ? undefined : FAMILY_BY_TOKEN.get(u);
+  return u === undefined ? undefined : SCALE_BY_TOKEN.get(u);
+}
+
+/**
+ * The DIMENSION a declared unit measures, or `undefined` if none claims it.
+ *
+ * ⚠ INFORMATIONAL ONLY. Two tokens sharing a dimension are NOT interchangeable
+ * (`months` and `weeks` share one). Never gate on this — gate on `unitScale`.
+ */
+export function unitDimension(unit: unknown): UnitDimension | undefined {
+  const s = unitScale(unit);
+  return s === undefined ? undefined : DIMENSION_BY_SCALE.get(s);
 }
 
 /**
@@ -120,11 +235,13 @@ export function unitFamily(unit: unknown): UnitFamily | undefined {
  *   the guard would fire on every constraint in a graph that carries no units
  *   at all (the witnessed pricing scenario: `out_gross_margin` has no
  *   `observed_state` whatsoever).
- * - `reconciled`  — the two name the same quantity kind, so dividing the
- *   threshold by that scale is meaningful.
- * - `mismatched`  — the two name different quantity kinds, OR at least one is
- *   outside every declared family and they are not byte-identical. FAIL-CLOSED
- *   (see the module header).
+ * - `reconciled`  — the two name the SAME UNIT (same scale group, or literally
+ *   the same token), so dividing the threshold by that scale is meaningful with
+ *   no conversion factor.
+ * - `mismatched`  — the two name different units — including two units of the
+ *   SAME DIMENSION at different magnitudes (`months` vs `weeks`, `$` vs `£`) —
+ *   OR at least one is outside every declared scale and they are not
+ *   byte-identical. FAIL-CLOSED (see the module header).
  */
 export type UnitCompatibility = 'undeclared' | 'reconciled' | 'mismatched';
 
@@ -136,9 +253,13 @@ export function classifyUnitCompatibility(
   const b = canonicaliseUnit(scaleUnit);
   if (a === undefined || b === undefined) return 'undeclared';
   if (a === b) return 'reconciled';
-  const fa = FAMILY_BY_TOKEN.get(a);
-  const fb = FAMILY_BY_TOKEN.get(b);
-  if (fa !== undefined && fa === fb) return 'reconciled';
+  // ⚠ SCALE, NOT DIMENSION. Comparing dimensions here would bless `months`
+  // against a `weeks` cap — a 4.33× rescale wearing a decision-grade badge.
+  // The derived same-dimension/different-scale guard in
+  // `constraint-unit-mismatch.test.ts` REDs if this is ever loosened back.
+  const sa = SCALE_BY_TOKEN.get(a);
+  const sb = SCALE_BY_TOKEN.get(b);
+  if (sa !== undefined && sa === sb) return 'reconciled';
   return 'mismatched';
 }
 

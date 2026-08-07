@@ -57,6 +57,10 @@ import {
   classifyUnitCompatibility,
   unitsReconcilable,
   canonicaliseUnit,
+  unitDimension,
+  UNIT_SCALES,
+  unitTokensForScale,
+  dimensionOfScale,
 } from '../src/lib/constraint-units.js';
 import {
   detectUnitMismatchedConstraintTargets,
@@ -160,7 +164,7 @@ describe('constraint-units — the unit-compatibility predicate', () => {
     expect(unitsReconcilable(undefined, undefined)).toBe(true);
   });
 
-  it('reconciles identical and same-family tokens, case- and space-insensitively', () => {
+  it('reconciles identical and same-SCALE tokens, case- and space-insensitively', () => {
     expect(classifyUnitCompatibility('count', 'COUNT')).toBe('reconciled');
     expect(classifyUnitCompatibility(' % ', 'percent')).toBe('reconciled');
     expect(classifyUnitCompatibility('£', 'gbp')).toBe('reconciled');
@@ -170,6 +174,63 @@ describe('constraint-units — the unit-compatibility predicate', () => {
     expect(classifyUnitCompatibility('widgets', 'sprockets')).toBe('mismatched');
   });
 
+  /**
+   * ⚠ THE ANTI-REGRESSION GUARD FOR THE DIMENSION/SCALE COLLAPSE.
+   *
+   * DERIVED from the table itself, so it cannot go stale as scales are added —
+   * and it is deliberately NOT a substitute for the hand-written corpus, which
+   * is the only thing that can notice the table is short or a group is wrong.
+   * What this one catches is the specific edit that shipped once: keying
+   * compatibility on the DIMENSION, which blessed `months` against a `weeks`
+   * cap at `decision_grade: true`.
+   *
+   * It pins its own precondition rather than asserting into the void: the pair
+   * list is built by finding scales that genuinely SHARE a dimension, and the
+   * test fails if that construction yields nothing — otherwise a table refactor
+   * that removed every multi-scale dimension would leave this passing while
+   * checking no pairs at all.
+   */
+  it('refuses two DIFFERENT scales of the SAME dimension — dimension is not unit', () => {
+    const byDimension = new Map<string, string[]>();
+    for (const scale of UNIT_SCALES) {
+      const dim = dimensionOfScale(scale);
+      expect(dim, `scale ${scale} declares no dimension`).toBeDefined();
+      byDimension.set(dim as string, [...(byDimension.get(dim as string) ?? []), scale]);
+    }
+
+    const crossScalePairs: { a: string; b: string; dim: string }[] = [];
+    for (const [dim, scales] of byDimension) {
+      for (let i = 0; i < scales.length; i++) {
+        for (let j = i + 1; j < scales.length; j++) {
+          // A representative token from each scale — the predicate takes
+          // tokens, not scale ids, so the pair must be exercised through the
+          // real entry point.
+          const a = unitTokensForScale(scales[i] as never)[0];
+          const b = unitTokensForScale(scales[j] as never)[0];
+          expect(a, `scale ${scales[i]} has no tokens`).toBeDefined();
+          expect(b, `scale ${scales[j]} has no tokens`).toBeDefined();
+          crossScalePairs.push({ a: a as string, b: b as string, dim });
+        }
+      }
+    }
+
+    // PRECONDITION: this guard is only meaningful if such pairs exist at all.
+    // `currency` and `duration` each carry several scales, so this is > 0 today
+    // and REDs by name if a refactor collapses them.
+    expect(
+      crossScalePairs.length,
+      'no dimension carries two scales — this guard is asserting nothing',
+    ).toBeGreaterThan(0);
+
+    for (const { a, b, dim } of crossScalePairs) {
+      expect(
+        classifyUnitCompatibility(a, b),
+        `${a} vs ${b} share the ${dim} dimension but are different units — must be mismatched`,
+      ).toBe('mismatched');
+      expect(unitDimension(a), `${a}/${b} precondition`).toBe(unitDimension(b));
+    }
+  });
+
   it('refuses fraction-vs-percent rather than inventing a ×100 conversion', () => {
     // A defensible conversion may exist in arithmetic; it does NOT exist in the
     // producer's declared semantics, and minting one would be a manufactured
@@ -177,9 +238,9 @@ describe('constraint-units — the unit-compatibility predicate', () => {
     expect(classifyUnitCompatibility('fraction', '%')).toBe('mismatched');
   });
 
-  it('keeps isPercentUnit single-sourced with the percent family', () => {
-    // Union assertion, not a second hand-list: every token the percent family
-    // knows must satisfy isPercentUnit and vice versa on the family's own set.
+  it('keeps isPercentUnit single-sourced with the percent scale', () => {
+    // Union assertion, not a second hand-list: every token the percent scale
+    // knows must satisfy isPercentUnit and vice versa on that scale's own set.
     for (const token of ['%', 'percent', 'pct', 'percentage', 'PCT', ' % ']) {
       expect(isPercentUnit(token), token).toBe(true);
       expect(classifyUnitCompatibility(token, '%'), token).toBe('reconciled');
@@ -213,6 +274,66 @@ describe('INVARIANT 1 — a foreign-unit scale is refused, with a typed reason',
 
     // The new decision, recorded at ladder-decision time.
     expect(d.unit_mismatch).toEqual({ constraint_unit: 'count', scale_unit: '%' });
+  });
+
+  /**
+   * ⚠ THE WITHIN-DIMENSION TWIN (adversarial review of this PR, F1). The first
+   * revision of this fix grouped tokens by DIMENSION, so `months` against a
+   * `weeks` cap read `reconciled` and shipped: normalised **0.25** where the
+   * truth is 26/24 = 1.083, `unit_mismatch: undefined`, `decision_grade: TRUE`
+   * — a 4.33x stricter target wearing the product's highest-confidence badge,
+   * i.e. this module's own defect reproduced through its own new code.
+   *
+   * Kept end-to-end rather than as a predicate case on purpose: the predicate
+   * guard above would have stayed green through the entire defect, because the
+   * defect was in the MAP the predicate reads, not in the predicate.
+   */
+  it('records a WITHIN-DIMENSION scale collision (months vs a weeks cap) as a mismatch', () => {
+    const RAMP_CID = 'gc-ramp-within-6-months';
+    const RAMP_CONSTRAINT: GoalConstraint = {
+      constraint_id: RAMP_CID,
+      node_id: 'fac_ramp',
+      operator: '<=',
+      value: 6,
+      label: 'Ramp a new AE within 6 months',
+    };
+    const RAMP_NODE = {
+      id: 'fac_ramp',
+      kind: 'factor',
+      label: 'AE ramp time',
+      observed_state: { cap: 24, unit: 'weeks', value: 0.5, raw_value: 12 },
+    } as unknown as EngineNodeV3;
+
+    // PRECONDITION, pinned in-test: this pair must genuinely be same-dimension
+    // and different-scale, or the test is exercising an ordinary cross-kind
+    // mismatch and proving nothing about F1.
+    expect(unitDimension('months')).toBe(unitDimension('weeks'));
+    expect(unitDimension('months')).toBe('duration');
+
+    const result = normaliseGoalConstraints([RAMP_CONSTRAINT], [RAMP_NODE], {
+      unitsByConstraintId: new Map([[RAMP_CID, 'months']]),
+    });
+
+    const d = diagFor(result, RAMP_CID);
+    expect(d.node_id).toBe('fac_ramp');
+    // The mis-scale the old map blessed is REPRODUCED, exactly as measured, so
+    // this fixture is provably the one that shipped the defect.
+    expect(d.range).toEqual({ min: 0, max: 24, source: 'explicit_cap' });
+    expect(d.normalised_value).toBeCloseTo(0.25, 12);
+    expect(d.original_value).toBe(6);
+
+    // …and is now refused rather than delivered.
+    expect(d.unit_mismatch).toEqual({ constraint_unit: 'months', scale_unit: 'weeks' });
+
+    // INVARIANT 2 on the same shape: the badge must not survive it either.
+    const prov = buildConstraintScaleProvenance(
+      [RAMP_CONSTRAINT],
+      new Map([[RAMP_CID, { min: 0, max: 24, source: 'explicit_cap' as const }]]),
+      new Map(),
+      new Map([[RAMP_CID, true]]),
+      new Map([[RAMP_CID, { constraint_unit: 'months', scale_unit: 'weeks' }]]),
+    );
+    expect(prov.get(RAMP_CID)!.decision_grade).toBe(false);
   });
 
   it('the reliability gate refuses that constraint by constraint_id', () => {
@@ -269,6 +390,75 @@ describe('INVARIANT 1 — a foreign-unit scale is refused, with a typed reason',
     // The whole point of the refusal is that no number here is trustworthy.
     expect(msg).not.toMatch(/\d+(\.\d+)?\s*%\s*chance/i);
     expect(msg).not.toContain('0.02');
+  });
+
+  /**
+   * ⚠ THE BOTH-REASONS MESSAGE — the shape the WITNESSED capture is actually in
+   * (`risk_ae_attrition` has three directed parents, so it trips the unanchored
+   * frame as well as the unit collision), and the one every other message test
+   * misses because they all pass a single-reason array.
+   *
+   * The regression this pins is not a wording preference. Ranking the unit
+   * collision first displaced the L63 message and left the user holding
+   * "restate the target in the same units" — an instruction that CANNOT unblock
+   * a non-root target, in place of one that can. A more precise diagnosis that
+   * removes the user's only working remedy is a worse message.
+   */
+  it('names BOTH causes and prescribes the remedy that can actually unblock, when both fire', () => {
+    const both = buildConstraintTargetUnreliableMessage(
+      'AE Attrition Risk',
+      ['sample_frame_unanchored', 'constraint_unit_mismatch'],
+      { constraint_unit: 'count', scale_unit: '%' },
+    );
+    const unitOnly = buildConstraintTargetUnreliableMessage(
+      'AE Attrition Risk',
+      ['constraint_unit_mismatch'],
+      { constraint_unit: 'count', scale_unit: '%' },
+    );
+    const frameOnly = buildConstraintTargetUnreliableMessage('AE Attrition Risk', [
+      'sample_frame_unanchored',
+    ]);
+
+    // PRECONDITION, pinned in-test: the two single-reason messages are genuinely
+    // different texts. Without this the "is neither of them" assertions below
+    // could pass on a builder that had collapsed into one generic string.
+    expect(unitOnly).not.toBe(frameOnly);
+
+    // It is a THIRD message, not a re-ranking of the two.
+    expect(both).not.toBe(unitOnly);
+    expect(both).not.toBe(frameOnly);
+
+    // Cause 1 — the unit collision, named by unit, not generically.
+    expect(both).toContain('count');
+    expect(both).toContain('%');
+    // Cause 2 — the unanchored frame, named as its own reason.
+    expect(both).toContain('calculated from the factors feeding into it');
+
+    // ⭐ THE REMEDY THAT WORKS. `attested_delta` is the FIRST limb of
+    // `resolveConstraintSampleFrameAnchor`, checked before any topology test,
+    // so it unblocks a root and a non-root alike.
+    expect(both).toContain('the change you want from today');
+    // ⭐ AND THE ONE THAT DOES NOT. `root_observed_level` sits AFTER the
+    // `directedEdgeTargets` early return, so "set a current value" cannot
+    // unblock the witnessed non-root shape. It must not be prescribed on a
+    // message whose domain includes it.
+    expect(both).not.toContain('Set a current value');
+
+    // Reason ORDER on the wire is not guaranteed; the message must not depend
+    // on it. Binds the two calls as the same object by their reason SET.
+    expect(
+      buildConstraintTargetUnreliableMessage(
+        'AE Attrition Risk',
+        ['constraint_unit_mismatch', 'sample_frame_unanchored'],
+        { constraint_unit: 'count', scale_unit: '%' },
+      ),
+    ).toBe(both);
+
+    // Claim-safety, same rules as every sibling message.
+    expect(both).toContain('AE Attrition Risk');
+    expect(both).toContain('withheld');
+    expect(both).not.toMatch(/\d+(\.\d+)?\s*%\s*chance/i);
+    expect(both).not.toContain('0.0054');
   });
 });
 
@@ -675,13 +865,23 @@ describe('WIRE — a unit-mismatched target is withheld even when its frame is a
     expect(joints.opt_coach).toBeUndefined();
     expect(joints.opt_cro).toBeUndefined();
 
-    // INVARIANT 2 — and wherever the scale evidence IS disclosed, the badge is
-    // false and the reason is named. Asserted independently of invariant 1.
-    const prov = provenanceFor(body, CAPTURED_CONSTRAINT_ID);
-    if (prov !== undefined) {
-      expect(prov.unit_mismatch).toEqual({ constraint_unit: 'count', scale_unit: '%' });
-      expect(prov.decision_grade).toBe(false);
-    }
+    // ⚠ INVARIANT 2 IS NOT WITNESSABLE AT THE WIRE, AND THAT IS STRUCTURAL.
+    // Invariant 1 withholds the ENTIRE constraint block for any suppressed
+    // target (`run.ts`: `return { constraints_status: 'unavailable' }`, no
+    // `constraint_results`), and `partitionConstraintTargets` suppresses every
+    // unit-mismatched target unconditionally — so a `scale_provenance` for this
+    // constraint cannot reach the wire while invariant 1 holds, and the badge
+    // cannot be observed here either way. Invariant 2 is proved at the unit
+    // level in its own describe block above, where M3 bites.
+    //
+    // This block previously read `if (prov !== undefined) { …assert the badge… }`
+    // under a comment claiming invariant 2 was "asserted independently" here.
+    // That branch was unreachable: measured by planting an unconditional
+    // failure inside it, the file stayed 20/20 GREEN. Asserting the WITHHOLDING
+    // directly is what makes this a test rather than a comment.
+    expect(body.constraints_status).toBe('unavailable');
+    expect(body.constraint_results).toBeUndefined();
+    expect(provenanceFor(body, CAPTURED_CONSTRAINT_ID)).toBeUndefined();
 
     // The refusal is disclosed, typed, and names the node.
     const warnings = (body.inference_warnings ?? []).filter(

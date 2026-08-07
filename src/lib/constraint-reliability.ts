@@ -590,17 +590,56 @@ export function buildConstraintTargetUnreliableMessage(
    */
   unitMismatch?: { constraint_unit: string; scale_unit: string },
 ): string {
-  // The unit collision outranks every other reason: the other reasons describe
-  // problems with a comparison between the user's target and the model, while
-  // this one says the number compared was never the user's target. Claim-safe,
-  // same rules as its siblings — names what was and was not compared, never
-  // quotes the withheld probability, names a concrete user action.
+  const inUnits =
+    unitMismatch !== undefined
+      ? `your target is stated in ${unitMismatch.constraint_unit} while "${nodeLabel}" is ` +
+        `measured in ${unitMismatch.scale_unit}`
+      : `your target and "${nodeLabel}" are measured in different units`;
+
+  // ⚠ BOTH REASONS TOGETHER GET THEIR OWN MESSAGE, AND THIS IS THE SHAPE A REAL
+  // USER HAS ACTUALLY HIT — the witnessed `7fe412ba` capture (`risk_ae_attrition`,
+  // three directed parents) trips the unit collision AND the unanchored frame.
+  //
+  // A single-cause message here is not merely incomplete, it is a REGRESSION:
+  // ranking the unit collision first displaced the L63 message and left the user
+  // with "restate the target in the same units", which PROVABLY CANNOT UNBLOCK
+  // this target — `resolveConstraintSampleFrameAnchor` returns null for any node
+  // with a directed parent before it ever looks at units. A more precise
+  // diagnosis that removes the user's only working remedy is a worse message,
+  // however correct its internals. Both causes must be resolved, so name both.
+  //
+  // ⚠ WHY THE FRAME REMEDY HERE IS THE **DELTA** LIMB AND NOT "set a current
+  // value", which the L63-only message offers. The two limbs do NOT have the
+  // same domain, and this message spans both shapes. Read off the resolver's
+  // limb ORDER: `attested_delta` is checked FIRST, before any topology test, so
+  // stating the target as a change works for a root and a non-root alike;
+  // `root_observed_level` is checked AFTER the `directedEdgeTargets` early
+  // return, so setting a current value unblocks a ROOT node only. Naming the
+  // limb that is valid across the whole domain is what lets this copy be true
+  // without knowing a shape it is not given. (The L63-only message's own
+  // shape-dependent first limb is pre-existing and untouched here.)
+  if (
+    reasons.includes('constraint_unit_mismatch') &&
+    reasons.includes('sample_frame_unanchored')
+  ) {
+    return (
+      `The target on "${nodeLabel}" can't be scored, and two separate things have to change ` +
+      `before it can be. First, ${inUnits}, so scaling the target against that factor would ` +
+      `silently change what you asked for into a target about a different quantity. Second, ` +
+      `"${nodeLabel}" is calculated from the factors feeding into it, so the analysis produces ` +
+      `a modelled change for it, not a reading on the same scale as your target. Goal-fit ` +
+      `probabilities were withheld for this run rather than computed from the wrong number. ` +
+      `Restate the target in the same units as "${nodeLabel}" — or set that factor's unit to ` +
+      `match your target — and state it as the change you want from today rather than as an ` +
+      `absolute level, which is the form "${nodeLabel}" can be scored against.`
+    );
+  }
+  // The unit collision outranks the remaining reasons: they describe problems
+  // with a comparison between the user's target and the model, while this one
+  // says the number compared was never the user's target. Claim-safe, same
+  // rules as its siblings — names what was and was not compared, never quotes
+  // the withheld probability, names a concrete user action.
   if (reasons.includes('constraint_unit_mismatch')) {
-    const inUnits =
-      unitMismatch !== undefined
-        ? `your target is stated in ${unitMismatch.constraint_unit} while "${nodeLabel}" is ` +
-          `measured in ${unitMismatch.scale_unit}`
-        : `your target and "${nodeLabel}" are measured in different units`;
     return (
       `The target on "${nodeLabel}" can't be scored: ${inUnits}, so scaling the target ` +
       `against that factor would silently change what you asked for into a target about a ` +

@@ -34,36 +34,55 @@
 import { describe, it, expect } from 'vitest';
 import {
   classifyUnitCompatibility,
-  unitFamily,
-  UNIT_FAMILIES,
-  unitTokensForFamily,
+  unitScale,
+  unitDimension,
+  UNIT_SCALES,
+  unitTokensForScale,
+  dimensionOfScale,
   type UnitCompatibility,
 } from '../src/lib/constraint-units.js';
 
-/** Tokens observed or documented, with where each one came from. */
-const OBSERVED_TOKENS: ReadonlyArray<{ token: string; provenance: string; family: string }> = [
+/**
+ * Tokens observed or documented, with where each one came from.
+ *
+ * BOTH columns are written by hand, and they are DIFFERENT claims: `scale` is
+ * the unit (what compatibility keys on) and `dimension` is the quantity (what
+ * it must NOT key on). A token that lands in the right dimension but the wrong
+ * scale is precisely the defect that shipped once — `months` filed as "a
+ * duration" and therefore blessed against `weeks` — so pinning only the
+ * dimension would have been green through it.
+ */
+const OBSERVED_TOKENS: ReadonlyArray<{
+  token: string;
+  provenance: string;
+  scale: string;
+  dimension: string;
+}> = [
   // --- constraint `unit`, read off real captures -------------------------
-  { token: 'count', provenance: '[capture] scenario-people.json goal_constraints[0].unit', family: 'count' },
-  { token: 'fraction', provenance: '[capture] scenario-pricing.json goal_constraints[0].unit', family: 'fraction' },
+  { token: 'count', provenance: '[capture] scenario-people.json goal_constraints[0].unit', scale: 'count', dimension: 'count' },
+  { token: 'fraction', provenance: '[capture] scenario-pricing.json goal_constraints[0].unit', scale: 'fraction', dimension: 'fraction' },
   // --- node `observed_state.unit`, read off real captures -----------------
-  { token: '%', provenance: '[capture] risk_ae_attrition / risk_logo_churn observed_state.unit', family: 'percent' },
-  { token: '£', provenance: '[capture] fac_price_level observed_state.unit', family: 'currency' },
+  { token: '%', provenance: '[capture] risk_ae_attrition / risk_logo_churn observed_state.unit', scale: 'percent', dimension: 'percent' },
+  { token: '£', provenance: '[capture] fac_price_level observed_state.unit; ALSO a constraint unit — probe-plot-response.json goal_constraints[gc-l60-probe].unit', scale: 'currency_gbp', dimension: 'currency' },
   // --- vocabulary the type itself documents for the field -----------------
-  { token: 'months', provenance: '[doc] types/engine-v3.ts:383 RawGoalConstraint.unit', family: 'duration' },
-  { token: 'days', provenance: '[doc] types/engine-v3.ts:383 RawGoalConstraint.unit', family: 'duration' },
-  { token: 'currency', provenance: '[doc] types/engine-v3.ts:383 RawGoalConstraint.unit', family: 'currency' },
+  { token: 'months', provenance: '[doc] types/engine-v3.ts:383 RawGoalConstraint.unit', scale: 'duration_months', dimension: 'duration' },
+  { token: 'days', provenance: '[doc] types/engine-v3.ts:383 RawGoalConstraint.unit', scale: 'duration_days', dimension: 'duration' },
+  { token: 'currency', provenance: '[doc] types/engine-v3.ts:383 RawGoalConstraint.unit — names the dimension, declares no scale', scale: 'currency_unspecified', dimension: 'currency' },
+  // --- measured CEE emissions with no enum bounding them ------------------
+  { token: 'hours', provenance: '[producer] CEE staging 8278efc2 compound-goal/extractor.ts:212 + graph-evaluator fixtures 05/06', scale: 'duration_hours', dimension: 'duration' },
+  { token: 'minutes', provenance: '[producer] CEE staging 8278efc2 compound-goal/extractor.ts:212', scale: 'duration_minutes', dimension: 'duration' },
   // --- conservative siblings ---------------------------------------------
-  { token: 'percent', provenance: '[sibling] of %; already in the house isPercentUnit vocabulary', family: 'percent' },
-  { token: 'pct', provenance: '[sibling] of %; already in the house isPercentUnit vocabulary', family: 'percent' },
-  { token: 'percentage', provenance: '[sibling] of %; already in the house isPercentUnit vocabulary', family: 'percent' },
-  { token: 'ratio', provenance: '[sibling] of fraction', family: 'fraction' },
-  { token: 'proportion', provenance: '[sibling] of fraction', family: 'fraction' },
-  { token: 'people', provenance: '[sibling] of count (the captured label was "Account executives lost")', family: 'count' },
-  { token: 'headcount', provenance: '[sibling] of count', family: 'count' },
-  { token: 'gbp', provenance: '[sibling] of £', family: 'currency' },
-  { token: '$', provenance: '[sibling] of £', family: 'currency' },
-  { token: 'weeks', provenance: '[sibling] of months/days', family: 'duration' },
-  { token: 'years', provenance: '[sibling] of months/days', family: 'duration' },
+  { token: 'percent', provenance: '[sibling] of %; already in the house isPercentUnit vocabulary', scale: 'percent', dimension: 'percent' },
+  { token: 'pct', provenance: '[sibling] of %; already in the house isPercentUnit vocabulary', scale: 'percent', dimension: 'percent' },
+  { token: 'percentage', provenance: '[sibling] of %; already in the house isPercentUnit vocabulary', scale: 'percent', dimension: 'percent' },
+  { token: 'ratio', provenance: '[sibling] of fraction', scale: 'fraction', dimension: 'fraction' },
+  { token: 'proportion', provenance: '[sibling] of fraction', scale: 'fraction', dimension: 'fraction' },
+  { token: 'people', provenance: '[sibling] of count (the captured label was "Account executives lost")', scale: 'count', dimension: 'count' },
+  { token: 'headcount', provenance: '[sibling] of count', scale: 'count', dimension: 'count' },
+  { token: 'gbp', provenance: '[sibling] of £ — SAME currency, so the same scale', scale: 'currency_gbp', dimension: 'currency' },
+  { token: '$', provenance: '[sibling] of £ in dimension only — a DIFFERENT currency, so a different scale', scale: 'currency_usd', dimension: 'currency' },
+  { token: 'weeks', provenance: '[sibling] of months/days in dimension only — a different magnitude, so a different scale', scale: 'duration_weeks', dimension: 'duration' },
+  { token: 'years', provenance: '[sibling] of months/days in dimension only — a different magnitude, so a different scale', scale: 'duration_years', dimension: 'duration' },
 ];
 
 /**
@@ -79,30 +98,45 @@ const CORPUS_PAIRS: ReadonlyArray<{
 }> = [
   // THE WITNESSED DEFECT.
   { constraint: 'count', scale: '%', expected: 'mismatched', why: 'people vs a percentage — the 7fe412ba capture' },
-  // Same quantity, differently spelled.
+  // Same UNIT, differently spelled — the only thing that licenses a divide.
   { constraint: 'count', scale: 'count', expected: 'reconciled', why: 'identical' },
   { constraint: 'percent', scale: '%', expected: 'reconciled', why: 'same quantity, two spellings' },
-  { constraint: 'currency', scale: '£', expected: 'reconciled', why: 'a currency target against a currency scale' },
   { constraint: 'gbp', scale: '£', expected: 'reconciled', why: 'same currency, two spellings' },
-  { constraint: 'months', scale: 'weeks', expected: 'reconciled', why: 'both durations' },
-  { constraint: 'ratio', scale: 'fraction', expected: 'reconciled', why: 'both dimensionless proportions' },
+  { constraint: 'months', scale: 'month', expected: 'reconciled', why: 'same unit, singular/plural' },
+  { constraint: 'hours', scale: 'hour', expected: 'reconciled', why: 'same unit, singular/plural' },
+  { constraint: 'ratio', scale: 'fraction', expected: 'reconciled', why: 'both dimensionless proportions, factor 1' },
+  { constraint: 'money', scale: 'currency', expected: 'reconciled', why: 'both decline to name a currency; neither claims a scale the other contradicts' },
+  // ⚠ SAME DIMENSION, DIFFERENT SCALE — the F1 class. Each of these was
+  // `reconciled` under the old dimension-keyed map. Verdicts written from what
+  // the tokens MEAN, not read back off the table.
+  { constraint: 'months', scale: 'weeks', expected: 'mismatched', why: 'both durations, but 6 months is 26 weeks — a 4.33x rescale, and nothing attests the calendar convention' },
+  { constraint: 'years', scale: 'months', expected: 'mismatched', why: 'both durations, factor 12' },
+  { constraint: 'quarters', scale: 'months', expected: 'mismatched', why: 'both durations, factor 3' },
+  { constraint: 'hours', scale: 'days', expected: 'mismatched', why: 'both durations, factor 24' },
+  { constraint: '$', scale: '£', expected: 'mismatched', why: 'both money, but the conversion is an FX rate the product does not hold' },
+  { constraint: 'usd', scale: 'gbp', expected: 'mismatched', why: 'the same pair, spelled out' },
+  { constraint: 'currency', scale: '£', expected: 'mismatched', why: 'a threshold declared only "currency" could be dollars; dividing it by a GBP cap is an unattested FX assumption — a dimension is not a unit' },
   // Different quantities.
   { constraint: 'months', scale: '%', expected: 'mismatched', why: 'a duration against a percentage' },
   { constraint: '£', scale: 'count', expected: 'mismatched', why: 'money against people' },
-  { constraint: 'fraction', scale: '%', expected: 'mismatched', why: 'same KIND, different SCALE — refused, never silently ×100' },
+  { constraint: 'fraction', scale: '%', expected: 'mismatched', why: 'same KIND, different SCALE — refused, never silently x100' },
   { constraint: 'people', scale: '£', expected: 'mismatched', why: 'people against money' },
   // Nothing declared on one side ⇒ no claim either way.
   { constraint: 'count', scale: '', expected: 'undeclared', why: 'the scale declared no unit' },
 ];
 
-describe('unit-family corpus — the map is checked against hand-written reality', () => {
+describe('unit-scale corpus — the table is checked against hand-written reality', () => {
   it.each(OBSERVED_TOKENS)(
-    'places $token in the $family family  ($provenance)',
-    ({ token, family }) => {
+    'places $token in the $scale scale ($dimension)  ($provenance)',
+    ({ token, scale, dimension }) => {
       // Written by hand from what the token MEANS. If a token is dropped from
-      // the map this reads `undefined` and fails by name — the completeness
+      // the table this reads `undefined` and fails by name — the completeness
       // check a derived guard structurally cannot perform.
-      expect(unitFamily(token)).toBe(family);
+      expect(unitScale(token)).toBe(scale);
+      // The dimension is pinned SEPARATELY and deliberately: it is the claim
+      // the predicate must NOT be allowed to key on, so it needs its own
+      // expectation rather than being inferred from the scale.
+      expect(unitDimension(token)).toBe(dimension);
     },
   );
 
@@ -113,17 +147,20 @@ describe('unit-family corpus — the map is checked against hand-written reality
     },
   );
 
-  it('every declared family is non-empty and no token is claimed by two families', () => {
+  it('every declared scale is non-empty, canonical, dimensioned, and owns its tokens alone', () => {
     const seen = new Map<string, string>();
-    for (const family of UNIT_FAMILIES) {
-      const tokens = unitTokensForFamily(family);
-      expect(tokens.length, `family ${family} is empty`).toBeGreaterThan(0);
+    for (const scale of UNIT_SCALES) {
+      const tokens = unitTokensForScale(scale);
+      expect(tokens.length, `scale ${scale} is empty`).toBeGreaterThan(0);
+      // Every scale must name the quantity it measures, or `unitDimension`
+      // would silently read `undefined` for a token that IS in the table.
+      expect(dimensionOfScale(scale), `scale ${scale} declares no dimension`).toBeDefined();
       for (const token of tokens) {
         const owner = seen.get(token);
-        expect(owner, `token "${token}" is claimed by both ${owner} and ${family}`).toBeUndefined();
-        seen.set(token, family);
+        expect(owner, `token "${token}" is claimed by both ${owner} and ${scale}`).toBeUndefined();
+        seen.set(token, scale);
         // Tokens must be stored canonically, or `canonicaliseUnit` could never
-        // match them and the whole family would be silently unreachable.
+        // match them and the whole scale would be silently unreachable.
         expect(token, `token "${token}" is not canonical`).toBe(token.trim().toLowerCase());
       }
     }
