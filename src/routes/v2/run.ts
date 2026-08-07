@@ -202,6 +202,7 @@ import {
   type RangeSource,
   type GoalThresholdNodeMeta,
   type ConstraintUnitMismatch,
+  type RefusedConstraintRecord,
 } from '../../lib/intervention-normaliser.js';
 import { assembleBrief } from '../../assembly/decision-brief.js';
 import { buildEvidencePriorityCard, type FactorInput } from '../../review-pass/evidence-priority.js';
@@ -5485,6 +5486,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Stash filtered records for _meta
         const filteredConstraintRecords = temporalFilterResult.filtered;
 
+        // ROADMAP 2.878 — constraints REFUSED at normalisation (a `delta`
+        // attestation whose value normalisation would have altered). Declared
+        // here, beside the temporal records, because both answer the same
+        // question for a consumer — "which constraints did NOT reach the engine,
+        // and why" — and both land in `_meta.filtered_constraints`. Populated
+        // ~1,000 lines below, once the normaliser has run.
+        const refusedConstraintRecords: RefusedConstraintRecord[] = [];
+
         if (filteredConstraintRecords.length > 0) {
           req.log.info({
             event: 'plot.temporal_constraints_filtered',
@@ -5969,8 +5978,29 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // toISLRobustnessRequest below — filteredGraph.nodes is not mutated
         // between here and the request build, so the request sends byte-identical
         // PUs while paying for the pass only once. This also closes the
-        // lockstep-drift hazard: the plan count can no longer diverge from what
-        // the request actually carries.
+        // lockstep-drift hazard for the FACTOR PUs: the plan count can no longer
+        // diverge from what the request actually carries.
+        //
+        // ⚠ ROADMAP 2.878 — THAT EXACTNESS CLAIM IS NOW NARROWER THAN IT READS,
+        // AND THE CAVEAT IS DELIBERATE. `activeGoalConstraints` is REASSIGNED
+        // further down (at the delta-frame refusal) to drop constraints PLoT
+        // declines to forward, so the identifier denotes TWO DIFFERENT SETS
+        // either side of that point: the full set here at plan time, the
+        // forwarded set at request-build time. The CONSTRAINT-PU count planned
+        // here can therefore exceed what `injectConstraintParameterUncertainties`
+        // actually injects (it is handed `constraintsForISL`).
+        //
+        // This is a PRICING divergence, not a correctness one — the request
+        // still carries exactly the PUs for the constraints it forwards; only
+        // the EVPI depth pricing may have been computed against one more
+        // constrained node than survives. Bounded, not asserted: measured at
+        // ZERO divergence across the fixtures exercised so far, because a
+        // refused constraint's target node is usually still constrained by a
+        // sibling. **Reachability of a non-zero divergence is UNKNOWN** — it
+        // needs a refused delta that is the ONLY constraint on its target node.
+        // Recorded here rather than silently left as a stale exactness claim;
+        // the settling experiment is to instrument the two counts and drive a
+        // single-constraint-per-node refusal.
         const factorParameterUncertainties = buildParameterUncertaintiesV3(filteredGraph.nodes) ?? [];
         const factorPuNodeIds = new Set(factorParameterUncertainties.map((pu) => pu.node_id));
         // One id→node map shared by the plan-time constraint-PU selection and the
@@ -6527,6 +6557,79 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             );
             constraintsForISL = constraintNormResult.constraints;
 
+            // ROADMAP 2.878 — a `delta`-framed constraint whose value
+            // normalisation would have changed is REFUSED, not forwarded: it is
+            // already absent from `constraintNormResult.constraints`, so it
+            // reaches neither the ISL translator nor the constraint-PU
+            // injection below. Report it by name — a constraint that silently
+            // disappears is the failure this refusal exists to replace.
+            if (constraintNormResult.refused.length > 0) {
+              refusedConstraintRecords.push(...constraintNormResult.refused);
+
+              // ⚠⚠ ROADMAP 2.878 F1 — REMOVING IT FROM THE ISL PAYLOAD IS ONLY
+              // HALF THE JOB. `buildConstraintFields` enforces an EXACT
+              // one-to-one correspondence between ISL's constraint results and
+              // the ACTIVE constraint list (`constraintResults.length ===
+              // goalConstraints.length && …`, ~line 2364), and it is handed
+              // `activeGoalConstraints`. A constraint dropped from the payload
+              // but left in the active list makes those counts disagree, so the
+              // guard returns `constraints_status: 'unavailable'` and the run
+              // reports **ZERO** constraint results — one refused delta deletes
+              // every OTHER constraint's correctly-computed verdict, and the
+              // disclosure then says "1 constraint was not evaluated" when in
+              // fact none were. That is the precise harm the refusal design
+              // rejected the drop-the-frame alternative to avoid; the first
+              // version of this fix reproduced it. Proven by execution: 2 levels
+              // + 1 refused delta → 0 results; byte-identical payload with
+              // 'level' instead of 'delta' → 3 results.
+              //
+              // THE PRE-EXISTING DROP MECHANISM SHOWS THE CORRECT SHAPE: the
+              // temporal filter REPLACES the list (`constraintCompilation
+              // .constraints = temporalFilterResult.passed`) *before*
+              // `activeGoalConstraints` is derived from it. This drop happens
+              // ~700 lines later, so it must do the equivalent explicitly.
+              //
+              // Reassigning here (rather than at the single response-builder
+              // call site) fixes EVERY downstream consumer at once, including
+              // `buildConstraintScaleProvenance` below — which would otherwise
+              // build a trust marker for a refused constraint that has no
+              // diagnostic, disclosing it as a forwarded-raw
+              // `source: 'default'` constraint that was never sent at all.
+              const refusedIds = new Set(
+                constraintNormResult.refused.map((r) => r.constraint_id),
+              );
+              activeGoalConstraints = activeGoalConstraints.filter(
+                (c) => !refusedIds.has(c.constraint_id),
+              );
+
+              // ⚠ ROADMAP 2.878 F3 — NO QUANTITIES ON THIS EVENT. `stated_value`
+              // is only digested when `String(v).length >= 4` (MIN_TOKEN_LEN),
+              // so `0.5` / `-5` / `12` ship in the clear; `would_have_sent` is
+              // DERIVED, so it is never a registered token and its key is not a
+              // DECISION_DOMAIN_KEY — it would never be redacted at all. That is
+              // exactly the class removed from the sibling events ~100 lines
+              // above. The precedent to match is
+              // `plot.temporal_constraints_filtered`, which logs
+              // `FilteredConstraintRecord` — no quantity by construction.
+              // `range.source` is flattened to `range_source` deliberately: the
+              // `source` key is in both DECISION_DOMAIN_KEYS and
+              // LITERAL_VALUE_KEYS and the decision branch is checked first, so
+              // a nested `range` would digest the range vocabulary into
+              // uselessness. The quantities remain in the `removed` repair
+              // record, which is response content rather than an info log.
+              req.log.warn({
+                event: 'plot.constraint_refused',
+                refused_count: constraintNormResult.refused.length,
+                forwarded_count: constraintNormResult.constraints.length,
+                refused: constraintNormResult.refused.map((r) => ({
+                  constraint_id: r.constraint_id,
+                  node_id: r.node_id,
+                  reason: r.reason,
+                  range_source: r.range.source,
+                })),
+              });
+            }
+
             // Single pass over the constraint diagnostics builds BOTH per-constraint
             // maps from the SAME source of truth (derive-don't-mirror):
             //  - constraintNormalisationRanges: the range each threshold normalised
@@ -6642,6 +6745,28 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             message: `${filteredConstraintRecords.length} temporal constraint(s) filtered before analysis: [${ids}]. Temporal constraints cannot be evaluated on a static causal graph.`,
             source: 'validation',
             affected_node_ids: filteredConstraintRecords.map(f => f.node_id),
+            blocks_analysis: false,
+          });
+        }
+
+        // ROADMAP 2.878 — surface refused constraints to the API consumer.
+        // `severity: 'warning'`, not 'info': the user asked a question that this
+        // run did NOT answer, and the only honest thing is to say so. It does
+        // not block the analysis — every other constraint and every option
+        // result still delivers.
+        if (refusedConstraintRecords.length > 0) {
+          const refusedIds = refusedConstraintRecords.map(r => r.constraint_id).join(', ');
+          preflight.warnings.push({
+            id: randomUUID(),
+            code: 'CONSTRAINT_REFUSED_FRAME_FIDELITY',
+            severity: 'warning',
+            message:
+              `${refusedConstraintRecords.length} constraint(s) were not evaluated: [${refusedIds}]. ` +
+              `Each states a CHANGE (a 'delta'), and the scale this graph resolves for its target ` +
+              `node cannot carry that change without altering the amount stated. Rather than ask ` +
+              `the engine a different question, the constraint was left out of the analysis.`,
+            source: 'validation',
+            affected_node_ids: refusedConstraintRecords.map(r => r.node_id),
             blocks_analysis: false,
           });
         }
@@ -8551,7 +8676,21 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             ceeBuild: ceeOrchestrationResult.ceeTrace?.source ?? undefined,
             computedAt,
             requestIdChain: chain,
-            filteredConstraints: filteredConstraintRecords,
+            // ROADMAP 2.878 — refusals join the temporal filter's records in the
+            // ONE place a consumer already looks for "constraints that did not
+            // reach the engine". Widened to FilteredConstraintRecord by taking
+            // the three shared fields; the refusal's quantities stay in the log
+            // event and the repair record. Appended (not interleaved) so the
+            // existing temporal ordering is byte-identical for every run that
+            // refuses nothing — which is every run today.
+            filteredConstraints: [
+              ...filteredConstraintRecords,
+              ...refusedConstraintRecords.map(r => ({
+                constraint_id: r.constraint_id,
+                node_id: r.node_id,
+                reason: r.reason,
+              })),
+            ],
             rangeDerivationSources: normalisationContext
               ? Object.fromEntries([...normalisationContext.factors].map(([id, ctx]) => [id, ctx.range.source]))
               : buildDefaultRangeDerivationSources(normalizedOptions),

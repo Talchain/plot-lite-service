@@ -536,12 +536,53 @@ describe('F7: constraint/intervention normalisation logs carry no raw numeric va
     return readFile(new URL('../src/routes/v2/run.ts', import.meta.url), 'utf8');
   }
 
+  /**
+   * ROADMAP 2.878 F3 — EXTRACT THE LOG CALL BY ITS OWN BRACES, NOT BY A BYTE COUNT.
+   *
+   * These pins used to slice a fixed 1,300 bytes from each `event:` marker.
+   * That is a hand-maintained mirror of the FILE'S LAYOUT: it silently stops
+   * covering as the file grows, and it stops covering the thing it names
+   * without ever going red. It was measured doing exactly that — a new
+   * `plot.constraint_refused` log site landed ~5.3 KB outside both windows,
+   * carrying two raw quantity fields, and neither pin could see it.
+   *
+   * Walking back to the opening `{` of the log object and forward to its
+   * matching `}` derives the site's true extent from the source, so the window
+   * cannot drift out from under the assertion.
+   */
+  function logCallAt(src: string, marker: string): string {
+    const at = src.indexOf(marker);
+    if (at < 0) throw new Error(`marker not found: ${marker}`);
+    // Back up to the `{` that opens the object literal holding this event key.
+    let open = src.lastIndexOf('{', at);
+    if (open < 0) throw new Error(`no opening brace before: ${marker}`);
+    let depth = 0;
+    for (let i = open; i < src.length; i++) {
+      if (src[i] === '{') depth++;
+      else if (src[i] === '}') {
+        depth--;
+        if (depth === 0) return src.slice(open, i + 1);
+      }
+    }
+    throw new Error(`unbalanced braces from: ${marker}`);
+  }
+
+  it('the site extractor is bounded and does NOT swallow the whole file (precondition)', async () => {
+    const src = await runSource();
+    const site = logCallAt(src, "event: 'constraint_normalisation'");
+    // Without this the assertions below could pass by covering everything, or
+    // fail by covering nothing. Bound it in both directions.
+    expect(site.length).toBeGreaterThan(50);
+    expect(site.length).toBeLessThan(src.length / 4);
+    expect(site).toContain("event: 'constraint_normalisation'");
+  });
+
   it('intervention_normalisation info log drops original/normalised, keeps factor_id + range_source + clamped', async () => {
     const src = await runSource();
     const at = src.indexOf("event: 'intervention_normalisation'");
     expect(at).toBeGreaterThan(-1);
-    // The info log (first occurrence) carries the sample; window covers it.
-    const site = src.slice(at, at + 1300);
+    // Derived extent, not a byte count.
+    const site = logCallAt(src, "event: 'intervention_normalisation'");
     // Positive control: the site still exists and still samples the SAFE fields.
     expect(site).toContain('sample:');
     expect(site).toMatch(/factor_id:\s*d\.factor_id\b/);
@@ -556,7 +597,7 @@ describe('F7: constraint/intervention normalisation logs carry no raw numeric va
     const src = await runSource();
     const at = src.indexOf("event: 'constraint_normalisation'");
     expect(at).toBeGreaterThan(-1);
-    const site = src.slice(at, at + 1300);
+    const site = logCallAt(src, "event: 'constraint_normalisation'");
     // Positive control: the site still exists and still samples identifiers + source.
     expect(site).toContain('sample:');
     expect(site).toMatch(/constraint_id:\s*d\.constraint_id\b/);
@@ -565,5 +606,126 @@ describe('F7: constraint/intervention normalisation logs carry no raw numeric va
     // THE FIX: the raw numeric decision values are gone.
     expect(site).not.toMatch(/original:\s*d\.original_value\b/);
     expect(site).not.toMatch(/normalised:\s*d\.normalised_value\b/);
+  });
+
+  /**
+   * ROADMAP 2.878 F3 — THE GUARD THAT WAS MISSING ENTIRELY.
+   *
+   * The two pins above name TWO events. Nothing enumerated the rest, so a NEW
+   * log site could carry raw decision quantities and no test anywhere would
+   * object — which is exactly what happened: `plot.constraint_refused` shipped
+   * `stated_value` and `would_have_sent` in plaintext (the first is digested
+   * only when `String(v).length >= 4`, so `0.5` / `-5` / `12` travel in the
+   * clear; the second is DERIVED, so it is never a registered token and its key
+   * is not a DECISION_DOMAIN_KEY — it is never redacted at all).
+   *
+   * This guard DERIVES the site list from the source rather than naming it, so
+   * a new log site is covered the moment it is written. It is the trap-12 shape:
+   * where you cannot avoid a list, make the list fail loud on drift.
+   */
+  it('NO req.log site in run.ts logs a raw decision quantity — derived over ALL sites', async () => {
+    const src = await runSource();
+
+    // Every `req.log.<level>({ … })` call, extent derived by brace matching.
+    const sites: Array<{ event: string; body: string }> = [];
+    const callRe = /req\.log\.(?:info|warn|debug|error)\(\s*\{/g;
+    let m: RegExpExecArray | null;
+    while ((m = callRe.exec(src)) !== null) {
+      const open = src.indexOf('{', m.index);
+      let depth = 0;
+      for (let i = open; i < src.length; i++) {
+        if (src[i] === '{') depth++;
+        else if (src[i] === '}') {
+          depth--;
+          if (depth === 0) {
+            const body = src.slice(open, i + 1);
+            const ev = /event:\s*'([^']+)'/.exec(body);
+            sites.push({ event: ev ? ev[1] : '(no event key)', body });
+            break;
+          }
+        }
+      }
+    }
+
+    // ⚠ PRECONDITION — a derived enumeration that finds nothing passes
+    // vacuously. Prove the instrument sees a real population, and specifically
+    // that it sees the site this guard was written for.
+    expect(sites.length).toBeGreaterThan(30);
+    expect(sites.map((s) => s.event)).toContain('plot.constraint_refused');
+    expect(sites.map((s) => s.event)).toContain('constraint_normalisation');
+
+    // Quantity-bearing property names that must never be logged. These are the
+    // DECISION VALUES themselves — identifiers, sources and booleans are fine
+    // and are what the safe sites already sample.
+    const FORBIDDEN = [
+      'stated_value',
+      'would_have_sent',
+      'original_value',
+      'normalised_value',
+    ];
+
+    const offenders: string[] = [];
+    for (const s of sites) {
+      for (const key of FORBIDDEN) {
+        // Match the identifier as a property read or shorthand, not in prose.
+        if (new RegExp(`\\b${key}\\b`).test(s.body.replace(/\/\/[^\n]*/g, ''))) {
+          offenders.push(`${s.event} → ${key}`);
+        }
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  /**
+   * ROADMAP 2.878 F3 — THE GUARD ABOVE IS NOT ENOUGH, AND A MUTANT PROVED IT.
+   *
+   * ⚠ The enumerator above scans for quantity field NAMES appearing literally
+   * in a log call. It therefore cannot see the commonest form of this leak:
+   * logging a WHOLE typed record by reference (`refused: result.refused`),
+   * where the quantity keys live on the object and never appear in the log
+   * site's text at all. Measured: a mutant restoring exactly that leak SURVIVED
+   * the enumerator — a guard agreeing with itself.
+   *
+   * `RefusedConstraintRecord` carries `stated_value` and `would_have_sent`, so
+   * for this site the safety property is not "no forbidden name is spelled
+   * here" but "the value is a KEY PROJECTION onto an allow-list". That is what
+   * is asserted, with the projected keys DERIVED from the source.
+   *
+   * ⚠ SCOPE, stated rather than implied: this is a SOURCE-level check on one
+   * site. The general property — "no log LINE ever contains a decision
+   * quantity" — needs a runtime capture of the real `/v2/run` logger, and
+   * `createServer` exposes no stream injection point (pino writes to fd 1 via
+   * sonic-boom, where a naive capture reads zero bytes and every absence
+   * assertion passes vacuously). Not attempted here rather than faked.
+   */
+  it('plot.constraint_refused logs a KEY PROJECTION, never the whole record', async () => {
+    const src = await runSource();
+    const site = logCallAt(src, "event: 'plot.constraint_refused'");
+
+    // Precondition: we are looking at the right site.
+    expect(site).toContain('refused_count:');
+
+    // The `refused:` property's value expression, up to the end of the call.
+    const m = /refused:\s*([\s\S]+?)\n\s*\}\);?\s*$/.exec(site + '\n');
+    const valueExpr = m ? m[1] : site.slice(site.indexOf('refused:'));
+
+    // It must be a projection, not a bare reference. `refused: x.refused` — the
+    // shipped defect — has no `.map(`.
+    expect(valueExpr).toMatch(/\.map\(/);
+
+    // …and the keys it projects must all be safe. Derived from the source text:
+    // take the object literal the arrow function returns (`=> ({ … })`), so the
+    // enclosing `refused:` property name itself is not counted as a key.
+    const ALLOWED = new Set(['constraint_id', 'node_id', 'reason', 'range_source']);
+    const objStart = valueExpr.indexOf('({');
+    expect(objStart).toBeGreaterThan(-1);
+    const projection = valueExpr.slice(objStart);
+    const projected = [...projection.matchAll(/^\s*([a-z_]+):/gm)].map((x) => x[1]);
+
+    // Precondition again: an empty key list would make the subset check vacuous.
+    expect(projected.length).toBeGreaterThan(0);
+
+    const unsafe = projected.filter((k) => !ALLOWED.has(k));
+    expect(unsafe).toEqual([]);
   });
 });
