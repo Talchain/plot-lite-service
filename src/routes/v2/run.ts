@@ -202,6 +202,7 @@ import {
   type RangeSource,
   type GoalThresholdNodeMeta,
   type ConstraintUnitMismatch,
+  type RefusedConstraintRecord,
 } from '../../lib/intervention-normaliser.js';
 import { assembleBrief } from '../../assembly/decision-brief.js';
 import { buildEvidencePriorityCard, type FactorInput } from '../../review-pass/evidence-priority.js';
@@ -5485,6 +5486,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Stash filtered records for _meta
         const filteredConstraintRecords = temporalFilterResult.filtered;
 
+        // ROADMAP 2.878 — constraints REFUSED at normalisation (a `delta`
+        // attestation whose value normalisation would have altered). Declared
+        // here, beside the temporal records, because both answer the same
+        // question for a consumer — "which constraints did NOT reach the engine,
+        // and why" — and both land in `_meta.filtered_constraints`. Populated
+        // ~1,000 lines below, once the normaliser has run.
+        const refusedConstraintRecords: RefusedConstraintRecord[] = [];
+
         if (filteredConstraintRecords.length > 0) {
           req.log.info({
             event: 'plot.temporal_constraints_filtered',
@@ -6527,6 +6536,22 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             );
             constraintsForISL = constraintNormResult.constraints;
 
+            // ROADMAP 2.878 — a `delta`-framed constraint whose value
+            // normalisation would have changed is REFUSED, not forwarded: it is
+            // already absent from `constraintNormResult.constraints`, so it
+            // reaches neither the ISL translator nor the constraint-PU
+            // injection below. Report it by name — a constraint that silently
+            // disappears is the failure this refusal exists to replace.
+            if (constraintNormResult.refused.length > 0) {
+              refusedConstraintRecords.push(...constraintNormResult.refused);
+              req.log.warn({
+                event: 'plot.constraint_refused',
+                refused_count: constraintNormResult.refused.length,
+                forwarded_count: constraintNormResult.constraints.length,
+                refused: constraintNormResult.refused,
+              });
+            }
+
             // Single pass over the constraint diagnostics builds BOTH per-constraint
             // maps from the SAME source of truth (derive-don't-mirror):
             //  - constraintNormalisationRanges: the range each threshold normalised
@@ -6642,6 +6667,28 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             message: `${filteredConstraintRecords.length} temporal constraint(s) filtered before analysis: [${ids}]. Temporal constraints cannot be evaluated on a static causal graph.`,
             source: 'validation',
             affected_node_ids: filteredConstraintRecords.map(f => f.node_id),
+            blocks_analysis: false,
+          });
+        }
+
+        // ROADMAP 2.878 — surface refused constraints to the API consumer.
+        // `severity: 'warning'`, not 'info': the user asked a question that this
+        // run did NOT answer, and the only honest thing is to say so. It does
+        // not block the analysis — every other constraint and every option
+        // result still delivers.
+        if (refusedConstraintRecords.length > 0) {
+          const refusedIds = refusedConstraintRecords.map(r => r.constraint_id).join(', ');
+          preflight.warnings.push({
+            id: randomUUID(),
+            code: 'CONSTRAINT_REFUSED_FRAME_FIDELITY',
+            severity: 'warning',
+            message:
+              `${refusedConstraintRecords.length} constraint(s) were not evaluated: [${refusedIds}]. ` +
+              `Each states a CHANGE (a 'delta'), and the scale this graph resolves for its target ` +
+              `node cannot carry that change without altering the amount stated. Rather than ask ` +
+              `the engine a different question, the constraint was left out of the analysis.`,
+            source: 'validation',
+            affected_node_ids: refusedConstraintRecords.map(r => r.node_id),
             blocks_analysis: false,
           });
         }
@@ -8551,7 +8598,21 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             ceeBuild: ceeOrchestrationResult.ceeTrace?.source ?? undefined,
             computedAt,
             requestIdChain: chain,
-            filteredConstraints: filteredConstraintRecords,
+            // ROADMAP 2.878 — refusals join the temporal filter's records in the
+            // ONE place a consumer already looks for "constraints that did not
+            // reach the engine". Widened to FilteredConstraintRecord by taking
+            // the three shared fields; the refusal's quantities stay in the log
+            // event and the repair record. Appended (not interleaved) so the
+            // existing temporal ordering is byte-identical for every run that
+            // refuses nothing — which is every run today.
+            filteredConstraints: [
+              ...filteredConstraintRecords,
+              ...refusedConstraintRecords.map(r => ({
+                constraint_id: r.constraint_id,
+                node_id: r.node_id,
+                reason: r.reason,
+              })),
+            ],
             rangeDerivationSources: normalisationContext
               ? Object.fromEntries([...normalisationContext.factors].map(([id, ctx]) => [id, ctx.range.source]))
               : buildDefaultRangeDerivationSources(normalizedOptions),
