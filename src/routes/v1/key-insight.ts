@@ -42,6 +42,7 @@ import { CEE_TIMEOUT_MS } from '../../config/timeouts.js';
 /**
  * Patterns for classifying goal types
  */
+// The `[$£€]` class below changes a verdict only when a BINARY pattern also matches (these are checked first); pinned by tests/key-insight.test.ts > 'currency symbols in CONTINUOUS_PATTERNS are load-bearing' — ROADMAP 2.917.
 const CONTINUOUS_PATTERNS = [
   /reach\s+[$£€]?\d/i,           // "Reach $20k", "Reach £20k"
   /increase.*to\s+\d/i,           // "Increase to 100"
