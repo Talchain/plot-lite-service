@@ -104,7 +104,7 @@ import {
 import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js';
 import type { RobustnessDataForCee } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue, ISLConditionalWinner } from '../../integrations/isl/types/isl-types.js';
-import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt } from '../../integrations/isl/v2-envelope.js';
+import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures } from '../../integrations/isl/v2-envelope.js';
 import { V2_RUN_ALLOWED_KEYS, islEnrichmentPassthrough } from './run-contract-keys.js';
 import { assessIslWireGeneration, logIslWireGenerationUnverified } from '../../integrations/isl/wire-generation.js';
 import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
@@ -1339,6 +1339,41 @@ const runV3Schema = {
             factor_a: { type: 'string' },
             factor_b: { type: 'string' },
             rho: { type: 'number' },
+          },
+        },
+      },
+      // ⭐ ROADMAP 2.720 (pillar P4): the user's own stated ranges for factor
+      // values, forwarded to ISL's interquartile range→distribution converter.
+      //
+      // LIGHT STRUCTURAL validation only, and the shape is DERIVED from ISL's
+      // `UserStatedRange` rather than invented: `node_id` + `domain` are the
+      // only REQUIRED members there too, and `domain`'s two-member enum is
+      // ISL's own — it selects the fitted family and is never inferred.
+      //
+      // ⚠ `lower`/`upper` are DELIBERATELY NOT required, and PLoT must not
+      // default them. Their absence is what makes ISL refuse RANGE_OPEN_ENDED
+      // loudly instead of fitting an interval the user never stated.
+      //
+      // DEEP SEMANTICS (zero width, inverted order, out of domain, at domain
+      // edge, non-convergent) are ISL's single source of truth and come back as
+      // TYPED refusals on `range_fit_disclosures` — PLoT does not re-implement
+      // them, and must not "repair" a range into something the user did not say.
+      // Items do NOT set additionalProperties:false (forward-compat, matching
+      // the nodes/options/edges convention above); the translator PROJECTS onto
+      // ISL's declared members, so an undeclared key cannot reach the wire.
+      user_stated_ranges: {
+        type: 'array',
+        items: {
+          type: 'object',
+          required: ['node_id', 'domain'],
+          properties: {
+            node_id: { type: 'string', minLength: 1 },
+            lower: { type: 'number' },
+            upper: { type: 'number' },
+            domain: { type: 'string', enum: ['unit_interval', 'unbounded'] },
+            source: { type: 'string' },
+            stated_at: { type: 'string' },
+            method_version: { type: 'string' },
           },
         },
       },
@@ -3093,6 +3128,14 @@ function buildResponse(
   const conditionalWinners = sensitivityData?.conditionalWinners
     ?? transformConditionalWinners(islResult?.conditional_winners, fallbackNodeLabelMap, fallbackOptionLabelMap);
 
+  // ROADMAP 2.720 (P4). Read through the envelope accessor, which fixes the
+  // wire LOCATION in one place and degrades a non-array to absent. Forwarded
+  // VERBATIM — no transform, no relabelling, and above all no substitution of a
+  // default for a refused fit: ISL's refusal is TYPED and carries the reason,
+  // and inventing a distribution where it refused would be a fabricated value
+  // wearing real provenance.
+  const rangeFitDisclosures = getIslRangeFitDisclosures(islResult);
+
   // Normalize robustness edges to consistent object format
   // ISL returns fragile_edges as objects, robust_edges as strings - normalize both
   let robustness: RobustnessAssessmentV3 | undefined;
@@ -3766,6 +3809,20 @@ function buildResponse(
     // drift gate stays in lockstep (F9). Guard is `!== undefined` so an explicit
     // null/0/false from ISL still passes through.
     ...islEnrichmentPassthrough(islResult),
+    // ⭐ ROADMAP 2.720 (pillar P4) — per-range interquartile-fit disclosures for
+    // the request's `user_stated_ranges`. Additive VERBATIM passthrough, read
+    // through the envelope accessor so the wire LOCATION is fixed in one place
+    // (src/integrations/isl/v2-envelope.ts), inherently request-gated: ISL emits
+    // the key only when ranges were stated, so absence here means "none stated"
+    // and is NOT the same fact as a refused fit — a refused fit arrives as a
+    // TYPED refusal inside a PRESENT row. Without this block buildResponse's
+    // field-by-field rebuild would silently DROP the whole disclosure (the
+    // transformEdgeEValues-class hazard), which is how a computed capability
+    // ends up dark. `!== undefined` rather than truthiness so a computed-EMPTY
+    // array survives — `[]` means "ranges were stated, no rows", which is a
+    // different fact from absence. Excluded from response_hash (response_hash
+    // canonicalises the REQUEST).
+    ...(rangeFitDisclosures !== undefined && { range_fit_disclosures: rangeFitDisclosures }),
     // Edge E-values from ISL — enriched with labels. Always emitted ([] when empty
     // or ISL omitted the field) so consumers can distinguish computed-empty from
     // absent; PLoT always requests include_e_values: true. Excluded from response_hash.
@@ -6727,7 +6784,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           body.include_path_decomposition === true,  // Lane PLoT-W4: request-gated opt-in, forwarded only on explicit true
           factorParameterUncertainties,  // Reuse the factor PUs already built for the admission plan (same nodes → byte-identical)
           body.factor_correlations,  // Capability #100 (D-23.4): forward client-supplied factor correlations verbatim (request-gated omit inside the translator)
-          nodeGoalThresholdFrame  // ROADMAP 2.258: producer-stamped frame, forwarded if present; never minted (see below)
+          nodeGoalThresholdFrame,  // ROADMAP 2.258: producer-stamped frame, forwarded if present; never minted (see below)
+          body.user_stated_ranges  // ROADMAP 2.720 (P4): the user's own stated ranges, projected onto ISL's declared members inside the translator (request-gated omit)
         );
 
         req.log.info(

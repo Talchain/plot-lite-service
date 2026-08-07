@@ -25,6 +25,12 @@ export const V2_RUN_ALLOWED_KEYS: ReadonlySet<string> = new Set([
   // AND runV3Schema.properties (Ajv, additionalProperties:false). Omitting it
   // from either drops the field before it reaches the handler.
   'factor_correlations',
+  // ⭐ ROADMAP 2.720 (pillar P4): the user's own stated ranges for factor
+  // values. BOTH gates must know this key — this allowlist (preValidation) AND
+  // runV3Schema.properties (Ajv, additionalProperties:false). Omitting it from
+  // either drops the field before it reaches the handler, and the failure is
+  // shaped like a 200.
+  'user_stated_ranges',
 ]);
 
 // ISL top-level correlated-factors ENRICHMENT outputs (capability #100 + VOI
