@@ -115,6 +115,75 @@ describe('2.202 ①b — parseIslErrorReason names the governor cause the probe 
     expect(parseIslErrorReason(JSON.stringify({ reason: 'a\nb\r{"event":"forged"}' })))
       .toBe('a b {"event":"forged"}');
   });
+
+  it('ROADMAP 2.879 — the stripped set is the FULL C0 range plus DEL, exhaustively', () => {
+    // BACKS A SUPPRESSION. `no-control-regex` is disabled on exactly one line in
+    // src/integrations/isl/errors.ts because the control characters there are the
+    // point of the expression, not an accident. A suppression asserted in a comment
+    // is worth nothing, so the behaviour it protects is pinned here BY EXECUTION and
+    // EXHAUSTIVELY, rather than by the two representative characters (CR, LF) the
+    // case above happens to use. Narrow the class in errors.ts and this reds by name.
+    //
+    // ORACLE CORRECTION, derived from running it rather than from reading the regex:
+    // 0x20 (SPACE) is UNOBSERVABLE through this parser. The sanitiser replaces each
+    // stripped character WITH a space, so a surviving space and a stripped space
+    // produce byte-identical output. My first version of this test classified 0x20 as
+    // "stripped" and was wrong about the code while agreeing with itself. It is now
+    // excluded by name, and the exclusion set is itself asserted, so a future change
+    // that made some OTHER codepoint ambiguous reds here instead of hiding.
+    const stripped: number[] = [];
+    const kept: number[] = [];
+    const unobservable: number[] = [];
+
+    // Sweep the whole Latin-1 space so the boundaries are measured, not assumed:
+    // 0x00-0x1F must strip, 0x21-0x7E must survive, 0x7F must strip, 0x80+ survives.
+    for (let cp = 0x00; cp <= 0xff; cp++) {
+      const ch = String.fromCharCode(cp);
+      // Sentinels either side so trim() cannot mask an edge codepoint, and so a
+      // parser that returned a constant could not satisfy this.
+      const out = parseIslErrorReason(JSON.stringify({ reason: `A${ch}Z` }));
+      const survived = `A${ch}Z`;
+      const replaced = 'A Z';
+      if (survived === replaced) unobservable.push(cp);
+      else if (out === replaced) stripped.push(cp);
+      else if (out === survived) kept.push(cp);
+      else throw new Error(`unexpected output for cp 0x${cp.toString(16)}: ${JSON.stringify(out)}`);
+    }
+
+    const expectedStripped = [
+      ...Array.from({ length: 0x20 }, (_, i) => i), // C0 controls 0x00-0x1F
+      0x7f, // DEL
+    ];
+    expect(stripped).toEqual(expectedStripped);
+
+    // The ambiguity is bounded to the one codepoint that IS the replacement char.
+    expect(unobservable).toEqual([0x20]);
+
+    // POSITIVE CONTROL — the sweep must actually be discriminating. Without these a
+    // parser that stripped EVERYTHING, or a sweep that observed nothing at all,
+    // could still satisfy the equality above.
+    expect(stripped).toHaveLength(33);
+    expect(kept).toHaveLength(256 - 33 - 1);
+    expect(kept).toContain(0x21); // '!' survives — the codepoint directly above the boundary
+    expect(kept).toContain(0x7e); // '~' survives — directly below DEL
+    expect(kept).toContain(0x80); // C1 is deliberately NOT in the class
+    expect(kept).not.toContain(0x00);
+    expect(kept).not.toContain(0x7f);
+
+    // And the security property the suppression exists for, stated directly: no
+    // output may carry a character that could forge an NDJSON log line.
+    for (let cp = 0x00; cp <= 0xff; cp++) {
+      const ch = String.fromCharCode(cp);
+      const out = parseIslErrorReason(JSON.stringify({ reason: `A${ch}Z` }))!;
+      // Deliberately NOT the production regex: an independent codepoint predicate,
+      // so this asserts the property rather than mirroring the implementation.
+      const carriesControl = Array.from(out).some((c) => {
+        const n = c.charCodeAt(0);
+        return n <= 0x1f || n === 0x7f;
+      });
+      expect(carriesControl).toBe(false);
+    }
+  });
 });
 
 describe('2.202 ①b — ISLHttpError.getReason() is the reader that closes the write-only field', () => {
