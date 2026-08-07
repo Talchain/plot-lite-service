@@ -1,5 +1,22 @@
 # PLoT staging "BUILD-FAILED" for #233 — root-cause diagnosis (A3)
 
+> ## ✅ RESOLVED — status appended 2026-08-08 at merge (R1 PR-disposition pass)
+>
+> **The fault diagnosed below is dead. Read this file as archaeology, not as a live incident.**
+> Derived 2026-08-08: `plot-lite-service-staging` `/health` reports `build: 1b36c34`, which is the
+> current `staging` tip `1b36c34a` — i.e. the Render↔GitHub `git clone` grant works and deploys are
+> landing (five commits deployed 6–7 Aug 2026). The "Corrective action (owner, in Render dashboard)"
+> section below has been carried out; do not re-run it.
+>
+> **What survives the resolution and is still worth reading:**
+> 1. **The corrected premise.** The task that spawned this work asserted a TypeScript/code defect.
+>    That was false, and this file is the only place the correction is recorded.
+> 2. **The systemic gap, which is NOT known to be fixed:** a persistent GitHub `403` silently
+>    stranded staging deploys **with no alert**. Nothing was measured on 2026-08-08 to show that
+>    deploy-failure alerting now exists. Treat that as open until someone derives otherwise.
+> 3. **The method** — reading the Render build log before assuming a code cause.
+
+
 **Date:** 2026-07-19
 **Service:** `plot-lite-service-staging` (`srv-d4sl44s9c44c73ep4ak0`)
 **Failed deploy:** `dep-d9e20i28qa3s73eesujg` — commit `ad255d3c` (#233), `build_failed`
