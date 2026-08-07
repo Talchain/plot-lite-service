@@ -206,6 +206,59 @@ describe('2.878 — the guard is on the OUTCOME, so it also catches the un-clamp
   });
 });
 
+describe('2.878 F2 — the affine map has FIXED POINTS, so the outcome test alone is not enough', () => {
+  it('DEFECT: a delta CLAMPED onto its own stated value is still refused', () => {
+    // ⚠ THE COUNTER-EXAMPLE THAT REFUTED "an outcome test cannot be escaped".
+    // Range [0, 0.5], delta 1: raw = (1 − 0)/0.5 = 2, clamped DOWN to 1 — so
+    // `normalised === value` and the outcome test does NOT fire, while the
+    // quantity has been HALVED and ships with the 'delta' attestation intact.
+    // Identity of the OUTPUT does not imply identity of the TRANSFORM.
+    // This is the arm `|| clamped` exists for; delete it and this test alone
+    // goes red while every other test in the file stays green.
+    const node = {
+      id: 'fac_narrow',
+      kind: 'factor',
+      label: 'Narrow-domain factor',
+      // observed 0.25 ⇒ inferred_value range [0, 0.5], width 0.5.
+      observed_state: { value: 0.25 },
+    } as unknown as EngineNodeV3;
+
+    const c = REDUCTION_CONSTRAINT({
+      constraint_id: 'gc-fixed-point',
+      node_id: 'fac_narrow',
+      operator: '>=',
+      value: 1,
+    });
+    const out = normaliseGoalConstraints([c], [node]);
+
+    const refusal = out.refused.find((r) => r.constraint_id === 'gc-fixed-point');
+    expect(refusal).toBeDefined();
+    expect(refusal!.stated_value).toBe(1);
+
+    // The tell: the substituted number EQUALS the stated one, which is exactly
+    // why `normalised !== value` is blind here.
+    expect(refusal!.would_have_sent).toBe(1);
+    expect(refusal!.range).toEqual({ min: 0, max: 0.5, source: 'inferred_value' });
+
+    expect(out.constraints.find((x) => x.constraint_id === 'gc-fixed-point')).toBeUndefined();
+  });
+
+  it('PIN: the added `clamped` arm does not catch an UN-clamped faithful delta', () => {
+    // The other half of F2's discrimination — widening the predicate must not
+    // start refusing deltas that pass through untouched.
+    const c = REDUCTION_CONSTRAINT({
+      constraint_id: 'gc-still-faithful',
+      node_id: 'node_not_in_graph',
+      operator: '>=',
+      value: 0.05,
+    });
+    const out = normaliseGoalConstraints([c], NODES);
+
+    expect(out.refused).toHaveLength(0);
+    expect(out.constraints.find((x) => x.constraint_id === 'gc-still-faithful')!.value).toBe(0.05);
+  });
+});
+
 describe('2.878 — the guard is not a SIGN check: the positive half of the delta domain', () => {
   it('DEFECT: a POSITIVE delta that normalisation rescales is refused too — the guard is not a sign check', () => {
     // AUDIT THE PREDICATE'S DOMAIN, not just the named case. The reduction

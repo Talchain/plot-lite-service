@@ -6544,11 +6544,68 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             // disappears is the failure this refusal exists to replace.
             if (constraintNormResult.refused.length > 0) {
               refusedConstraintRecords.push(...constraintNormResult.refused);
+
+              // ⚠⚠ ROADMAP 2.878 F1 — REMOVING IT FROM THE ISL PAYLOAD IS ONLY
+              // HALF THE JOB. `buildConstraintFields` enforces an EXACT
+              // one-to-one correspondence between ISL's constraint results and
+              // the ACTIVE constraint list (`constraintResults.length ===
+              // goalConstraints.length && …`, ~line 2364), and it is handed
+              // `activeGoalConstraints`. A constraint dropped from the payload
+              // but left in the active list makes those counts disagree, so the
+              // guard returns `constraints_status: 'unavailable'` and the run
+              // reports **ZERO** constraint results — one refused delta deletes
+              // every OTHER constraint's correctly-computed verdict, and the
+              // disclosure then says "1 constraint was not evaluated" when in
+              // fact none were. That is the precise harm the refusal design
+              // rejected the drop-the-frame alternative to avoid; the first
+              // version of this fix reproduced it. Proven by execution: 2 levels
+              // + 1 refused delta → 0 results; byte-identical payload with
+              // 'level' instead of 'delta' → 3 results.
+              //
+              // THE PRE-EXISTING DROP MECHANISM SHOWS THE CORRECT SHAPE: the
+              // temporal filter REPLACES the list (`constraintCompilation
+              // .constraints = temporalFilterResult.passed`) *before*
+              // `activeGoalConstraints` is derived from it. This drop happens
+              // ~700 lines later, so it must do the equivalent explicitly.
+              //
+              // Reassigning here (rather than at the single response-builder
+              // call site) fixes EVERY downstream consumer at once, including
+              // `buildConstraintScaleProvenance` below — which would otherwise
+              // build a trust marker for a refused constraint that has no
+              // diagnostic, disclosing it as a forwarded-raw
+              // `source: 'default'` constraint that was never sent at all.
+              const refusedIds = new Set(
+                constraintNormResult.refused.map((r) => r.constraint_id),
+              );
+              activeGoalConstraints = activeGoalConstraints.filter(
+                (c) => !refusedIds.has(c.constraint_id),
+              );
+
+              // ⚠ ROADMAP 2.878 F3 — NO QUANTITIES ON THIS EVENT. `stated_value`
+              // is only digested when `String(v).length >= 4` (MIN_TOKEN_LEN),
+              // so `0.5` / `-5` / `12` ship in the clear; `would_have_sent` is
+              // DERIVED, so it is never a registered token and its key is not a
+              // DECISION_DOMAIN_KEY — it would never be redacted at all. That is
+              // exactly the class removed from the sibling events ~100 lines
+              // above. The precedent to match is
+              // `plot.temporal_constraints_filtered`, which logs
+              // `FilteredConstraintRecord` — no quantity by construction.
+              // `range.source` is flattened to `range_source` deliberately: the
+              // `source` key is in both DECISION_DOMAIN_KEYS and
+              // LITERAL_VALUE_KEYS and the decision branch is checked first, so
+              // a nested `range` would digest the range vocabulary into
+              // uselessness. The quantities remain in the `removed` repair
+              // record, which is response content rather than an info log.
               req.log.warn({
                 event: 'plot.constraint_refused',
                 refused_count: constraintNormResult.refused.length,
                 forwarded_count: constraintNormResult.constraints.length,
-                refused: constraintNormResult.refused,
+                refused: constraintNormResult.refused.map((r) => ({
+                  constraint_id: r.constraint_id,
+                  node_id: r.node_id,
+                  reason: r.reason,
+                  range_source: r.range.source,
+                })),
               });
             }
 

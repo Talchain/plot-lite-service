@@ -1478,6 +1478,20 @@ export function normaliseGoalConstraints(
     //      majority — a negative delta normalises to **0** for EVERY width.
     //      `−0.15` → `{normalised: 0, clamped: true}`.
     //
+    // ⚠ WHAT IS *NOT* CLAIMED, and an earlier draft of this comment got wrong.
+    // For a min-0 range the map reduces to `v / width`, which IS the
+    // arithmetically correct NORMALISED-SPACE delta — so `+0.05` on `[0,200]`
+    // → `0.00025` is only a corruption under the RAW-UNIT reading, and this
+    // very file states below that which reading ISL takes is NOT established.
+    // The substitution is therefore **unverifiable in either direction**, not a
+    // measured 200× error. That is precisely why refusing is right: under
+    // genuine uncertainty a gap beats a number nobody can check. Stating it as
+    // a settled corruption would be the same over-read this guard exists to
+    // prevent (an honest unknown hardening into a claim the next reader
+    // inherits without its scope).
+    // Case 2's CLAMP, by contrast, is a corruption under BOTH readings: no
+    // reading of a delta frame makes `<= 0` mean `<= −0.15`.
+    //
     // Case 2 is the P0 this guard exists for. `extractReductionConstraints`
     // mints `{operator: '<=', value: −N}` for "reduce X by N" and attests it
     // `delta`; the clamp turns `<= −0.15` into `<= 0`, so ISL is asked
@@ -1487,16 +1501,33 @@ export function normaliseGoalConstraints(
     // can recover the question: `original_value` is carried on the PLoT-internal
     // struct and is NOT a field the ISL translator sends.
     //
-    // THE PREDICATE IS THE INVARIANT ITSELF — "the number that would reach ISL
-    // is not the number the user stated" — and deliberately NOT `clamped`, nor
-    // the value's SIGN, nor the range's source. `clamped` is one CAUSE of the
-    // harm and would miss case 1 entirely; the sign is what the defective
-    // `constraintsNeedNormalisation` gate already keys on and would miss a
-    // rescaled positive delta; a source list would be a hand-maintained mirror
-    // that a new ladder rung silently escapes. An outcome test cannot be escaped
-    // by any of those. Note it also passes the identity cases for free: the
-    // forward-raw branch and a [0,1] range both leave `normalised === value`, so
-    // a faithfully-forwarded delta is never refused.
+    // THE PREDICATE IS A UNION OF TWO GUARDS WITH DISJOINT BLIND SPOTS, and
+    // that is the whole point — ⚠ an earlier version of this comment claimed
+    // the outcome test "cannot be escaped" by the alternatives. THAT WAS FALSE,
+    // and it was refuted by execution in review.
+    //
+    //   `normalised !== value`  — the invariant itself: the number that would
+    //      reach ISL is not the number the user stated. Catches case 1 (the
+    //      translation term), which `clamped` cannot see at all, and catches a
+    //      rescaled positive delta, which a SIGN test cannot see.
+    //   `clamped`               — catches what the outcome test provably
+    //      misses: THE AFFINE MAP HAS FIXED POINTS, so identity of the OUTPUT
+    //      does not imply identity of the TRANSFORM. Measured: range [0,0.5],
+    //      delta `1` → raw `2` → clamped DOWN to `1` → `normalised === value`
+    //      → the outcome test does not fire, and a HALVING ships with the
+    //      'delta' attestation intact. General form: the fixed point
+    //      `v = min / (1 − width)` for `width ≠ 1`, plus `v ∈ {0,1}` whenever
+    //      the clamp happens to land on the stated value itself.
+    //
+    // Neither dominates the other, so neither is a "winner" — the OR is
+    // load-bearing in both directions and removing either arm reopens a class.
+    // A range-SOURCE list was also considered and rejected: it would be a
+    // hand-maintained mirror a new ladder rung silently escapes.
+    //
+    // No false positives from floating point: the only exact-identity path is
+    // `min = 0 ∧ width = 1`, where `(v − 0) / 1 === v` exactly in IEEE-754 (and
+    // `-0 === 0` under `!==`). So the forward-raw branch and a [0,1] range both
+    // leave a faithful delta untouched and unrefused.
     //
     // WHY REFUSE RATHER THAN RESCALE. Rescaling a delta correctly means
     // dividing by the range WIDTH with no offset — but whether ISL's `delta`
@@ -1509,6 +1540,18 @@ export function normaliseGoalConstraints(
     // guard is where the conversion goes — and it will still be the place that
     // refuses anything it cannot convert faithfully.
     //
+    // ⚠ SCOPE OF THE REFUSAL — this is NOT a narrow edge case, and it must not
+    // be read as one. `normalised === value` requires `min = 0 ∧ width = 1`,
+    // and every producer-declared rung has width ≠ 1 by construction
+    // (`unit_percent` [0,100], `goal_threshold_cap` [0,cap], `explicit_cap`),
+    // while `inferred_value` yields [0, 2·observed] — identity only when the
+    // observed value is exactly 0.5. **So in practice this refuses essentially
+    // the WHOLE delta class on any in-graph node: delta-framed constraints are
+    // non-functional until ISL's delta scale contract is established at the
+    // bytes.** That is a deliberate fail-closed posture, not an oversight, and
+    // it is the honest state of the capability — recorded here so a later
+    // reader does not inherit "refuses what it cannot convert" as an edge case.
+    //
     // WHY DROP RATHER THAN THROW. A throw would take out the whole analysis —
     // every option result — over one constraint. The refusal is per-constraint:
     // the run proceeds, every other constraint delivers, and this one is
@@ -1518,7 +1561,21 @@ export function normaliseGoalConstraints(
     // `constraint_analysis` block, so one bad constraint would silently delete
     // every other constraint's verdict — and it would still send the corrupted
     // number, merely unattested.
-    if (value_frame === 'delta' && normalised !== value) {
+    //
+    // ⚠⚠ AND THE FIRST VERSION OF THIS FIX REPRODUCED THAT EXACT HARM — the one
+    // the paragraph above says it rejected the alternative to avoid. Removing a
+    // constraint HERE is only half the job: PLoT's own one-to-one honesty guard
+    // (`buildConstraintFields`, routes/v2/run.ts) compares ISL's result count
+    // against the ACTIVE constraint list, so a constraint dropped from the ISL
+    // payload but left in the active list makes the counts disagree and the
+    // WHOLE run reports `constraints_status: 'unavailable'` with zero results.
+    // Proven by execution in review: 2 levels + 1 refused delta → 0 results;
+    // the same payload with 'level' instead of 'delta' → 3 results. **The
+    // caller MUST also remove the refused ids from the active set** — see the
+    // `refusedConstraintRecords` handling in routes/v2/run.ts, which mirrors
+    // what the temporal filter does by REPLACING the list before the active set
+    // is derived. Pinned by tests/constraint-delta-frame-refusal.route.test.ts.
+    if (value_frame === 'delta' && (normalised !== value || clamped)) {
       refused.push({
         constraint_id,
         node_id,
