@@ -129,6 +129,17 @@ export interface ISLGoalConstraint {
   value: number;
   label?: string;
   weight?: number;
+  /**
+   * ROADMAP 2.855 — the frame `value` is stated in. Mirrors ISL's
+   * `GoalConstraint.value_frame` (`src/models/robustness_v2.py`), which is
+   * `Optional[Literal["level","delta"]]` and fail-closed: absent ⇒
+   * `CONSTRAINT_FRAME_UNSPECIFIED` and `constraint_analysis` omitted entirely.
+   *
+   * ⚠ ISL's model is `extra: "ignore"`, so a misspelt key here would die at
+   * parse with a clean 200 and no error anywhere — which is why this field's
+   * arrival is proven through the ENDPOINT, not by a green build.
+   */
+  value_frame?: GoalThresholdFrameType;
 }
 
 /**
@@ -932,6 +943,11 @@ export function toISLRobustnessRequest(
       value: c.value,
       ...(c.label !== undefined && { label: c.label }),
       ...(c.weight !== undefined && { weight: c.weight }),
+      // ROADMAP 2.855 — by presence. Structurally coupled to its own number by
+      // construction: the frame rides ON the constraint object, so it cannot
+      // reach the wire without the `value` it describes (the coupling the node
+      // channel has to arrange positionally for `goal_threshold_frame`).
+      ...(c.value_frame !== undefined && { value_frame: c.value_frame }),
     }));
   }
 

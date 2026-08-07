@@ -1272,7 +1272,7 @@ export function normaliseGoalConstraints(
   const applyChainWithoutScale = extras?.normaliseWithoutScale ?? true;
 
   for (const constraint of constraints) {
-    const { constraint_id, node_id, operator, value, label, weight } = constraint;
+    const { constraint_id, node_id, operator, value, label, weight, value_frame } = constraint;
 
     // Find target node
     const targetNode = nodeMap.get(node_id);
@@ -1452,6 +1452,11 @@ export function normaliseGoalConstraints(
       original_value: value,
       label,
       weight,
+      // ROADMAP 2.855 — the frame survives normalisation UNCHANGED. Normalising
+      // a value against its node's range is a change of SCALE, not of FRAME: a
+      // level stays a level and a delta stays a delta, so re-deriving or
+      // dropping the attestation here would be wrong in both directions.
+      ...(value_frame !== undefined && { value_frame }),
     };
     normalisedConstraints.push(normalisedConstraint);
 

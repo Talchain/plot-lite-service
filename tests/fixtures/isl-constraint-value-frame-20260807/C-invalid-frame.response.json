@@ -1,0 +1,1 @@
+{"analysis_status":"blocked","status_reason":"goal_constraints -> 0 -> value_frame: Input should be 'level' or 'delta'","critiques":[{"id":"critique_fb176699713d","code":"VALIDATION_ERROR","severity":"blocker","message":"goal_constraints -> 0 -> value_frame: Input should be 'level' or 'delta'","source":"validation"}],"request_id":"isl-58031a71acef"}

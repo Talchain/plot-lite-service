@@ -1,0 +1,296 @@
+{
+  "analysis_types": [
+    "robustness"
+  ],
+  "goal_constraints": [
+    {
+      "constraint_id": "c_throughput_floor",
+      "label": "Throughput floor",
+      "node_id": "out_throughput",
+      "operator": ">=",
+      "value": 0.05
+    }
+  ],
+  "goal_node_id": "goal_productivity",
+  "graph": {
+    "edges": [
+      {
+        "exists_probability": 0.6,
+        "from": "fac_dev_headcount",
+        "strength": {
+          "mean": 0.12,
+          "std": 0.1
+        },
+        "to": "out_technical_quality"
+      },
+      {
+        "exists_probability": 0.85,
+        "from": "fac_dev_headcount",
+        "strength": {
+          "mean": 0.5072815533980582,
+          "std": 0.16601941747572813
+        },
+        "to": "out_throughput"
+      },
+      {
+        "exists_probability": 0.8,
+        "from": "fac_dev_headcount",
+        "strength": {
+          "mean": 0.3,
+          "std": 0.12
+        },
+        "to": "risk_coordination"
+      },
+      {
+        "exists_probability": 0.95,
+        "from": "fac_hiring_cost",
+        "strength": {
+          "mean": 0.7,
+          "std": 0.1
+        },
+        "to": "risk_cost_burden"
+      },
+      {
+        "exists_probability": 0.8,
+        "from": "fac_team_maturity",
+        "strength": {
+          "mean": 0.18446601941747573,
+          "std": 0.09223300970873786
+        },
+        "to": "out_throughput"
+      },
+      {
+        "exists_probability": 0.72,
+        "from": "fac_team_maturity",
+        "strength": {
+          "mean": -0.18,
+          "std": 0.1
+        },
+        "to": "risk_coordination"
+      },
+      {
+        "exists_probability": 0.85,
+        "from": "fac_tech_lead",
+        "strength": {
+          "mean": 0.6,
+          "std": 0.15
+        },
+        "to": "out_technical_quality"
+      },
+      {
+        "exists_probability": 0.75,
+        "from": "fac_tech_lead",
+        "strength": {
+          "mean": 0.258252427184466,
+          "std": 0.129126213592233
+        },
+        "to": "out_throughput"
+      },
+      {
+        "exists_probability": 0.7,
+        "from": "fac_tech_lead",
+        "strength": {
+          "mean": -0.15,
+          "std": 0.1
+        },
+        "to": "risk_coordination"
+      },
+      {
+        "exists_probability": 0.88,
+        "from": "out_technical_quality",
+        "strength": {
+          "mean": 0.3,
+          "std": 0.12
+        },
+        "to": "goal_productivity"
+      },
+      {
+        "exists_probability": 0.95,
+        "from": "out_throughput",
+        "strength": {
+          "mean": 0.55,
+          "std": 0.1
+        },
+        "to": "goal_productivity"
+      },
+      {
+        "exists_probability": 0.85,
+        "from": "risk_coordination",
+        "strength": {
+          "mean": -0.2,
+          "std": 0.1
+        },
+        "to": "goal_productivity"
+      },
+      {
+        "exists_probability": 0.9,
+        "from": "risk_cost_burden",
+        "strength": {
+          "mean": -0.25,
+          "std": 0.12
+        },
+        "to": "goal_productivity"
+      }
+    ],
+    "nodes": [
+      {
+        "epsilon_std": 0,
+        "id": "fac_dev_headcount",
+        "intercept": 0,
+        "kind": "factor",
+        "label": "Developer Headcount Added",
+        "observed_state": {
+          "cap": 2,
+          "factor_type": "demand",
+          "raw_value": 0,
+          "uncertainty_drivers": [
+            "Candidate pipeline quality",
+            "Ramp-up time before full contribution"
+          ],
+          "unit": "FTE",
+          "value": 0
+        }
+      },
+      {
+        "epsilon_std": 0,
+        "id": "fac_hiring_cost",
+        "intercept": 0,
+        "kind": "factor",
+        "label": "Hiring and Salary Cost",
+        "observed_state": {
+          "cap": 200000,
+          "factor_type": "cost",
+          "raw_value": 0,
+          "uncertainty_drivers": [
+            "Market salary rates for tech leads vs developers",
+            "Recruitment agency fees unknown"
+          ],
+          "unit": "\u00a3",
+          "value": 0
+        }
+      },
+      {
+        "epsilon_std": 0,
+        "id": "fac_team_maturity",
+        "intercept": 0,
+        "kind": "factor",
+        "label": "Team Technical Maturity"
+      },
+      {
+        "epsilon_std": 0,
+        "id": "fac_tech_lead",
+        "intercept": 0,
+        "kind": "factor",
+        "label": "Tech Lead in Place",
+        "observed_state": {
+          "factor_type": "other",
+          "uncertainty_drivers": [
+            "Availability of suitable candidates",
+            "Time to hire and onboard"
+          ],
+          "value": 0
+        }
+      },
+      {
+        "epsilon_std": 0,
+        "id": "goal_productivity",
+        "intercept": 0,
+        "kind": "goal",
+        "label": "Increase Team Productivity"
+      },
+      {
+        "epsilon_std": 0,
+        "id": "out_technical_quality",
+        "intercept": 0,
+        "kind": "outcome",
+        "label": "Technical Quality and Architecture"
+      },
+      {
+        "epsilon_std": 0,
+        "id": "out_throughput",
+        "intercept": 0,
+        "kind": "outcome",
+        "label": "Development Throughput"
+      },
+      {
+        "epsilon_std": 0,
+        "id": "risk_coordination",
+        "intercept": 0,
+        "kind": "risk",
+        "label": "Team Coordination Overhead"
+      },
+      {
+        "epsilon_std": 0,
+        "id": "risk_cost_burden",
+        "intercept": 0,
+        "kind": "risk",
+        "label": "Salary and Overhead Cost Burden"
+      }
+    ]
+  },
+  "include_e_values": true,
+  "include_voi": true,
+  "n_samples": 500,
+  "options": [
+    {
+      "id": "opt_one_dev",
+      "interventions": {
+        "fac_dev_headcount": 0.5,
+        "fac_tech_lead": 0
+      },
+      "label": "Hire One Developer (Reduced Commitment)"
+    },
+    {
+      "id": "opt_status_quo",
+      "interventions": {
+        "fac_dev_headcount": 0,
+        "fac_tech_lead": 0
+      },
+      "label": "No New Hire (Status Quo)"
+    },
+    {
+      "id": "opt_tech_lead",
+      "interventions": {
+        "fac_dev_headcount": 0,
+        "fac_tech_lead": 1
+      },
+      "label": "Hire One Tech Lead"
+    },
+    {
+      "id": "opt_two_devs",
+      "interventions": {
+        "fac_dev_headcount": 1,
+        "fac_tech_lead": 0
+      },
+      "label": "Hire Two Developers"
+    }
+  ],
+  "parameter_uncertainties": [
+    {
+      "distribution": "normal",
+      "mean": 0,
+      "node_id": "fac_dev_headcount",
+      "std": 0.5
+    },
+    {
+      "distribution": "normal",
+      "mean": 0,
+      "node_id": "fac_hiring_cost",
+      "std": 0.5
+    },
+    {
+      "distribution": "normal",
+      "mean": 0,
+      "node_id": "fac_tech_lead",
+      "std": 0.5
+    },
+    {
+      "distribution": "normal",
+      "mean": 0.5,
+      "node_id": "fac_team_maturity",
+      "std": 0.14433756729740646
+    }
+  ],
+  "request_id": "2855-witness-A-control-no-frame",
+  "seed": "2034401427"
+}

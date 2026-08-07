@@ -206,6 +206,11 @@ export function filterTemporalConstraints(
       value: constraint.value,
       ...(constraint.label !== undefined && { label: constraint.label }),
       ...(constraint.weight !== undefined && { weight: constraint.weight }),
+      // ROADMAP 2.855 — by presence, never defaulted. This rebuild runs over
+      // the ENTIRE merged constraint set on every request and its output
+      // REPLACES the list, so a field omitted here can never reach ISL however
+      // faithfully CEE stamps it or the translator projects it.
+      ...(constraint.value_frame !== undefined && { value_frame: constraint.value_frame }),
       ...((constraint as any)._internal !== undefined && { _internal: (constraint as any)._internal }),
     };
     passed.push(clean);
