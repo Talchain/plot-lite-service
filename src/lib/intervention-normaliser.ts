@@ -15,6 +15,14 @@
 
 import type { EngineNodeV3, OptionV3, InterventionValueV3, RepairRecord } from '../types/engine-v3.js';
 import { finiteNum } from '../util/numeric.js';
+import {
+  PERCENT_UNIT_TOKENS,
+  canonicaliseUnit,
+  classifyUnitCompatibility,
+  type ConstraintUnitMismatch,
+} from './constraint-units.js';
+
+export type { ConstraintUnitMismatch } from './constraint-units.js';
 
 // -----------------------------------------------------------------------------
 // Types
@@ -1079,11 +1087,62 @@ export interface ConstraintNormalisationExtras {
 /**
  * True when a constraint unit means "percent" (house doctrine: '%' always
  * normalises against 100).
+ *
+ * The token list is NOT spelled here: it is `PERCENT_UNIT_TOKENS` in
+ * `constraint-units.ts`, which the unit-family map also consumes. Two copies of
+ * this vocabulary is exactly the hand-maintained mirror that lets a token be
+ * added to one and not the other.
  */
 export function isPercentUnit(unit: string | undefined): boolean {
-  if (typeof unit !== 'string') return false;
-  const u = unit.trim().toLowerCase();
-  return u === '%' || u === 'percent' || u === 'pct' || u === 'percentage';
+  const u = canonicaliseUnit(unit);
+  return u !== undefined && PERCENT_UNIT_TOKENS.includes(u);
+}
+
+/**
+ * Range sources whose numeric bounds are read off the TARGET NODE's
+ * `observed_state`, and which therefore inherit `observed_state.unit` as the
+ * declared unit OF THE SCALE. Only for these can a constraint's own declared
+ * unit be compared against the scale's — for every other source there is no
+ * declared scale unit to compare with, and claiming one would be an invention.
+ *
+ * EVERY `RangeSource` member, with its verdict and the reason (audit the
+ * predicate's DOMAIN, not just the named case):
+ *   explicit_cap       IN  — `[0, observed_state.cap]`; cap is stated in
+ *                            `observed_state.unit`. THE WITNESSED DEFECT.
+ *   inferred_baseline  IN  — bounds from `observed_state.baseline` / `.value`.
+ *   inferred_value     IN  — bounds from `observed_state.value`.
+ *   explicit           OUT — `state_space.range` carries NO unit field at all
+ *                            (`types/engine-v3.ts:124-126`), so there is
+ *                            nothing to compare; measured, not assumed.
+ *   extracted          OUT — CE `intervention_hints.extracted_range`; its
+ *                            provenance is the extraction, not observed_state.
+ *   inferred_spread    OUT — min/max of INTERVENTION values across options;
+ *                            same provenance argument as `extracted`.
+ *   goal_threshold_cap OUT — a producer declaration minted for the goal
+ *                            threshold, not read from observed_state.
+ *   unit_percent       OUT — the range IS the constraint's own '%' unit
+ *                            (`[0,100]`), so it is reconciled by construction.
+ *   default            OUT — `[0,1]`, a made-up domain with no unit. Already
+ *                            fails closed elsewhere: `'default'` is outside
+ *                            `DECISION_GRADE_SOURCES` and already trips
+ *                            `threshold_normalisation_defaulted` suppression.
+ */
+const OBSERVED_STATE_SCALE_SOURCES: ReadonlySet<RangeSource> = new Set<RangeSource>([
+  'explicit_cap',
+  'inferred_baseline',
+  'inferred_value',
+]);
+
+/**
+ * The declared unit of the scale a resolved range represents, or `undefined`
+ * when that range has no declared unit (see `OBSERVED_STATE_SCALE_SOURCES`).
+ */
+export function resolveScaleUnit(
+  range: NormalisationRange,
+  targetNode: EngineNodeV3 | undefined,
+): string | undefined {
+  if (!OBSERVED_STATE_SCALE_SOURCES.has(range.source)) return undefined;
+  return canonicaliseUnit(targetNode?.observed_state?.unit);
 }
 
 /**
@@ -1133,6 +1192,20 @@ export interface ConstraintNormalisationResult {
      * (nothing to diverge from).
      */
     range_unified: boolean;
+    /**
+     * Present ONLY when the constraint's declared unit and the declared unit of
+     * the SCALE it was normalised against name different quantity kinds — the
+     * witnessed `count`-threshold-over-a-`%`-cap collision. Recorded here, at
+     * the one place holding BOTH the constraint's unit and the resolved range,
+     * and PROJECTED downstream (scale_provenance → the reliability gate) rather
+     * than re-derived. Absence is not a reconciliation: an undeclared unit on
+     * either side records nothing (see `classifyUnitCompatibility`).
+     *
+     * ⚠ The `normalised_value` recorded alongside this IS the mis-scaled number
+     * — it is kept so diagnostics/logs stay complete, and it is precisely what
+     * the consumers must refuse to deliver or to badge.
+     */
+    unit_mismatch?: ConstraintUnitMismatch;
     /** True when the node's CEE-stamped goal_threshold was preferred (P0-C1) */
     used_node_goal_threshold?: boolean;
   }>;
@@ -1341,6 +1414,29 @@ export function normaliseGoalConstraints(
       usedNodeGoalThreshold = true;
     }
 
+    // UNIT COMPATIBILITY (the goal-fit unit collision). Decided HERE, at
+    // ladder-decision time, for the same reason range_unified is: this is the
+    // only place that holds BOTH the constraint's own declared unit and the
+    // range the ladder actually resolved. Consumers PROJECT it.
+    //
+    // Note the ORDER dependency, which is why this sits after the ladder and not
+    // before it: the '%'-unit rung (4) outranks deriveRange (6), so a constraint
+    // whose unit IS percent never reaches an observed_state-derived scale in the
+    // first place — its range is its own unit's [0,100]. What arrives here is a
+    // constraint whose unit lost to, or never competed with, a scale read off
+    // the target node.
+    const scaleUnit = resolveScaleUnit(range, targetNode);
+    const unitCompatibility = classifyUnitCompatibility(unit, scaleUnit);
+    const unitMismatch: ConstraintUnitMismatch | undefined =
+      unitCompatibility === 'mismatched'
+        ? {
+            // Both are non-undefined by construction: 'mismatched' is only
+            // returned when BOTH sides canonicalised to a declared token.
+            constraint_unit: canonicaliseUnit(unit) as string,
+            scale_unit: scaleUnit as string,
+          }
+        : undefined;
+
     // Track if we used a heuristic (non-producer-declared range)
     const NON_HEURISTIC_SOURCES: ReadonlySet<RangeSource> = new Set<RangeSource>([
       'explicit', 'explicit_cap', 'goal_threshold_cap', 'unit_percent',
@@ -1390,6 +1486,9 @@ export function normaliseGoalConstraints(
         clamped,
         // A3 R1: the scale-unity decision, recorded for the trust marker to project.
         range_unified: rangeUnified,
+        // The unit collision, recorded for the trust marker AND the reliability
+        // gate to project. Present only on a genuine mismatch.
+        ...(unitMismatch !== undefined && { unit_mismatch: unitMismatch }),
         ...(usedNodeGoalThreshold && { used_node_goal_threshold: true }),
       });
     }

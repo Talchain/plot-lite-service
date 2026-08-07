@@ -169,6 +169,7 @@ import { buildDriverOrder, readIslSuppressedAttributions } from '../../lib/drive
 import {
   detectUnreliableConstraintTargets,
   detectUnanchoredSampleFrameTargets,
+  detectUnitMismatchedConstraintTargets,
   mergeUnreliableConstraintTargets,
   collectDirectedEdgeTargets,
   partitionConstraintTargets,
@@ -200,6 +201,7 @@ import {
   type NormalisationRange,
   type RangeSource,
   type GoalThresholdNodeMeta,
+  type ConstraintUnitMismatch,
 } from '../../lib/intervention-normaliser.js';
 import { assembleBrief } from '../../assembly/decision-brief.js';
 import { buildEvidencePriorityCard, type FactorInput } from '../../review-pass/evidence-priority.js';
@@ -2126,7 +2128,7 @@ const DECISION_GRADE_SOURCES: ReadonlySet<RangeSource> = new Set<RangeSource>([
   'unit_percent',
 ]);
 
-function buildConstraintScaleProvenance(
+export function buildConstraintScaleProvenance(
   activeConstraints: GoalConstraint[],
   // Per-constraint normalisation range (carries the resolved `source`), keyed by
   // constraint_id. Undefined/absent entry ⇒ the constraint underwent NO
@@ -2140,6 +2142,13 @@ function buildConstraintScaleProvenance(
   // 700 lines away (derive-don't-mirror). See the diagnostic's `range_unified`
   // field for the numeric-equality divergence rule.
   rangeUnifiedByCid: Map<string, boolean> | undefined,
+  // THE UNIT COLLISION (the goal-fit unit defect). Per-constraint, recorded by
+  // normaliseGoalConstraints at ladder-decision time — the only place holding
+  // BOTH the constraint's declared unit and the resolved scale — and PROJECTED
+  // here, exactly as rangeUnifiedByCid is. Entry present ONLY on a genuine
+  // mismatch. Absent map (never-normalised constraints) ⇒ no mismatch, which is
+  // correct: nothing was scaled, so nothing collided.
+  unitMismatchByCid: Map<string, ConstraintUnitMismatch> | undefined,
 ): Map<string, ConstraintScaleProvenance> {
   const out = new Map<string, ConstraintScaleProvenance>();
   for (const c of activeConstraints) {
@@ -2156,18 +2165,32 @@ function buildConstraintScaleProvenance(
     // is unified by construction.
     const rangeUnified = rangeUnifiedByCid?.get(c.constraint_id) ?? true;
 
-    // F-A1 whitelist derivation: range must be unified, unclamped, AND its source
-    // must be an explicitly-trusted member. A non-member (inferred_value, default,
-    // inferred_baseline, extracted, any future source) fails closed.
+    // THE UNIT CONJUNCT — a SECOND, SEPARABLE invariant, not a refinement of
+    // the whitelist. Every existing conjunct answers "WHICH SCALE was used, and
+    // was the resolution self-consistent?"; none of them asks "IS THE THRESHOLD
+    // ABOUT THE SAME QUANTITY AS THAT SCALE?" — a whitelist cannot catch a
+    // question it does not ask. On the witnessed capture all three original
+    // conjuncts held (`explicit_cap` ∈ DECISION_GRADE_SOURCES, range_unified
+    // true, no clamp) and `decision_grade: true` shipped on a `count` threshold
+    // that had been divided by a `%` cap. `decision_grade` is a claim about
+    // confidence; a threshold whose units were never reconciled has none.
+    const unitMismatch = unitMismatchByCid?.get(c.constraint_id);
+
+    // F-A1 whitelist derivation: range must be unified, unclamped, units
+    // reconciled, AND its source must be an explicitly-trusted member. A
+    // non-member (inferred_value, default, inferred_baseline, extracted, any
+    // future source) fails closed.
     const decisionGrade =
       rangeUnified &&
       thresholdClamp === undefined &&
+      unitMismatch === undefined &&
       DECISION_GRADE_SOURCES.has(source);
 
     out.set(c.constraint_id, {
       source,
       range_unified: rangeUnified,
       ...(thresholdClamp !== undefined && { threshold_clamped: thresholdClamp }),
+      ...(unitMismatch !== undefined && { unit_mismatch: unitMismatch }),
       decision_grade: decisionGrade,
     });
   }
@@ -2658,6 +2681,19 @@ function buildResponse(
   // so no absolute threshold can be compared against them, and the near-zero
   // that comes back is arithmetic, not a finding. Derivation + the measured
   // 2.286 counter-example: src/lib/constraint-reliability.ts.
+  //
+  // THE UNIT COLLISION: a THIRD, DERIVED detection, and neither sibling can
+  // reach it. The witnessed capture (`l60-artefacts/scenario-people.json` +
+  // `runfact-7fe412ba-run3.json`) sent `risk_ae_attrition <= 2` with unit
+  // 'count' against `observed_state {cap: 100, unit: '%'}` — PLoT normalised
+  // 2/100 = 0.02, turning "lose at most 2 account executives" into "attrition at
+  // or below 2%". The scale source was `explicit_cap`, a real producer
+  // declaration, so `threshold_normalisation_defaulted` never fires; and the
+  // L63 anchor limb `root_observed_level` PROVES a frame for any root target
+  // carrying an observed value while proving nothing about the unit, so the
+  // sample-frame gate does not close it either. This one asks the question they
+  // do not: is the threshold about the SAME QUANTITY as the scale it was
+  // divided by? Derivation: `lib/constraint-units.ts`.
   const unreliableConstraintTargets = mergeUnreliableConstraintTargets(
     detectUnreliableConstraintTargets(goalConstraints, constraintNormRanges, islResult),
     detectUnanchoredSampleFrameTargets(
@@ -2666,6 +2702,10 @@ function buildResponse(
       collectDirectedEdgeTargets(graph?.edges),
       options,
       goalThresholdFrameByNodeId,
+    ),
+    detectUnitMismatchedConstraintTargets(
+      goalConstraints,
+      constraintScaleProvenanceByConstraintId,
     ),
   );
   const constraintTargetPartition = partitionConstraintTargets(
@@ -3432,7 +3472,14 @@ function buildResponse(
       inferenceWarnings.push({
         code: INFERENCE_WARNING_CODES.CONSTRAINT_TARGET_UNRELIABLE,
         // provisional_doctrine_v0 — wording surface (see constraint-reliability.ts)
-        message: buildConstraintTargetUnreliableMessage(nodeLabel, target.reasons),
+        message: buildConstraintTargetUnreliableMessage(
+          nodeLabel,
+          target.reasons,
+          // Name the colliding units when that is the reason. The mismatch is
+          // read from the SAME projected provenance the detector fired on, so
+          // the message and the verdict can never disagree.
+          constraintScaleProvenanceByConstraintId?.get(target.constraint_id)?.unit_mismatch,
+        ),
         severity: 'warning',
       });
     }
@@ -6337,6 +6384,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // a normalised constraint — a diagnostic exists). The trust marker PROJECTS
         // this instead of re-deriving it; absence ⇒ never-normalised ⇒ unified.
         let constraintRangeUnifiedByCid: Map<string, boolean> | undefined;
+        // THE UNIT COLLISION: per-constraint unit mismatch, recorded by
+        // normaliseGoalConstraints at ladder-decision time (entry present ONLY
+        // when the constraint's declared unit and the declared unit of the scale
+        // it was normalised against name different quantity kinds). Projected —
+        // never re-derived — by the trust marker and the reliability gate.
+        let constraintUnitMismatchByCid: Map<string, ConstraintUnitMismatch> | undefined;
         // A3 trust marker: per-constraint scale provenance (built in Phase 4b
         // below once the constraint ranges + clamp map + intervention scales are
         // known). Feeds constraint_results[].scale_provenance and
@@ -6494,9 +6547,18 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             //    by the trust marker (derive-don't-mirror). Set BEFORE the clamp
             //    `continue` so every diagnostic contributes it.
             constraintRangeUnifiedByCid = new Map<string, boolean>();
+            //  - constraintUnitMismatchByCid: the unit-compatibility decision the
+            //    normaliser recorded at ladder-decision time. Set BEFORE the
+            //    clamp `continue` for the same reason range_unified is — a
+            //    mis-scaled threshold that ALSO clamped must still carry its
+            //    mismatch, or a clamp would silently swallow the stronger signal.
+            constraintUnitMismatchByCid = new Map<string, ConstraintUnitMismatch>();
             for (const d of constraintNormResult.diagnostics) {
               constraintNormalisationRanges.set(d.constraint_id, d.range);
               constraintRangeUnifiedByCid.set(d.constraint_id, d.range_unified);
+              if (d.unit_mismatch !== undefined) {
+                constraintUnitMismatchByCid.set(d.constraint_id, d.unit_mismatch);
+              }
               if (!d.clamped) continue;
               const direction = d.normalised_value <= 0 ? 'low' : d.normalised_value >= 1 ? 'high' : undefined;
               if (direction === undefined) continue;
@@ -6546,6 +6608,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             constraintNormalisationRanges,
             constraintThresholdClampByConstraintId,
             constraintRangeUnifiedByCid,
+            constraintUnitMismatchByCid,
           );
         }
 
