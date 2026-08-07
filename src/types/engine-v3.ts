@@ -440,6 +440,26 @@ export interface ConstraintScaleProvenance {
    */
   threshold_clamped?: 'low' | 'high';
   /**
+   * Present ONLY when this constraint's declared unit and the declared unit of
+   * the SCALE its threshold was normalised against name DIFFERENT QUANTITY
+   * KINDS — the witnessed `<= 2 'count'` divided by an `observed_state
+   * {cap: 100, unit: '%'}`, which turned "lose at most 2 account executives"
+   * into "attrition at or below 2%". Additive disclosure; its presence forces
+   * `decision_grade: false` and suppresses this constraint's probabilities
+   * (`constraint_unit_mismatch` in `lib/constraint-reliability.ts`).
+   *
+   * ABSENCE IS NOT A RECONCILIATION. A constraint with no declared unit, or a
+   * scale with none (a `state_space.range`, an intervention spread, the default
+   * `[0,1]`), records nothing here — there was no second unit to compare with.
+   * See `lib/constraint-units.ts` for the full source-by-source domain.
+   */
+  unit_mismatch?: {
+    /** The constraint's own declared unit, canonicalised (trimmed, lower-case). */
+    constraint_unit: string;
+    /** The declared unit of the scale the ladder resolved, canonicalised. */
+    scale_unit: string;
+  };
+  /**
    * Producer-owned trust marker. See `DECISION_GRADE_SOURCES` +
    * `buildConstraintScaleProvenance` in `routes/v2/run.ts` for the authoritative
    * derivation (whitelist form; the OR-disjunct was removed in the F-A1

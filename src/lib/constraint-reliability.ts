@@ -64,7 +64,16 @@ export type ConstraintUnreliabilityReason =
    * anchor, so no absolute threshold can be compared against them. See
    * `detectUnanchoredSampleFrameTargets` for the derivation.
    */
-  | 'sample_frame_unanchored';
+  | 'sample_frame_unanchored'
+  /**
+   * The constraint's declared unit and the declared unit of the scale its
+   * threshold was normalised against name DIFFERENT QUANTITY KINDS — the
+   * witnessed `<= 2 'count'` divided by an `observed_state {cap: 100, unit:'%'}`
+   * (see `lib/constraint-units.ts`). The number on the wire is then about a
+   * different quantity than the one the user asked about, so no probability
+   * derived from it may be delivered. See `detectUnitMismatchedConstraintTargets`.
+   */
+  | 'constraint_unit_mismatch';
 
 export interface UnreliableConstraintTarget {
   constraint_id: string;
@@ -310,6 +319,54 @@ export function detectUnanchoredSampleFrameTargets(
 }
 
 /**
+ * Detect constraints whose threshold was normalised against a scale in a
+ * DIFFERENT UNIT — the goal-fit unit collision.
+ *
+ * WHY IT IS A THIRD, SEPARATE DETECTOR rather than a limb of either sibling.
+ * `detectUnreliableConstraintTargets` asks "did the SCALE come from somewhere
+ * real?" and `detectUnanchoredSampleFrameTargets` asks "are the SAMPLES an
+ * absolute quantity?". Both can answer YES for the witnessed capture and both
+ * did: the range source was `explicit_cap` (a real, producer-declared node cap,
+ * so no `threshold_normalisation_defaulted`), and the L63 anchor limb
+ * `root_observed_level` PROVES a frame for any root target carrying an observed
+ * value — proving nothing whatever about the unit. This detector asks the third
+ * question, which neither of the others can reach: **is the threshold about the
+ * SAME QUANTITY as the scale it was divided by?**
+ *
+ * It reads the decision `normaliseGoalConstraints` already recorded (projected
+ * through `scale_provenance.unit_mismatch`) rather than re-deriving it from
+ * units + nodes here — the normaliser is the only place that holds both
+ * operands at ladder-decision time, and a second derivation is a second thing
+ * to drift.
+ *
+ * FAIL-CLOSED IN THE DIRECTION THAT MATTERS: an ABSENT provenance entry claims
+ * nothing and detects nothing, which is correct — a constraint with no
+ * provenance underwent no normalisation (forwarded raw, already in [0,1]), so
+ * no scale was applied to collide with.
+ */
+export function detectUnitMismatchedConstraintTargets(
+  goalConstraints: GoalConstraint[] | undefined,
+  scaleProvenanceByConstraintId:
+    | ReadonlyMap<string, { unit_mismatch?: { constraint_unit: string; scale_unit: string } }>
+    | undefined,
+): UnreliableConstraintTarget[] {
+  if (!goalConstraints || goalConstraints.length === 0) return [];
+  if (!scaleProvenanceByConstraintId) return [];
+
+  const out: UnreliableConstraintTarget[] = [];
+  for (const gc of goalConstraints) {
+    const mismatch = scaleProvenanceByConstraintId.get(gc.constraint_id)?.unit_mismatch;
+    if (mismatch === undefined) continue;
+    out.push({
+      constraint_id: gc.constraint_id,
+      node_id: gc.node_id,
+      reasons: ['constraint_unit_mismatch'],
+    });
+  }
+  return out;
+}
+
+/**
  * Union two unreliability detections by constraint_id, preserving reason order
  * and de-duplicating. Neither detector is authoritative over the other: they
  * answer different questions (see `detectUnanchoredSampleFrameTargets`), and a
@@ -472,6 +529,18 @@ export function partitionConstraintTargets(
       suppressed.push(target);
       continue;
     }
+    // ⚠ UNIT-COLLISION OVERRIDE — same shape as the L63 override above, and for
+    // a stronger reason. Doctrine B delivers because the samples are "a
+    // meaningful modelled distribution" scored "against the target". When the
+    // threshold and the scale it was divided by are in different units, the
+    // thing being compared against is not the user's target at all — "lose at
+    // most 2 account executives" arrives as "attrition at or below 2%". No
+    // property of the SAMPLES can rescue a threshold that is about a different
+    // quantity, so this can never ride any delivery exception.
+    if (target.reasons.includes('constraint_unit_mismatch')) {
+      suppressed.push(target);
+      continue;
+    }
     const baseDefaultedOnly =
       target.reasons.length === 1 && target.reasons[0] === 'target_base_defaulted';
     if (baseDefaultedOnly && forwardPropagatedNodeIds.has(target.node_id)) {
@@ -514,7 +583,71 @@ export function buildConstraintGoalFitModelledMessage(nodeLabel: string): string
 export function buildConstraintTargetUnreliableMessage(
   nodeLabel: string,
   reasons: ConstraintUnreliabilityReason[],
+  /**
+   * The colliding units, when `constraint_unit_mismatch` is among the reasons.
+   * Optional so every existing call site is unchanged; without it the unit
+   * branch still fires but names the collision generically rather than by unit.
+   */
+  unitMismatch?: { constraint_unit: string; scale_unit: string },
 ): string {
+  const inUnits =
+    unitMismatch !== undefined
+      ? `your target is stated in ${unitMismatch.constraint_unit} while "${nodeLabel}" is ` +
+        `measured in ${unitMismatch.scale_unit}`
+      : `your target and "${nodeLabel}" are measured in different units`;
+
+  // ⚠ BOTH REASONS TOGETHER GET THEIR OWN MESSAGE, AND THIS IS THE SHAPE A REAL
+  // USER HAS ACTUALLY HIT — the witnessed `7fe412ba` capture (`risk_ae_attrition`,
+  // three directed parents) trips the unit collision AND the unanchored frame.
+  //
+  // A single-cause message here is not merely incomplete, it is a REGRESSION:
+  // ranking the unit collision first displaced the L63 message and left the user
+  // with "restate the target in the same units", which PROVABLY CANNOT UNBLOCK
+  // this target — `resolveConstraintSampleFrameAnchor` returns null for any node
+  // with a directed parent before it ever looks at units. A more precise
+  // diagnosis that removes the user's only working remedy is a worse message,
+  // however correct its internals. Both causes must be resolved, so name both.
+  //
+  // ⚠ WHY THE FRAME REMEDY HERE IS THE **DELTA** LIMB AND NOT "set a current
+  // value", which the L63-only message offers. The two limbs do NOT have the
+  // same domain, and this message spans both shapes. Read off the resolver's
+  // limb ORDER: `attested_delta` is checked FIRST, before any topology test, so
+  // stating the target as a change works for a root and a non-root alike;
+  // `root_observed_level` is checked AFTER the `directedEdgeTargets` early
+  // return, so setting a current value unblocks a ROOT node only. Naming the
+  // limb that is valid across the whole domain is what lets this copy be true
+  // without knowing a shape it is not given. (The L63-only message's own
+  // shape-dependent first limb is pre-existing and untouched here.)
+  if (
+    reasons.includes('constraint_unit_mismatch') &&
+    reasons.includes('sample_frame_unanchored')
+  ) {
+    return (
+      `The target on "${nodeLabel}" can't be scored, and two separate things have to change ` +
+      `before it can be. First, ${inUnits}, so scaling the target against that factor would ` +
+      `silently change what you asked for into a target about a different quantity. Second, ` +
+      `"${nodeLabel}" is calculated from the factors feeding into it, so the analysis produces ` +
+      `a modelled change for it, not a reading on the same scale as your target. Goal-fit ` +
+      `probabilities were withheld for this run rather than computed from the wrong number. ` +
+      `Restate the target in the same units as "${nodeLabel}" — or set that factor's unit to ` +
+      `match your target — and state it as the change you want from today rather than as an ` +
+      `absolute level, which is the form "${nodeLabel}" can be scored against.`
+    );
+  }
+  // The unit collision outranks the remaining reasons: they describe problems
+  // with a comparison between the user's target and the model, while this one
+  // says the number compared was never the user's target. Claim-safe, same
+  // rules as its siblings — names what was and was not compared, never quotes
+  // the withheld probability, names a concrete user action.
+  if (reasons.includes('constraint_unit_mismatch')) {
+    return (
+      `The target on "${nodeLabel}" can't be scored: ${inUnits}, so scaling the target ` +
+      `against that factor would silently change what you asked for into a target about a ` +
+      `different quantity. Goal-fit probabilities were withheld for this run rather than ` +
+      `computed from the wrong number. Restate the target in the same units as ` +
+      `"${nodeLabel}" — or set that factor's unit to match your target.`
+    );
+  }
   // L63 takes priority when present: it is the strongest statement available
   // about this target (the comparison itself is not well-posed), and the other
   // reasons describe inputs to a comparison that is not going to happen.
