@@ -5549,6 +5549,68 @@ components:
                 type: string
               rho:
                 type: number
+        user_stated_ranges:
+          type: array
+          description: |
+            ROADMAP 2.720 (pillar P4, human-AI collaboration): the user's OWN
+            stated ranges for factor values — the raw statement, as said.
+            Forwarded to ISL's interquartile range-to-distribution converter,
+            which treats each range as a ~50% CREDIBLE INTERVAL and returns
+            either a fitted distribution or one of seven TYPED refusals in the
+            response's `range_fit_disclosures`.
+
+            CARRIED, NOT APPLIED. ISL compute is BYTE-IDENTICAL whether or not
+            this field is present (its stage S3): stating a range changes what
+            the user is TOLD, not yet what is COMPUTED. Application awaits a
+            science ruling. Do not describe it to a user as "your range now
+            counts".
+
+            NOT the same thing as a node's `prior: {distribution: uniform, ...}`.
+            That is a SYSTEM-derived declared-uniform support (sigma = width/sqrt(12));
+            a human-stated range is a credible interval (sigma = 0.7413*width,
+            2.57x larger) and is fitted ISL-side. The two must not be conflated.
+
+            Light structural validation only; deep semantics (zero width,
+            inverted order, out of domain, at domain edge, open-ended,
+            non-convergent) are ISL's single source of truth and come back as
+            typed refusals rather than errors. Request-gated: inert and omitted
+            on both boundaries when absent or empty.
+          items:
+            type: object
+            required: [node_id, domain]
+            properties:
+              node_id:
+                type: string
+                minLength: 1
+                description: The factor node the range was stated for; must be a node of the graph, at most once.
+              lower:
+                type: number
+                description: |
+                  The user's stated lower bound, raw. ABSENT means open-ended
+                  below ("no more than X") and is REFUSED loudly by ISL as
+                  RANGE_OPEN_ENDED — never defaulted or silently reshaped.
+              upper:
+                type: number
+                description: |
+                  The user's stated upper bound, raw. ABSENT means open-ended
+                  above ("at least X") — refused RANGE_OPEN_ENDED.
+              domain:
+                type: string
+                enum: [unit_interval, unbounded]
+                description: |
+                  DECLARED domain of the quantity — selects the fitted family
+                  (unit_interval to beta, unbounded to normal). Required: the
+                  family is never inferred from whether the values happen to
+                  lie in [0,1].
+              source:
+                type: string
+                description: Who stated the range (provenance, e.g. "user").
+              stated_at:
+                type: string
+                description: When the range was stated (ISO 8601, producer-stamped).
+              method_version:
+                type: string
+                description: ELICITATION method version stamped by the producer — NOT the fit method, which ships in the disclosure echo.
 
     nodeV3:
       type: object
@@ -6054,6 +6116,127 @@ components:
             deployed ISL did not disclose it or no sensitivity was computed.
             Disclosure only — surface that sensitivity results are relative
             to this option; do not invent a baseline. Not in response_hash.
+        range_fit_disclosures:
+          type: array
+          description: |
+            ROADMAP 2.720 (pillar P4): per-range interquartile-fit disclosures
+            for the request's `user_stated_ranges`. Verbatim passthrough of the
+            ISL envelope field.
+
+            REQUEST-GATED AT THE SOURCE — ISL emits the key only when ranges
+            were stated, so ABSENCE means "no ranges were sent", NOT "the fit
+            failed". A failed fit arrives as a TYPED REFUSAL inside a PRESENT
+            row. An empty array means ranges were stated and produced no rows,
+            which is a different fact again; all three states are preserved.
+
+            Each row carries the raw bounds AS SAID plus EITHER `fitted` OR
+            `refusal` — exactly one. A refusal is never a fallback: it means the
+            value stays disclosed as stated, no distribution is produced, and
+            compute is untouched. A consumer that renders only `fitted` shows
+            nothing for every refused range, which is exactly the state the
+            typed vocabulary exists to make visible.
+
+            CARRIED, NOT APPLIED: ISL compute is byte-identical whether or not
+            ranges were stated. Not in response_hash (response_hash
+            canonicalises the request).
+          items:
+            type: object
+            required: [node_id, domain]
+            properties:
+              node_id:
+                type: string
+                description: The factor node the range was stated for.
+              lower:
+                type: number
+                nullable: true
+                description: Stated lower bound, echoed raw.
+              upper:
+                type: number
+                nullable: true
+                description: Stated upper bound, echoed raw.
+              domain:
+                type: string
+                enum: [unit_interval, unbounded]
+                description: The declared domain the fitted family came from.
+              fitted:
+                type: object
+                description: |
+                  The fitted distribution — present IFF the fit was accepted.
+                  Family parameters are the source of truth; mean/std/q25/q75
+                  are derived read-only disclosure conveniences. The raw
+                  (lower, upper) remain the stored source of truth upstream —
+                  this object is derived at ISL's resolver and must never be
+                  persisted as if it were elicited.
+                properties:
+                  family:
+                    type: string
+                    enum: [normal, beta]
+                  mu:
+                    type: number
+                    nullable: true
+                    description: Normal location mu (absent for a beta fit).
+                  sigma:
+                    type: number
+                    nullable: true
+                    description: Normal scale sigma > 0 (absent for a beta fit).
+                  alpha:
+                    type: number
+                    nullable: true
+                    description: Beta shape alpha > 0 (absent for a normal fit).
+                  beta:
+                    type: number
+                    nullable: true
+                    description: Beta shape beta > 0 (absent for a normal fit).
+                  mean:
+                    type: number
+                  std:
+                    type: number
+                  q25:
+                    type: number
+                    description: First quartile (derived; equals the stated lower bound).
+                  q75:
+                    type: number
+                    description: Third quartile (derived; equals the stated upper bound).
+                  coverage:
+                    type: number
+                    description: |
+                      Credible-interval coverage the fit TARGETED. Ratified 0.5:
+                      the stated bounds are the fitted QUARTILES, equal 25%
+                      tails. Carried on the wire so a consumer never assumes it.
+                  method_version:
+                    type: string
+                    description: FIT method provenance, e.g. "range-iq-fit-v1".
+              refusal:
+                type: object
+                description: The typed refusal — present IFF the fit was refused.
+                properties:
+                  code:
+                    type: string
+                    enum:
+                      - RANGE_ZERO_WIDTH
+                      - RANGE_INVALID_ORDER
+                      - RANGE_NON_FINITE
+                      - RANGE_OUT_OF_DOMAIN
+                      - RANGE_AT_DOMAIN_EDGE
+                      - RANGE_OPEN_ENDED
+                      - RANGE_FIT_NONCONVERGENT
+                    description: Closed refusal vocabulary; ISL is its single source of truth.
+                  message:
+                    type: string
+                    description: Human-readable reason (sanitised by ISL).
+                  lower:
+                    type: number
+                    nullable: true
+                  upper:
+                    type: number
+                    nullable: true
+                  domain:
+                    type: string
+                    enum: [unit_interval, unbounded]
+                  starts_tried:
+                    type: integer
+                    nullable: true
+                    description: For RANGE_FIT_NONCONVERGENT, how many solver starts were tried before refusing.
         path_decomposition:
           type: object
           description: |

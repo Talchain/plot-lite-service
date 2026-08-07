@@ -691,6 +691,62 @@ export interface RunRequestV3 {
    * PLoT). Request-gated: the ISL payload does not grow for callers who omit it.
    */
   factor_correlations?: FactorCorrelation[];
+
+  /**
+   * ⭐ ROADMAP 2.720 (pillar P4, human–AI collaboration): the user's OWN stated
+   * ranges for factor values — the raw statement, as said.
+   *
+   * When present and non-empty, PLoT projects each entry onto ISL's declared
+   * `UserStatedRange` members and forwards them, and passes ISL's per-range
+   * `range_fit_disclosures` back out additively. ISL treats each range as a
+   * ≈50% CREDIBLE INTERVAL and returns either an interquartile-fitted
+   * distribution or one of seven TYPED refusals.
+   *
+   * ⚠ CARRIED, NOT APPLIED (ISL stage S3). ISL's compute is BYTE-IDENTICAL
+   * whether or not this field is present — the resolver is pure, RNG-free and
+   * runs after all sampling. Stating a range changes what the user is TOLD, not
+   * yet what is COMPUTED; application waits on ISL's 2.521 Q2 + the combination
+   * ruling. Do not describe this to a user as "your range now counts".
+   *
+   * ⚠ NOT the same thing as a node's `prior: {distribution:'uniform', …}`.
+   * That is a SYSTEM-derived declared-uniform support (σ = width/√12); a
+   * human-stated range is a credible interval (σ = 0.7413·width, 2.57× larger)
+   * and is fitted ISL-side. Routing one through the other silently understates
+   * the user's uncertainty. INERT WHEN ABSENT — request-gated on both boundaries.
+   */
+  user_stated_ranges?: UserStatedRange[];
+}
+
+/**
+ * One user-stated range on the /v2/run request (ROADMAP 2.720).
+ *
+ * Mirrors ISL's `UserStatedRange`; PLoT's translator projects onto ISL's
+ * declared member list (`ISL_DECLARED_USER_STATED_RANGE_FIELDS`), which is
+ * pinned to ISL's pinned OpenAPI by test and to this type at compile time.
+ *
+ * ⚠ `lower`/`upper` are OPTIONAL BY DESIGN: their absence expresses an
+ * open-ended statement ("at least X") and is REFUSED loudly by ISL as
+ * `RANGE_OPEN_ENDED` rather than silently reshaped. Never default them.
+ */
+export interface UserStatedRange {
+  /** The factor node the range was stated for. */
+  node_id: string;
+  /** The user's stated lower bound, raw. ABSENT = open-ended below. */
+  lower?: number;
+  /** The user's stated upper bound, raw. ABSENT = open-ended above. */
+  upper?: number;
+  /**
+   * DECLARED domain of the quantity — determines the fitted family
+   * (`unit_interval` → beta, `unbounded` → normal). Required: family selection
+   * never infers from whether the values happen to lie in [0,1].
+   */
+  domain: 'unit_interval' | 'unbounded';
+  /** Who stated the range (provenance, e.g. 'user'). */
+  source?: string;
+  /** When it was stated (ISO 8601, producer-stamped). */
+  stated_at?: string;
+  /** ELICITATION method version stamped by the producer — not the fit method. */
+  method_version?: string;
 }
 
 // -----------------------------------------------------------------------------

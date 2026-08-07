@@ -32,6 +32,7 @@
 import type {
   ISLEdgeEValue,
   ISLEdgeSensitivityV2,
+  ISLRangeFitDisclosure,
   ISLRobustnessAnalyzeV2Response,
 } from './types/isl-types.js';
 
@@ -76,6 +77,37 @@ export function getIslEdgeSensitivity(
 ): ISLEdgeSensitivityV2[] | undefined {
   const nested = islResult?.robustness?.edge_sensitivity;
   if (Array.isArray(nested) && nested.length > 0) return nested;
+  return undefined;
+}
+
+/**
+ * Read the per-range interquartile-fit disclosures from an ISL response
+ * (ROADMAP 2.720 / ISL 2.521 Q1).
+ *
+ * Canonical V2 location is TOP-LEVEL, beside `factor_sensitivity` and
+ * `factor_flip_values` — verified against DEPLOYED ISL build 686fcb7 (live
+ * captures frozen at `tests/fixtures/isl-range-fit-live-20260807/`) and against
+ * `ISLResponseV2.range_fit_disclosures` in the pinned OpenAPI. There is
+ * deliberately NO nested fallback: no ISL build has ever emitted it under
+ * `robustness`, and inventing a second lookup location is how a field ends up
+ * "read" from somewhere nothing writes.
+ *
+ * ⚠ THE THREE STATES ARE DISTINCT AND ALL THREE ARE PRESERVED:
+ *   - `undefined` — no ranges were stated (ISL omits the key entirely).
+ *   - `[]`        — ranges were stated and produced no rows. A computed-empty
+ *                   result, NOT the same fact as "none stated". Collapsing it
+ *                   to absent would delete the only signal that the request
+ *                   carried ranges at all.
+ *   - `[row, …]`  — each row carries EITHER `fitted` OR a TYPED `refusal`.
+ *
+ * A non-array (a malformed or future ISL build) degrades to `undefined` rather
+ * than being forwarded as a shape no consumer can read.
+ */
+export function getIslRangeFitDisclosures(
+  islResult: Partial<ISLRobustnessAnalyzeV2Response> | null | undefined,
+): ISLRangeFitDisclosure[] | undefined {
+  const disclosures = islResult?.range_fit_disclosures;
+  if (Array.isArray(disclosures)) return disclosures;
   return undefined;
 }
 

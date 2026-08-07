@@ -483,6 +483,99 @@ export interface ISLFactorFlipStabilityBandV2 {
  * `value_scale: 'display'` ONLY when it genuinely denormalised against an
  * `explicit_cap` range.
  */
+/**
+ * The distribution ISL fitted to a user-stated range (ROADMAP 2.720).
+ *
+ * Mirrors ISL's `FittedDistribution` (isl/src/models/range_fit.py @ 686fcb7f).
+ * The FAMILY PARAMETERS are the source of truth; `mean`/`std`/`q25`/`q75` are
+ * derived read-only disclosure conveniences recomputed from them. The raw
+ * `(lower, upper)` stay the stored source of truth UPSTREAM — this object is
+ * derived at ISL's resolver and must never be persisted as if it were elicited.
+ */
+export interface ISLFittedDistribution {
+  /** Fitted family — `unit_interval` domains fit beta, `unbounded` fit normal. */
+  family: 'normal' | 'beta';
+  /** Normal location μ (absent for a beta fit). */
+  mu?: number;
+  /** Normal scale σ > 0 (absent for a beta fit). */
+  sigma?: number;
+  /** Beta shape α > 0 (absent for a normal fit). */
+  alpha?: number;
+  /** Beta shape β > 0 (absent for a normal fit). */
+  beta?: number;
+  /** Distribution mean (derived). */
+  mean: number;
+  /** Distribution std (derived). */
+  std: number;
+  /** First quartile (derived; equals the stated lower bound). */
+  q25: number;
+  /** Third quartile (derived; equals the stated upper bound). */
+  q75: number;
+  /**
+   * Credible-interval coverage the fit TARGETED. Ratified 0.5: the user's
+   * stated bounds are treated as the fitted QUARTILES, with equal 25% tails.
+   * Carried on the wire so a consumer never has to assume the convention.
+   */
+  coverage: number;
+  /** FIT method provenance, e.g. `range-iq-fit-v1`. */
+  method_version: string;
+}
+
+/**
+ * ISL's TYPED refusal to fit a stated range (ROADMAP 2.720).
+ *
+ * ⚠ A REFUSAL IS NEVER A FALLBACK. It means: the value stays disclosed as
+ * stated, NO distribution is produced, compute is untouched. PLoT must forward
+ * it intact rather than flattening it into an absence or substituting a default
+ * — ISL's own model comment names the alternative for what it is, *"a Beta(1,1)
+ * minted on solver failure is a fabricated value wearing real provenance, this
+ * estate's dominant defect"*.
+ */
+export interface ISLRangeFitRefusalPayload {
+  /** Closed refusal vocabulary — ISL is the single source of truth for it. */
+  code:
+    | 'RANGE_ZERO_WIDTH'
+    | 'RANGE_INVALID_ORDER'
+    | 'RANGE_NON_FINITE'
+    | 'RANGE_OUT_OF_DOMAIN'
+    | 'RANGE_AT_DOMAIN_EDGE'
+    | 'RANGE_OPEN_ENDED'
+    | 'RANGE_FIT_NONCONVERGENT';
+  /** Human-readable reason (sanitised by ISL). */
+  message: string;
+  /** The stated lower bound, echoed raw. */
+  lower?: number | null;
+  /** The stated upper bound, echoed raw. */
+  upper?: number | null;
+  /** The declared domain the fit was asked for. */
+  domain: 'unit_interval' | 'unbounded';
+  /** For RANGE_FIT_NONCONVERGENT: how many solver starts were tried. */
+  starts_tried?: number | null;
+}
+
+/**
+ * One disclosure row for one user-stated range (ROADMAP 2.720).
+ *
+ * Raw bounds AS SAID, plus EITHER `fitted` OR `refusal` — exactly one, enforced
+ * both ways ISL-side. A consumer that reads only `fitted` will silently show
+ * nothing for every refused range, which is precisely the state the typed
+ * vocabulary exists to make visible.
+ */
+export interface ISLRangeFitDisclosure {
+  /** The factor node the range was stated for. */
+  node_id: string;
+  /** Stated lower bound, echoed raw (null/absent = open-ended below). */
+  lower?: number | null;
+  /** Stated upper bound, echoed raw (null/absent = open-ended above). */
+  upper?: number | null;
+  /** The declared domain the family came from. */
+  domain: 'unit_interval' | 'unbounded';
+  /** The fitted distribution — present IFF the fit was accepted. */
+  fitted?: ISLFittedDistribution;
+  /** The typed refusal — present IFF the fit was refused. */
+  refusal?: ISLRangeFitRefusalPayload;
+}
+
 export interface ISLFactorFlipValueV2 {
   /** Root factor node id. */
   factor_id: string;
@@ -943,6 +1036,29 @@ export interface ISLRobustnessAnalyzeV2Response {
    * (`src/models/response_v2.py:1781` at ISL `35149dd1`).
    */
   factor_flip_values?: ISLFactorFlipValueV2[];
+
+  /**
+   * Per-range interquartile-fit disclosures for the request's
+   * `user_stated_ranges` (ROADMAP 2.720 / ISL 2.521 Q1).
+   *
+   * REQUEST-GATED at the SOURCE: ISL emits the key only when ranges were
+   * stated, so ABSENCE means "no ranges were sent", not "the fit failed" — a
+   * failed fit arrives as a TYPED REFUSAL inside a present row. That
+   * distinction is the whole point of the design and consumers must preserve
+   * it; see the refusal payload's own note that a Beta(1,1) minted on solver
+   * failure would be a fabricated value wearing real provenance.
+   *
+   * TOP-LEVEL on the envelope (beside `factor_sensitivity` /
+   * `factor_flip_values`), NOT nested under `robustness` — verified against
+   * DEPLOYED ISL build 686fcb7, whose live captures are frozen at
+   * `tests/fixtures/isl-range-fit-live-20260807/`, and against
+   * `ISLResponseV2.range_fit_disclosures` in the pinned OpenAPI.
+   *
+   * CARRIED, NOT APPLIED (S3): ISL's compute is byte-identical whether or not
+   * the request carried ranges. This is a disclosure surface, not an input to
+   * the maths.
+   */
+  range_fit_disclosures?: ISLRangeFitDisclosure[];
 
   /** Overall robustness assessment (when 'robustness' in analysis_types)
    *

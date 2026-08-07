@@ -38,6 +38,7 @@ import type {
   OptionV3,
   GoalConstraint,
   FactorCorrelation,
+  UserStatedRange,
 } from '../../src/types/engine-v3.js';
 
 // -----------------------------------------------------------------------------
@@ -456,6 +457,86 @@ function buildV2FactorCorrelatedRequest(): ISLRobustnessRequestV3 {
   return request;
 }
 
+/**
+ * ⭐ ROADMAP 2.720 — the USER-STATED-RANGE shape (pillar P4).
+ *
+ * WHY THIS EXISTS. ISL has shipped, and DEPLOYED, a complete interquartile
+ * range→distribution converter whose input field `user_stated_ranges` no
+ * producer anywhere ever populated — PLoT's own pin note said so:
+ * *"user_stated_ranges (2.720, PLoT does not send it)"*. Adding the producer
+ * without adding it HERE would leave the drift pairing structurally blind to
+ * ISL's whole `UserStatedRange` class, which is precisely how
+ * `goal_threshold_frame` survived UNDECLARED from 1–6 Aug 2026 with this gate
+ * green (see the 2.762 block above). Same defect class; refusing to repeat it.
+ *
+ * ⚠ THE SHAPE IS DERIVED, NOT INVENTED (trap 16's inverse — a fixture you wrote
+ * yourself is not evidence about the wire). Both bounds were read at the bytes:
+ *
+ *   UPSTREAM — what the live producer can emit. `routes/v2/run.ts` admits an
+ *     array of `{ node_id, domain }` (required) plus optional
+ *     `lower/upper/source/stated_at/method_version`, and forwards
+ *     `body.user_stated_ranges` as the 14th positional argument; the translator
+ *     PROJECTS each entry onto ISL's declared members.
+ *
+ *   DOWNSTREAM — what the pinned model accepts. ISL's `UserStatedRange`
+ *     (src/models/range_fit.py) requires `node_id` + `domain`, constrains
+ *     `node_id` to `^[a-z0-9_:-]+$`, and enumerates `domain` as
+ *     {unit_interval, unbounded}. `RobustnessRequestV2.user_stated_ranges` is
+ *     capped at MAX_PARAMETER_UNCERTAINTIES and requires each `node_id` to be a
+ *     node of the graph, at most once.
+ *
+ * So `fac_headcount` is used because it IS a node of this fixture graph, its
+ * observed value sits inside [0,1], and `unit_interval` is therefore the honest
+ * declared domain. The bounds 0.35/0.55 straddle that value (0.4) without
+ * touching either domain edge, so the row exercises the ACCEPTED-fit path
+ * rather than a refusal — a refused row would still parse, but it would walk
+ * fewer of ISL's declared members on the response side.
+ *
+ * ⚠ ONE row, not two: ISL requires each `node_id` to appear at most once, so a
+ * second row would have to name a different node, and the members walked would
+ * be identical. The value of a second row is zero and the risk of a duplicate
+ * is not.
+ */
+const USER_STATED_RANGES: UserStatedRange[] = [
+  {
+    node_id: 'fac_headcount',
+    lower: 0.35,
+    upper: 0.55,
+    domain: 'unit_interval',
+    source: 'user',
+    stated_at: '2026-08-07T00:00:00Z',
+    method_version: 'user-stated-range-v1',
+  },
+];
+
+/**
+ * The base /v2/run body PLUS the user's stated ranges. Deliberately identical to
+ * `buildV2Request(CONSTRAINTS)` in every other respect, so the committed fixture
+ * differs from `v2-run-base` by exactly one top-level key.
+ */
+function buildV2UserStatedRangeRequest(): ISLRobustnessRequestV3 {
+  const graph = buildGraph();
+  const request = toISLRobustnessRequest(
+    graph,
+    OPTIONS,
+    'goal_margin',
+    'req_slice2_pairing_usr',
+    2000,
+    undefined, // goalThreshold — orthogonal; kept off so this fixture isolates
+    //            the new branch rather than two at once.
+    CONSTRAINTS,
+    'seed-slice2',
+    undefined, // includePathDecomposition
+    undefined, // prebuiltParameterUncertainties
+    undefined, // factorCorrelations
+    undefined, // goalThresholdFrame
+    USER_STATED_RANGES,
+  );
+  // Same post-translator mutation the live /v2/run path applies (Phase 4b+).
+  injectConstraintParameterUncertainties(request, CONSTRAINTS, graph.nodes, 'goal_margin');
+  return request;
+}
+
 function buildV2Request(constraints: GoalConstraint[]): ISLRobustnessRequestV3 {
   const graph = buildGraph();
   const request = toISLRobustnessRequest(
@@ -593,6 +674,28 @@ export const PRODUCERS: ProducerSpec[] = [
         endpoint: '/api/v1/robustness/analyze/v2',
         body: buildV2FactorCorrelatedRequest(),
         requestId: 'req_slice2_pairing_fc',
+      });
+      return takeCaptured();
+    },
+  },
+  {
+    name: 'v2-run-user-stated-ranges',
+    endpoint: '/api/v1/robustness/analyze/v2',
+    site: 'routes/v2/run.ts → islService.callAnalysisEndpoint (client-supplied user-stated ranges, ROADMAP 2.720 / pillar P4)',
+    liveness: 'live',
+    note:
+      'ROADMAP 2.720. Carries a non-empty user_stated_ranges array — the request-gated branch in ' +
+      'toISLRobustnessRequest, fed from body.user_stated_ranges via the projection onto ISL\'s declared ' +
+      'members. Before this producer NO fixture in the pairing emitted the key, so ISL\'s whole ' +
+      'UserStatedRange class (node_id/lower/upper/domain/source/stated_at/method_version) was never walked ' +
+      'and a drift inside it could not be reported — the same structural blindness that let ' +
+      'goal_threshold_frame ride undeclared for five days. The row is derived from run.ts\'s route schema ' +
+      'and ISL\'s range_fit.py, not invented, and names a node this fixture graph actually contains.',
+    run: async () => {
+      await newClient().request({
+        endpoint: '/api/v1/robustness/analyze/v2',
+        body: buildV2UserStatedRangeRequest(),
+        requestId: 'req_slice2_pairing_usr',
       });
       return takeCaptured();
     },

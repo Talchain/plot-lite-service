@@ -132,6 +132,47 @@ export interface ISLGoalConstraint {
 }
 
 /**
+ * One user-stated range for a factor's value — the RAW statement, as said.
+ *
+ * Mirrors ISL's `UserStatedRange` (isl/src/models/range_fit.py:55-110,
+ * ROADMAP 2.720) EXACTLY. Kept pinned to it by
+ * `ISL_DECLARED_USER_STATED_RANGE_FIELDS` below plus the `satisfies` /
+ * exhaustiveness pair, and by `tests/isl-user-stated-ranges.contract.test.ts`
+ * T2c, which derives the expected member set from ISL's pinned OpenAPI rather
+ * than from a second hand-copy.
+ *
+ * ⚠ `lower` / `upper` ARE OPTIONAL ON PURPOSE, and PLoT must not "helpfully"
+ * fill one in. ISL declares them Optional so an OPEN-ENDED statement ("at least
+ * X", "no more than Y") is EXPRESSIBLE and can be refused LOUDLY as
+ * `RANGE_OPEN_ENDED`, rather than silently reshaped into a range the user never
+ * stated. A producer that defaulted a missing bound to 0 (or to the observed
+ * value) would manufacture an interval and get a clean, wrong, fitted
+ * distribution back — a fabricated value wearing real provenance, which is this
+ * estate's dominant defect class.
+ *
+ * ⚠ `domain` IS REQUIRED and is never inferred. ISL selects the fitted family
+ * from it (`unit_interval` → beta, `unbounded` → normal) and deliberately does
+ * NOT infer from whether the numbers happen to lie in [0,1]. PLoT forwards the
+ * producer's declaration; it does not guess one.
+ */
+export interface ISLUserStatedRange {
+  /** The factor node the range was stated for. ISL pattern: `^[a-z0-9_:-]+$`. */
+  node_id: string;
+  /** The user's stated lower bound, raw. ABSENT = open-ended below. */
+  lower?: number;
+  /** The user's stated upper bound, raw. ABSENT = open-ended above. */
+  upper?: number;
+  /** DECLARED domain of the quantity — determines the fitted family. */
+  domain: 'unit_interval' | 'unbounded';
+  /** Who stated the range (provenance, e.g. 'user'). */
+  source?: string;
+  /** When it was stated (ISO 8601, producer-stamped). */
+  stated_at?: string;
+  /** ELICITATION method version stamped by the producer — NOT the fit method. */
+  method_version?: string;
+}
+
+/**
  * ISL robustness request format.
  */
 export interface ISLRobustnessRequestV3 {
@@ -257,6 +298,45 @@ export interface ISLRobustnessRequestV3 {
    * (unknown-factor / |rho|>1 / self-pair / duplicate) are validated ISL-side.
    */
   factor_correlations?: FactorCorrelation[];
+
+  /**
+   * ⭐ ROADMAP 2.720 — the user's OWN stated ranges for factor values (pillar P4,
+   * human–AI collaboration). Forwarded from the /v2/run request when present and
+   * non-empty; OMITTED otherwise (request-gated — no default payload growth, and
+   * ISL's `extra:"ignore"` never sees an empty array).
+   *
+   * WHAT ISL DOES WITH IT, STATED PRECISELY. ISL treats each range as a ≈50%
+   * CREDIBLE INTERVAL and runs an interquartile fit
+   * (`services/range_fit.py::resolve_range_fits`, method `range-iq-fit-v1`),
+   * returning either a fitted distribution or one of seven TYPED refusals on
+   * `range_fit_disclosures` + `inference_warnings`. **This is S3:
+   * FIT-AND-DISCLOSE ONLY. Compute is BYTE-IDENTICAL whether or not this field
+   * is present** — ISL's own comment records that the resolver is pure, RNG-free
+   * and placed AFTER all sampling so byte-identity is structural, not merely
+   * tested. Application (S4) waits on 2.521 Q2 + the combination ruling. PLoT
+   * MUST NOT be changed to make the range WEIGH in the maths on the strength of
+   * this field arriving.
+   *
+   * ⚠ WHY THIS IS NOT THE `prior: {distribution:'uniform', range_min, range_max}`
+   * PATH, and must never be routed into it. That path carries SYSTEM-derived
+   * declared-uniform SUPPORTS (CEE's drafter mints them from brief wording), and
+   * `buildParameterUncertaintiesV3` converts them with σ = width/√12 — the exact
+   * moment-match for a uniform support. A HUMAN-STATED range is a ~50% credible
+   * interval, whose σ is 0.7413·width — 2.57× LARGER. Routing a human statement
+   * through the uniform conversion would silently understate the user's
+   * uncertainty. The two coexist by design and are fitted in different places.
+   *
+   * ⚠ AND IT WAS DARK UNTIL NOW. ISL declared, implemented, tested and DEPLOYED
+   * this converter, and PLoT's own pin note recorded *"user_stated_ranges (2.720,
+   * PLoT does not send it)"*. A capability with no producer is not a capability.
+   * The reverse hazard applies to the addition itself: ISL's request models are
+   * `extra="ignore"` and `extra="forbid"` appears nowhere in the service, so a
+   * misspelled key here would die with a clean 200 and no error anywhere — which
+   * is why this field's arrival is proved by a LIVE capture against deployed ISL
+   * carrying a misspelled-key control, not by a green typecheck
+   * (`tests/fixtures/isl-range-fit-live-20260807/`).
+   */
+  user_stated_ranges?: ISLUserStatedRange[];
 }
 
 // -----------------------------------------------------------------------------
@@ -404,6 +484,75 @@ export function toISLObservedState(observedState: unknown): ISLNodeV3['observed_
     if (os[field] !== undefined) projected[field] = os[field];
   }
   return projected as ISLNodeV3['observed_state'];
+}
+
+/**
+ * The COMPLETE member list of ISL's `UserStatedRange`
+ * (isl/src/models/range_fit.py:55-110 @ 686fcb7f).
+ *
+ * Pinned MECHANICALLY on both edges, exactly as
+ * `ISL_DECLARED_OBSERVED_STATE_FIELDS` is — because this list is otherwise the
+ * same hand-maintained mirror of another repo's model (trap 12), and its drift
+ * is silent in BOTH directions under ISL's `extra:"ignore"`:
+ *
+ *  - **list ↔ ISL's model**, at TEST time:
+ *    `tests/isl-user-stated-ranges.contract.test.ts` T2c derives the expected
+ *    member set from `UserStatedRange` in the pinned, sha256-verified ISL
+ *    OpenAPI (Pydantic's own machine-generated description of the mounted
+ *    models), and T2d asserts each member resolves as DECLARED under
+ *    `RobustnessRequestV2`. Re-pin ISL and this list must follow, or CI REDs.
+ *  - **list ↔ PLoT's own type**, at COMPILE time: the `satisfies` clause plus
+ *    the exhaustiveness pin below, enforced by `npm run build` (a required
+ *    check).
+ *
+ * ⚠ The list is used as a PROJECTION, so a caller-supplied key ISL does not
+ * declare cannot transit. That matters more here than on most fields: this one
+ * is populated from a CLIENT-SUPPLIED /v2/run array, and an undeclared key would
+ * be dropped at ISL's parse with a clean 200 and no warning anywhere.
+ */
+type DeclaredUserStatedRangeKey = keyof ISLUserStatedRange;
+
+export const ISL_DECLARED_USER_STATED_RANGE_FIELDS = [
+  'node_id',
+  'lower',
+  'upper',
+  'domain',
+  'source',
+  'stated_at',
+  'method_version',
+] as const satisfies readonly DeclaredUserStatedRangeKey[];
+
+/**
+ * COMPILE-TIME EXHAUSTIVENESS PIN — the direction `satisfies` cannot see.
+ * Resolves to `never` (and so fails to compile) the moment `ISLUserStatedRange`
+ * declares a member this list omits, which would otherwise silently strip that
+ * member from every request.
+ */
+type _UserStatedRangeFieldsAreExhaustive = Exclude<
+  DeclaredUserStatedRangeKey,
+  (typeof ISL_DECLARED_USER_STATED_RANGE_FIELDS)[number]
+> extends never
+  ? true
+  : never;
+const _userStatedRangeFieldsAreExhaustive: _UserStatedRangeFieldsAreExhaustive = true;
+void _userStatedRangeFieldsAreExhaustive;
+
+/**
+ * Project one caller-supplied stated range onto the fields ISL declares.
+ *
+ * By PRESENCE, not by declared type — an absent bound stays ABSENT on the wire
+ * rather than becoming an explicit `undefined`/`null`, because absence is
+ * MEANINGFUL here: it is what makes ISL refuse `RANGE_OPEN_ENDED` instead of
+ * fitting an interval the user never stated.
+ */
+export function toISLUserStatedRange(range: unknown): ISLUserStatedRange | undefined {
+  if (range === undefined || range === null || typeof range !== 'object') return undefined;
+  const src = range as Record<string, unknown>;
+  const projected: Record<string, unknown> = {};
+  for (const field of ISL_DECLARED_USER_STATED_RANGE_FIELDS) {
+    if (src[field] !== undefined) projected[field] = src[field];
+  }
+  return projected as unknown as ISLUserStatedRange;
 }
 
 /**
@@ -722,7 +871,12 @@ export function toISLRobustnessRequest(
   // COUPLING that matters is not positional adjacency — it is that the key is
   // emitted only inside the `goalThreshold !== undefined` branch below, so a
   // frame can never reach the wire without its number.
-  goalThresholdFrame?: GoalThresholdFrameType
+  goalThresholdFrame?: GoalThresholdFrameType,
+  // ROADMAP 2.720: the user's own stated ranges, forwarded from the /v2/run
+  // request. Appended for the same reason as `goalThresholdFrame` above — the
+  // call sites pass these positionally and reshuffling them is a mis-wire
+  // waiting to happen.
+  userStatedRanges?: ISLUserStatedRange[]
 ): ISLRobustnessRequestV3 {
   // Bidirected edges are trust-layer only (identifiability + warnings).
   // ISL operates on directed edges only. Phase 3A-inference will add inference semantics.
@@ -802,6 +956,23 @@ export function toISLRobustnessRequest(
   // duplicate) are ISL's single source of truth and surface as a 422.
   if (factorCorrelations && factorCorrelations.length > 0) {
     request.factor_correlations = factorCorrelations;
+  }
+
+  // ROADMAP 2.720: forward the user's stated ranges, PROJECTED onto ISL's
+  // declared members. Request-gated — included only when at least one range
+  // survives the projection, so the ISL payload is byte-identical for callers
+  // who did not state any, and ISL's `extra:"ignore"` never receives an empty
+  // array. Deep semantics (zero width, inverted order, out of domain,
+  // open-ended, non-convergent) are ISL's single source of truth and come back
+  // as TYPED refusals on `range_fit_disclosures` — PLoT does not re-implement
+  // them, and must not "repair" a range into something the user did not say.
+  if (userStatedRanges && userStatedRanges.length > 0) {
+    const projected = userStatedRanges
+      .map(toISLUserStatedRange)
+      .filter((r): r is ISLUserStatedRange => r !== undefined);
+    if (projected.length > 0) {
+      request.user_stated_ranges = projected;
+    }
   }
 
   return request;
