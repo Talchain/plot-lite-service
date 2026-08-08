@@ -104,6 +104,42 @@
  * field); this change does not rewrite history — new runs emit v7.
  * `n_samples` is request-derived and deterministic, consistent with the v6
  * principle that the hash is computable from the request alone.
+ *
+ * ## AMENDMENT (v7, ROADMAP 2.919 — baseline inclusion, NO version bump)
+ *
+ * `observed_state.baseline` now participates in the canonical form,
+ * presence-conditionally (finite numbers only; absent/null contribute no key):
+ *
+ * 1. **Why it must be in the hash**: baseline is a computation input. ISL
+ *    converts a `'level'` goal threshold via
+ *    `threshold − goal_baseline + goal_intercept` (see translator-v3.ts,
+ *    where `baseline` is called out as LOAD-BEARING on
+ *    `ISL_DECLARED_OBSERVED_STATE_FIELDS`) and evaluates goal_constraints
+ *    against change-from-baseline samples — so the goal baseline already
+ *    changes `probability_of_goal`. Two requests differing only in a
+ *    baseline were sharing a response_hash, which defeats the UI's
+ *    run-identity gates (dedupe + dirty-overlay clearing compare hashes).
+ *
+ * 2. **Why NO version bump (deliberate, not forgotten)**: a bump puts the
+ *    new version number in EVERY canonical form and flips every stored
+ *    hash. A presence-conditional key bounds the flip instead: an absent
+ *    baseline contributes no key, so every baseline-free request
+ *    canonicalises BYTE-IDENTICALLY to pre-amendment v7 and keeps its
+ *    hash. Only baseline-BEARING requests change — and the live producer
+ *    writes none today (the 2.281 witness; CEE 2.877 begins minting
+ *    `observed_state.baseline` after this lands, which is why this must
+ *    land first). Collision safety without the bump: no pre-amendment
+ *    canonical form ever contained a `baseline` key, so no new
+ *    baseline-bearing form can collide with any old form.
+ *
+ * 3. **Semantics**: absent is NOT coerced to 0 — a stated baseline of 0
+ *    and no baseline are different computations (ISL refuses a `'level'`
+ *    threshold as `missing_goal_baseline` when absent). Values are
+ *    12dp-normalised like every other float in the form.
+ *
+ * Guarded by tests/hash-baseline-awareness.test.ts; the bounded-flip
+ * byte-stability is witnessed by tests/isl-v2-golden-response.pin.test.ts
+ * (baseline-free live capture, pinned hash unchanged).
  */
 
 import { createHash } from 'node:crypto';
@@ -169,6 +205,8 @@ interface CanonicalNode {
   observed_state?: {
     value: number;
     std?: number;
+    /** 2.919: computation input (ISL level-threshold conversion + change-from-baseline framing). Presence-conditional — absent contributes no key. */
+    baseline?: number;
   };
 }
 
@@ -193,6 +231,19 @@ function canonicaliseNode(node: EngineGraphV3['nodes'][0]): CanonicalNode {
     const std = (node.observed_state as any).std;
     if (std !== undefined) {
       canonical.observed_state.std = normaliseFloat(std);
+    }
+
+    // 2.919 (v7 amendment): include baseline if present — it is a computation
+    // input (ISL level-threshold conversion `threshold − goal_baseline +
+    // goal_intercept`, change-from-baseline constraint framing), so two
+    // requests differing only in a baseline must hash differently.
+    // Presence-conditional AND finite-guarded: absent/null/non-finite
+    // contribute no key, so every baseline-free request keeps its exact
+    // pre-amendment hash (bounded flip — see the header). Absent is NOT
+    // coerced to 0: baseline 0 and no baseline are different computations.
+    const baseline = (node.observed_state as any).baseline;
+    if (typeof baseline === 'number' && Number.isFinite(baseline)) {
+      canonical.observed_state.baseline = normaliseFloat(baseline);
     }
   }
 
