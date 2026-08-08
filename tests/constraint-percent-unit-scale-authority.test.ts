@@ -277,6 +277,52 @@ describe('2.957 controls — behaviours that MUST NOT change', () => {
     expect(isPercentUnit(undefined)).toBe(false);
   });
 
+  it('the range_unified mirror is DERIVED: a fractional % against a [0,100] sample scale is a real divergence', () => {
+    // ⚠ THIS TEST EXISTS BECAUSE A MUTANT SURVIVED. Hardcoding
+    // `producerDeclaredRange` back to [0,100] (instead of deriving it from the
+    // same `percentRangeForValue` the rung uses) left the whole suite GREEN.
+    // A surviving mutant is a claim either way, so it was measured rather than
+    // waved through as equivalent — and it is NOT equivalent:
+    //
+    //   node's MEASURED intervention scale = [0,100]
+    //   constraint  {unit:'%', value:0.04}  ⇒ producer scale is [0,1] (fractional)
+    //
+    // Branch 1 adopts the measured scale, so the threshold is normalised
+    // against [0,100] while the producer declared [0,1] — a genuine scale
+    // divergence, and `range_unified` must be FALSE (which in turn denies the
+    // decision-grade trust bit). With the mirror hardcoded to [0,100] the two
+    // compare EQUAL and the divergence is silently certified as unified.
+    const r = normaliseGoalConstraints([constraint('c_frac', 0.04)], NODES, {
+      unitsByConstraintId: units([['c_frac', '%']]),
+      interventionScaleByNodeId: new Map([
+        ['n_churn', { min: 0, max: 100, source: 'inferred_spread' as const }],
+      ]),
+      normaliseWithoutScale: true,
+    });
+    const d = r.diagnostics.find((x) => x.constraint_id === 'c_frac')!;
+    // Precondition pinned in-test: the measured scale really was adopted, so
+    // this cell is the divergence cell and not some other branch.
+    expect(d.range).toEqual({ min: 0, max: 100, source: 'inferred_spread' });
+    expect(d.range_unified).toBe(false);
+  });
+
+  it('CONTROL: a percentage-POINT % against the same [0,100] scale is NOT a divergence', () => {
+    // The discriminating twin of the test above: same node, same measured
+    // scale, same unit — only the VALUE's form differs. Here the producer scale
+    // IS [0,100], so the two agree and `range_unified` is TRUE. Without this
+    // pair, the assertion above could pass by always reporting divergence.
+    const r = normaliseGoalConstraints([constraint('c_pp', 40)], NODES, {
+      unitsByConstraintId: units([['c_pp', '%']]),
+      interventionScaleByNodeId: new Map([
+        ['n_churn', { min: 0, max: 100, source: 'inferred_spread' as const }],
+      ]),
+      normaliseWithoutScale: true,
+    });
+    const d = r.diagnostics.find((x) => x.constraint_id === 'c_pp')!;
+    expect(d.range).toEqual({ min: 0, max: 100, source: 'inferred_spread' });
+    expect(d.range_unified).toBe(true);
+  });
+
   it('CONTROL: a negative percentage-point delta still resolves on [0,100] as before', () => {
     // "reduce churn by 33 percentage points" — |−33| >= 1 ⇒ pp form, unchanged.
     const r = sendBatch([constraint('c_neg', -33)], [['c_neg', '%']]);
