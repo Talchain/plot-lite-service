@@ -195,6 +195,7 @@ import {
   needsNormalisation,
   normaliseGoalConstraints,
   constraintsNeedNormalisation,
+  constraintsHavePercentPointValue,
   isIdentityRange,
   type NormalisationContext,
   type NormalisationDiagnostic,
@@ -6538,7 +6539,24 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             }
           }
 
-          if (gateNeedsNorm || anyNonIdentityScale) {
+          // ROADMAP 2.957 — closes the ONE cell where a '%' threshold's meaning
+          // still depended on a DIFFERENT constraint's value. `gateNeedsNorm`
+          // fires on `value < 0 || value > 1`, so `value === 1` opens nothing:
+          // a lone `{unit:'%', value:1}` — ONE percent, by CEE's `>= 1`
+          // percentage-point rule — was forwarded raw as `1.0` (a HUNDRED
+          // percent), yet resolved to `0.01` as soon as any batch-mate opened
+          // the gate. Every other percentage-point magnitude already opens it.
+          //
+          // This forces INVOCATION only; `normaliseWithoutScale` still carries
+          // `gateNeedsNorm` unchanged, so nothing else moves. The sub-1
+          // fractional cell needs no disjunct at all — the rung now agrees with
+          // the forwarded-raw value there, which is why that arm is invariant.
+          const anyPercentPointValue = constraintsHavePercentPointValue(
+            activeGoalConstraints,
+            constraintUnitsByConstraintId,
+          );
+
+          if (gateNeedsNorm || anyNonIdentityScale || anyPercentPointValue) {
             const constraintNormResult = normaliseGoalConstraints(
               activeGoalConstraints,
               filteredGraph.nodes,

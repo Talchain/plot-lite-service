@@ -1099,6 +1099,118 @@ export function isPercentUnit(unit: string | undefined): boolean {
 }
 
 /**
+ * ROADMAP 2.957 — THE PERCENT SCALE IS DECIDED BY THE PRODUCER'S CONVENTION,
+ * AND THAT CONVENTION IS MAGNITUDE-DEPENDENT. THIS IS NOT PLoT'S CHOICE.
+ *
+ * ⚠ READ THE PRODUCER BEFORE CHANGING THIS. A `'%'` constraint does NOT always
+ * carry percentage points. CEE's LLM extractor emits **`"4%"` as
+ * `value: 0.04, unit: "%"`** — a FRACTION under a `'%'` label — and CEE's own
+ * `normaliseConstraintUnits` exists to relabel exactly that case, with a
+ * comment naming the opposite reading as the defect it prevents
+ * (`olumi-assistants-service/src/cee/compound-goal/extractor.ts:925-934`):
+ *
+ *     "The LLM extractor converts "4%" to value: 0.04, unit: "%".
+ *      If a consumer interprets unit: "%" as "value is percentage points",
+ *      0.04% ≠ 4%.  This normaliser detects the fractional case and relabels
+ *      the unit to "fraction" so the convention is unambiguous.
+ *      Rule: if unit === "%" and 0 < value < 1 → already fractional."
+ *
+ * It relabels WITHOUT dividing — the value was already fractional. And the
+ * relabel is NOT guaranteed to have happened: `normaliseConstraintUnits` is
+ * called only on the REGEX-extracted branch
+ * (`stages/repair/compound-goals.ts` — the LLM-emitted branch below it does
+ * not call it), so a fractional value under a raw `'%'` label reaches PLoT on
+ * the primary draft path.
+ *
+ * THE OTHER HALF OF THE PRODUCER'S RULE, equally load-bearing: a `'%'`
+ * constraint whose value is `>= 1` IS percentage points. CEE pins this itself —
+ * `tests/unit/cee.constraint-unit-normalisation.test.ts`:
+ *   "preserves percentage-unit constraints where value >= 1 (already in pp
+ *    form)" · "// value: 4, unit: "%" means "4 percentage points""
+ * and `value === 0` is preserved as `'%'` (0 is 0 on either reading).
+ *
+ * So the boundary below is CEE's boundary, transcribed — not a heuristic:
+ *   |v| <  1  ⇒ already fractional ⇒ IDENTITY [0,1]; forward the value as-is.
+ *   |v| >= 1  ⇒ percentage points  ⇒ [0,100]; divide by 100 (UNCHANGED
+ *               behaviour — this is what the rung has always done).
+ *
+ * ⚠ WHAT THIS FIXES. The rung previously used [0,100] unconditionally, so
+ * `{unit:'%', value:0.04}` — the producer's own canonical example, meaning 4% —
+ * became **0.0004** whenever any constraint in the batch opened the
+ * normalisation gate, and stayed a correct **0.04** when none did. A hundredfold
+ * understatement decided by an UNRELATED constraint's value. Fixing the
+ * gate-OPEN arm (rather than dragging the gate-closed arm to match it) is what
+ * makes the two agree on the value the producer meant.
+ *
+ * ⚠ AN EARLIER REVISION OF THIS ROW MOVED THE OTHER WAY — it read `'%'` as
+ * always-percentage-points and normalised the sub-1 cell to `v/100`. That was
+ * refuted at the producer's bytes: it would have turned `0.04` into `0.0004` on
+ * the primary draft path, i.e. it would have INTRODUCED the defect above on the
+ * one path that was still correct. The lesson is recorded here because the
+ * mistake is re-makeable from PLoT's side alone: the contract line
+ * ("Threshold in the user's units; PLoT normalises downstream") does NOT settle
+ * which scale `'%'` denotes, and a full mutant kill-rate against that wrong
+ * oracle proves only sensitivity, never correctness.
+ *
+ * ⚠ KNOWN-AMBIGUOUS, deliberately left as CEE has it: a ratio that legitimately
+ * exceeds 100% (NRR 110%) is emitted by the draft prompt as `value: 1.10,
+ * unit: "%"` on a NODE, while CEE's CONSTRAINT rule reads `>= 1` as percentage
+ * points. For a constraint that lands at `1.10` the two readings differ. This
+ * function does NOT resolve it — it reproduces CEE's stated constraint rule
+ * exactly, so PLoT is never the service that invented a third convention.
+ */
+function percentRangeForValue(value: number): NormalisationRange {
+  return Math.abs(value) < 1
+    ? { min: 0, max: 1, source: 'unit_percent' }
+    : { min: 0, max: 100, source: 'unit_percent' };
+}
+
+/**
+ * ROADMAP 2.957 — true when a `'%'` constraint exists whose value the percent
+ * rung WOULD rescale (i.e. percentage-point form, `|value| >= 1`).
+ *
+ * WHY THIS EXISTS, and it is a narrow, derived thing. `constraintsNeedNormalisation`
+ * opens the gate on `value < 0 || value > 1`. `value === 1` satisfies neither,
+ * so a lone `{unit:'%', value:1}` — ONE PERCENT by CEE's `>= 1` rule — was
+ * forwarded raw as `1.0` (a hundred percent) when alone, while resolving to
+ * `0.01` the moment any batch-mate opened the gate. Every other percentage-point
+ * value already opens the gate by magnitude, so this closes the single
+ * remaining cell where the answer still depended on a DIFFERENT constraint.
+ *
+ * Stated as `|value| >= 1` rather than `value === 1` on purpose: it is the
+ * genuine precondition ("the rung would rescale this"), so it stays correct if
+ * the gate's own bounds ever move, instead of encoding today's off-by-one.
+ */
+export function constraintsHavePercentPointValue(
+  constraints: GoalConstraint[],
+  unitsByConstraintId: Map<string, string> | undefined,
+): boolean {
+  if (unitsByConstraintId === undefined || unitsByConstraintId.size === 0) return false;
+  for (const constraint of constraints) {
+    if (isPercentPointValue(unitsByConstraintId.get(constraint.constraint_id), constraint.value)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * ROADMAP 2.957 — THE single predicate for "this constraint is stated in
+ * PERCENTAGE POINTS and the '%' rung will therefore rescale it".
+ *
+ * Three sites need this exact question — the route's invocation condition, the
+ * forward-raw rung's exemption, and (as its complement) the scale chosen by
+ * `percentRangeForValue`. They MUST agree: if the route forces the normaliser
+ * to run for a value the forward-raw rung then forwards untouched, the extra
+ * invocation is a no-op and the batch-dependence survives. That is not a
+ * hypothetical — it is what a first cut of this fix did at `value === 1`,
+ * caught by the batch-invariance sweep. One predicate, three callers.
+ */
+function isPercentPointValue(unit: string | undefined, value: number): boolean {
+  return isPercentUnit(unit) && Number.isFinite(value) && Math.abs(value) >= 1;
+}
+
+/**
  * Range sources whose numeric bounds are read off the TARGET NODE's
  * `observed_state`, and which therefore inherit `observed_state.unit` as the
  * declared unit OF THE SCALE. Only for these can a constraint's own declared
@@ -1359,7 +1471,24 @@ export function normaliseGoalConstraints(
       // invariant here; the pick is provisional. (F4: this branch is now gated on
       // NON-identity — an identity scale is an assumption, demoted to branch 5.)
       range = interventionScale;
-    } else if (!applyChainWithoutScale) {
+    } else if (!applyChainWithoutScale && !isPercentPointValue(unit, value)) {
+      // ROADMAP 2.957 — the `!isPercentPointValue` conjunct closes the LAST cell
+      // where a '%' threshold's meaning depended on a DIFFERENT constraint.
+      // The gate fires on `value < 0 || value > 1`, so `value === 1` opens
+      // nothing: `{unit:'%', value:1}` — ONE percentage point by CEE's `>= 1`
+      // rule — was forwarded raw here as `1.0` (a HUNDRED percent) when alone,
+      // while resolving to `0.01` the moment any batch-mate opened the gate.
+      // `value === 1` is the only value this can reach (every other
+      // percentage-point magnitude already opens the gate), so the blast radius
+      // is exactly that cell.
+      //
+      // ⚠ NOTE THE NARROWNESS, and do NOT widen it to all '%' units. A sub-1
+      // '%' value is ALREADY FRACTIONAL (CEE's LLM extractor emits "4%" as
+      // 0.04), so forwarding it raw here is CORRECT and must stay — exempting
+      // it would rescale 0.04 to 0.0004. See `percentRangeForValue` for the
+      // producer citations; an earlier revision of this row made exactly that
+      // mistake.
+      //
       // F1 (adversarial review): the global gate did NOT fire and this node has
       // NO intervention scale ⇒ the value is already in [0,1] by definition of
       // the gate; forward it verbatim (identity). This decision MUST precede the
@@ -1376,7 +1505,7 @@ export function normaliseGoalConstraints(
     } else if (typeof nodeCap === 'number' && Number.isFinite(nodeCap) && nodeCap > 0) {
       range = { min: 0, max: nodeCap, source: 'goal_threshold_cap' };
     } else if (isPercentUnit(unit)) {
-      range = { min: 0, max: 100, source: 'unit_percent' };
+      range = percentRangeForValue(value);
     } else if (interventionScale) {
       // F4 branch 5: an IDENTITY [0,1] intervention scale (Phase 4a skipped for
       // this intervened node). Reached only when no producer '%'/cap declared it
@@ -1404,7 +1533,10 @@ export function normaliseGoalConstraints(
       typeof nodeCap === 'number' && Number.isFinite(nodeCap) && nodeCap > 0
         ? { min: 0, max: nodeCap, source: 'goal_threshold_cap' }
         : isPercentUnit(unit)
-          ? { min: 0, max: 100, source: 'unit_percent' }
+          // DERIVED from the same helper the rung uses (2.957) — two copies of
+          // the percent-scale decision is exactly the hand-maintained mirror
+          // that lets the divergence verdict drift from the range it describes.
+          ? percentRangeForValue(value)
           : undefined;
     const rangeUnified =
       interventionScale === undefined ||
