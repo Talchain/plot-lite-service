@@ -2,9 +2,12 @@ name: dependency-audit
 on:
   pull_request:
     types: [opened, synchronize, reopened]
-  schedule:
-    # Run weekly on Monday at 06:00 UTC
-    - cron: '0 6 * * 1'
+  # NOTE (8 Aug 2026, ROADMAP 2.920): a weekly `schedule:` cron lived here but had
+  # structurally NEVER fired - GitHub runs `schedule:` only from the DEFAULT branch
+  # (main) and this file exists only on `staging`. Removed rather than left claiming
+  # a guarantee it cannot deliver; between-PR advisory drift is covered by the
+  # session ritual (scheduler-liveness + audit reads, ROADMAP 2.385). Re-add a cron
+  # only when this file reaches the default branch (rides row 2.904).
 permissions:
   contents: read
   packages: read
