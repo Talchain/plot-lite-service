@@ -9,7 +9,100 @@ and `DecisionGuideAI` (UI).
 
 ## Current contents
 
-### `talchain-schemas-0.38.0.tgz`
+### `talchain-schemas-0.39.0.tgz`
+
+**Purpose:** PARITY ONLY (0.38.0 → 0.39.0, one minor). Unlike the 0.38.0 bump
+below — taken to close a named, still-open gap — **this one closes nothing and
+is meant to be INERT here.** It exists so the three consumers stay on one
+version while the producers adopt 0.39.0's new fields, and so PLoT is never the
+hop that hard-fails on a field a producer has started sending.
+
+**⚠ WHY AN INERT BUMP IS STILL URGENT — the adoption-order constraint, measured
+upstream:** every parent touched by 0.39.0 is `.strict()`. If a producer emits
+one of the new fields before its consumer has re-vendored, the old consumer does
+**not** silently drop it — it HARD-FAILS the entire block/envelope parse. So the
+consumer pin must move FIRST. That is the whole reason this PR exists, and it is
+why it deliberately emits nothing.
+
+**What changed, derived from `git diff v0.38.0..v0.39.0 -- src/`** (seven files,
++1181/−5), not from release notes:
+
+| change | does PLoT consume it? |
+|---|---|
+| `DskClaimProvenanceSchema` + the DSK claim-provenance triple on `CoachingBlock` / `ReviewCardBlock` | **no** — `grep -ra 'DskClaimProvenance\|CoachingBlock\|ReviewCardBlock' src/ tests/ tools/ scripts/` → zero hits |
+| `UiDirectiveSource` + optional `source` on `UiDirectiveBlock` | **no** — zero hits for either symbol |
+| `RunDeltaSchema` + optional `OlumiResponse.run_delta` | **no** — zero hits for `RunDelta` / `run_delta` |
+| the collab U-S0 family (`src/boundary/collab.ts`, incl. `AuthoredBySchema`) | **no** — zero hits |
+| `SCHEMA_SHA` / `SCHEMA_PACKAGE_VERSION` regenerated (`15048bea…`→`4b38ce1c…`, `0.38.0`→`0.39.0`) | **no** — PLoT mirrors neither constant (`grep -ra 'SCHEMA_SHA\|SCHEMA_PACKAGE_VERSION' src/ tests/ tools/ scripts/ contracts/ .github/` → zero hits) |
+| `src/fixtures/index.ts` (+394) | no |
+
+**All four cars are ADDITIVE-OPTIONAL.** Nothing existing changed shape, so no
+payload that parsed at 0.38.0 stops parsing at 0.39.0.
+
+**Provenance: PACKED FROM THE MERGED, TAGGED RELEASE, per the recipe at the foot
+of this file.** Fresh blobless clone of `olumi-schemas`, `HEAD` asserted equal to
+**`76fe0ed9f6a26e884420c2ea5115fa1edb7d2b27`** (tag `v0.39.0`, olumi-schemas #38)
+*before* any read — fetching a ref is not checking it out — then
+`npm ci && npm run build && npm pack` (node 20.19.5 / npm 10.8.2).
+
+sha256 `4c05a7f71efe56c8144b6125f44181b64c56a996c1d38234212bc09e025c92f0`
+— 385,991 bytes. **Proven byte-reproducible:** a second independent `npm pack` of
+the same build produced the identical sha256.
+
+**✅ ROADMAP 2.464 — THE REGISTRY-BYTES COMPARISON IS NO LONGER OPEN. It was
+performed for this version, and the answer is not the one the older entries
+assumed.** Every previous bump recorded this as "unverified against the registry"
+because the lane's token was believed to lack GitHub Packages read scope. **That
+premise is false at this tip:** `curl -H "Authorization: Bearer $(gh auth token)"
+https://npm.pkg.github.com/@talchain/schemas` succeeds and reports
+`dist-tags.latest = 0.39.0`. The published artifact was downloaded and compared:
+
+| check | result |
+|---|---|
+| registry `dist.shasum` vs `shasum -a 1` of the downloaded bytes | `5435da9b9325a5fd88d997164600612032c943fa` — **identical** |
+| registry `dist.integrity` vs `openssl dgst -sha512 -binary … \| base64` | `sha512-Uk2uRLs94eq7OfJ7TlA2FxccdD0g6k6KOFghJjAPB7+JcBNr4ENaZWODCNVsv61lrQxu4gl3Yoargy6rATy+2w==` — **identical** |
+| registry tarball's own `package/package.json` | `@talchain/schemas 0.39.0` |
+| registry bytes vs the source pack vendored here | **DIFFER** — 385,588 vs 385,991 bytes (npm repacks on publish) |
+| registry CONTENT vs source-pack CONTENT (`diff -r` over both unpacked trees) | **byte-identical — zero differences, zero file-list differences** |
+
+**So the two artefacts differ only in their gzip/tar envelope, and agree on every
+byte that is ever executed.** The source pack is what is vendored here, because
+the recipe at the foot of this file says pack-from-tag and the UI's `vendor/`
+carries the same standing instruction. The registry hash is recorded above so a
+future session can re-derive either without re-litigating which one is canonical.
+
+**Export verification — the symbols were checked by IMPORTING them, not by
+grepping the tarball.** A `grep` over `dist/` proves presence in a file, never
+that the package entry EXPORTS the symbol. Installed into a scratch project and
+imported: all four families resolve from the **`@talchain/schemas/boundary`**
+subpath (`DskClaimProvenanceSchema`, `RunDeltaSchema`, `UiDirectiveSource`,
+`AuthoredBySchema` — 180 exports there), and **none of them resolves from the
+package ROOT** (103 exports). A negative control (`FakeSchema_XYZ`) read ABSENT,
+so the probe was proven capable of reporting absence before its presence
+readings were trusted.
+
+**Measured pin-bump delta (re-derived at this tip, not inherited):** `npm test`
+at pristine `519d3111` = **634 files passed / 4 skipped (638); 7118 tests passed
+/ 28 skipped (7157)**. On this branch: identical. **Zero behavioural delta, zero
+assertions moved** — PLoT consumes none of the four cars, which is exactly what
+an inert parity bump should look like.
+
+**Checksum:** `vendor/talchain-schemas-0.39.0.tgz.sha256` holds the sha256 of
+these bytes; verify with
+
+```bash
+shasum -a 256 -c <(printf '%s  vendor/talchain-schemas-0.39.0.tgz\n' \
+  "$(cat vendor/talchain-schemas-0.39.0.tgz.sha256)")
+```
+
+**Rollback path:** revert the whole PR, then `npm install`. This one CAN be
+reverted alone — no source file in this repo imports anything 0.39.0 added
+(that is what "inert" means here, and it is measured above, not assumed).
+Reverting does NOT unpublish 0.39.0.
+
+### `talchain-schemas-0.38.0.tgz` *(HISTORICAL — superseded by 0.39.0 above; the
+tarball is no longer in this directory, per the one-version rule at the foot of
+this file. Kept because its honest-absence record is still the worked example.)*
 
 **Purpose:** consumption of `@talchain/schemas` v0.38.0 (0.37.0 → 0.38.0, one
 minor). Unlike the six-minor jump below, this bump was taken to close a
@@ -251,10 +344,10 @@ canonical hash with the schemas lane FIRST, then reproduce it.
 
 ```bash
 # 0. Tag + merge the new version in olumi-schemas first (that repo's own release flow).
-#    Values below are the LAST COMPLETED bump (0.38.0) — replace all three.
-V=0.38.0
-SHA=371e18c87bcc4e3bbfd074a9178da802244aff5b      # the tagged commit
-EXPECTED=761c7ec615da3390ec036c8dab4e5a7857501b1d46ff5f3f777353e2d05e55b9
+#    Values below are the LAST COMPLETED bump (0.39.0) — replace all three.
+V=0.39.0
+SHA=76fe0ed9f6a26e884420c2ea5115fa1edb7d2b27      # the tagged commit
+EXPECTED=4c05a7f71efe56c8144b6125f44181b64c56a996c1d38234212bc09e025c92f0
 
 # 1. Pack from a clean clone of the tagged commit (NOT from the registry)
 git clone --filter=blob:none https://github.com/Talchain/olumi-schemas.git /tmp/schemas-$V
