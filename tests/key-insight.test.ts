@@ -495,6 +495,11 @@ describe('Key Insight Endpoint', () => {
 
 describe('Goal Type Classification', () => {
   describe('classifyGoalType', () => {
+    // NOTE (ROADMAP 2.917): the currency symbols in this test and in
+    // 'Target: $100k savings' below do NOT pin CONTINUOUS_PATTERNS' `[$£€]`
+    // character class — these four assertions hold with the class deleted
+    // outright. See 'currency symbols in CONTINUOUS_PATTERNS are load-bearing'
+    // at the bottom of this describe for the assertions that do bind to it.
     it('classifies continuous goals with revenue targets', () => {
       expect(classifyGoalType('Reach £20k MRR in 12 months')).toBe('continuous');
       expect(classifyGoalType('Reach $20k MRR')).toBe('continuous');
@@ -557,6 +562,77 @@ describe('Goal Type Classification', () => {
     it('defaults to continuous for goals with numbers but no clear pattern', () => {
       expect(classifyGoalType('Achieve 5 new partnerships')).toBe('continuous');
       expect(classifyGoalType('Conduct 10 interviews')).toBe('continuous');
+    });
+
+    /**
+     * ROADMAP 2.917 — bind the `[$£€]` character class in CONTINUOUS_PATTERNS.
+     *
+     * WHY THIS BLOCK EXISTS. The currency-bearing assertions elsewhere in this
+     * file name the class but do not pin it. Measured at bc4b2a34 by replacing
+     * `[$£€]` with an empty class in all three patterns that carry it
+     * (`reach\s+[$£€]?\d`, `hit\s+[$£€]?\d`, `target[:\s]+[$£€]?\d`): the file
+     * stayed 36/36 GREEN. Those labels survive for two different reasons —
+     * 'Reach £20k MRR…', 'Reach $20k MRR' and 'Hit €50k ARR' are re-matched by
+     * CONTINUOUS_PATTERNS' `\d+[%kKmM]\s*(mrr|arr|…)` entry, while
+     * 'Target: $100k savings' is caught by the trailing `if (/\d/.test(text))`
+     * fallback. Either way the currency class is not what decides them.
+     *
+     * WHERE THE CLASS IS ACTUALLY LOAD-BEARING. `classifyGoalType` checks
+     * CONTINUOUS_PATTERNS *before* BINARY_PATTERNS. Because every currency-bearing
+     * pattern also requires a digit, narrowing the class can never change a verdict
+     * that the `/\d/` fallback would reach anyway — it can only change one where a
+     * BINARY pattern is waiting in between. So the class changes an outcome exactly
+     * when a label matches a currency-bearing continuous pattern *and* a binary
+     * pattern, and no compound indicator or other continuous pattern. On such a
+     * label, narrowing the class flips 'continuous' -> 'binary'.
+     *
+     * HOW EACH CASE PINS ITS OWN PRECONDITION. Every row carries a control that is
+     * the same sentence with the pattern's verb swapped for a neutral one. The
+     * control must classify 'binary' *while still containing a digit* — that is what
+     * proves BINARY_PATTERNS short-circuits ahead of the `/\d/` fallback for this
+     * shape, so the paired label's 'continuous' verdict is attributable to the
+     * currency-bearing pattern and not to the fallback. Without the control the
+     * assertion would be exactly the vacuous kind it replaces.
+     *
+     * SCOPE. These pin that the three symbols the class declares are honoured. They
+     * deliberately do NOT assert that the class is limited to those three, so
+     * widening it (adding a symbol) stays GREEN; that is a product decision, not a
+     * property this block claims.
+     */
+    describe('currency symbols in CONTINUOUS_PATTERNS are load-bearing', () => {
+      const currencyCases = [
+        { pattern: 'reach', symbol: '£', label: 'Secure funding to reach £5m by Q4', control: 'Secure funding to obtain £5m by Q4' },
+        { pattern: 'reach', symbol: '$', label: 'Secure funding to reach $5m by Q4', control: 'Secure funding to obtain $5m by Q4' },
+        { pattern: 'reach', symbol: '€', label: 'Secure funding to reach €5m by Q4', control: 'Secure funding to obtain €5m by Q4' },
+        { pattern: 'hit', symbol: '£', label: 'Secure funding to hit £5m by Q4', control: 'Secure funding to obtain £5m by Q4' },
+        { pattern: 'hit', symbol: '$', label: 'Secure funding to hit $5m by Q4', control: 'Secure funding to obtain $5m by Q4' },
+        { pattern: 'hit', symbol: '€', label: 'Secure funding to hit €5m by Q4', control: 'Secure funding to obtain €5m by Q4' },
+        { pattern: 'target', symbol: '£', label: 'Secure funding to target £5m by Q4', control: 'Secure funding to obtain £5m by Q4' },
+        { pattern: 'target', symbol: '$', label: 'Secure funding to target $5m by Q4', control: 'Secure funding to obtain $5m by Q4' },
+        { pattern: 'target', symbol: '€', label: 'Secure funding to target €5m by Q4', control: 'Secure funding to obtain €5m by Q4' },
+      ];
+
+      it.each(currencyCases)(
+        'the $pattern pattern honours $symbol, and the control shows the digit fallback is not deciding',
+        ({ label, control }) => {
+          // Precondition, pinned here rather than assumed: the control still contains
+          // a digit, yet classifies 'binary'. So a 'continuous' verdict on `label`
+          // cannot have come from the `/\d/` fallback.
+          expect(classifyGoalType(control)).toBe('binary');
+
+          // The only delta is the verb that lets the currency-bearing continuous
+          // pattern match across the symbol. Narrow the class and this returns 'binary'.
+          expect(classifyGoalType(label)).toBe('continuous');
+        }
+      );
+
+      // A second, structurally different binary route to the same seam: the
+      // trailing-'?' rule rather than a start-anchored verb. Included so the block
+      // does not rest on one BINARY_PATTERNS entry.
+      it('holds when the competing binary pattern is the trailing question mark', () => {
+        expect(classifyGoalType('Can we obtain £5m by Q4?')).toBe('binary');
+        expect(classifyGoalType('Can we hit £5m by Q4?')).toBe('continuous');
+      });
     });
   });
 });
