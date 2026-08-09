@@ -291,8 +291,28 @@ describe('ISL Translator V3', () => {
     });
   });
 
+  /**
+   * PRIOR-ONLY EXTERNAL FACTORS — the wire must CARRY the prior, not summarise it.
+   *
+   * These cases used to pin `{distribution:'normal', std: width/sqrt(12)}`. The
+   * width was right and the CENTRE had nowhere to go: ISL's ParameterUncertainty
+   * declares no `mean`, its normal branch reads the centre from the node's
+   * `observed_state.value`, and a prior-only factor has none — so a declared
+   * Uniform[0.6,1.0] was sampled at mean -0.000434 with every one of 20,000 draws
+   * outside its own support, and the root-default detector stayed silent because
+   * an entry was PRESENT. ISL has supported `uniform` with `range_min`/`range_max`
+   * all along (robustness_v2.py:243-291, robustness_analyzer_v2.py:1180-1188 @
+   * 47f20068), so the fix is a PLoT-only change of family.
+   *
+   * The behavioural half of this — that ISL's own sampler now lands where the
+   * prior says — is measured in tests/isl-factor-sampler-centre.contract.test.ts
+   * against ISL's real FactorSampler. These cases pin the WIRE; that one pins
+   * what ISL DOES with it. Neither substitutes for the other: a wire assertion
+   * cannot see a sampler that ignores the field, and the sampler pairing cannot
+   * see a producer that stops emitting.
+   */
   describe('buildParameterUncertaintiesV3 - external factor priors', () => {
-    it('external factor with prior [0.0, 1.0] → std≈0.289', () => {
+    it('external factor with prior [0.0, 1.0] → uniform carrying both bounds', () => {
       const nodes: EngineNodeV3[] = [
         {
           id: 'ext-factor',
@@ -306,17 +326,19 @@ describe('ISL Translator V3', () => {
       const result = buildParameterUncertaintiesV3(nodes)!;
 
       expect(result).toHaveLength(1);
-      expect(result[0].node_id).toBe('ext-factor');
-      expect(result[0].distribution).toBe('normal');
-      // Slice 6: only the WIDTH crosses the boundary. ISL's
-      // ParameterUncertainty declares no `mean`, so the prior's midpoint had no
-      // channel and no consumer; see the KNOWN GAP note in
-      // buildParameterUncertaintiesV3 for what that costs a prior-only factor.
+      expect(result[0]).toEqual({
+        node_id: 'ext-factor',
+        distribution: 'uniform',
+        range_min: 0.0,
+        range_max: 1.0,
+      });
+      // `mean` is still not a member ISL declares — the bounds are the channel.
       expect(result[0]).not.toHaveProperty('mean');
-      expect(result[0].std).toBeCloseTo(1.0 / Math.sqrt(12), 3); // ≈0.289
+      // And NOT the old centre-less normal, which is the whole defect.
+      expect(result[0]).not.toHaveProperty('std');
     });
 
-    it('external factor with prior [0.6, 1.0] → std≈0.115', () => {
+    it('external factor with prior [0.6, 1.0] → bounds survive verbatim (midpoint 0.8 recoverable)', () => {
       const nodes: EngineNodeV3[] = [
         {
           id: 'ext-factor',
@@ -330,11 +352,19 @@ describe('ISL Translator V3', () => {
       const result = buildParameterUncertaintiesV3(nodes)!;
 
       expect(result).toHaveLength(1);
-      expect(result[0]).not.toHaveProperty('mean');
-      expect(result[0].std).toBeCloseTo(0.4 / Math.sqrt(12), 3); // ≈0.115
+      expect(result[0]).toEqual({
+        node_id: 'ext-factor',
+        distribution: 'uniform',
+        range_min: 0.6,
+        range_max: 1.0,
+      });
     });
 
-    it('external factor with prior [0.3, 0.7] → std≈0.115', () => {
+    it('external factor with prior [0.3, 0.7] → a DIFFERENT support, not a shared width', () => {
+      // [0.3,0.7] and [0.6,1.0] have the SAME width, so under the old
+      // width-only wire they produced byte-identical entries and were
+      // indistinguishable to ISL. Keeping both cases is what makes that
+      // collapse impossible to reintroduce silently.
       const nodes: EngineNodeV3[] = [
         {
           id: 'ext-factor',
@@ -348,8 +378,12 @@ describe('ISL Translator V3', () => {
       const result = buildParameterUncertaintiesV3(nodes)!;
 
       expect(result).toHaveLength(1);
-      expect(result[0]).not.toHaveProperty('mean');
-      expect(result[0].std).toBeCloseTo(0.4 / Math.sqrt(12), 3); // ≈0.115
+      expect(result[0]).toEqual({
+        node_id: 'ext-factor',
+        distribution: 'uniform',
+        range_min: 0.3,
+        range_max: 0.7,
+      });
     });
 
     it('external factor without prior → no parameter_uncertainties entry', () => {
@@ -367,7 +401,25 @@ describe('ISL Translator V3', () => {
       expect(result).toBeUndefined();
     });
 
-    it('range_min === range_max → mean=value, std=0.01 (floor)', () => {
+    /**
+     * REPLACED with the prior-only sampling-centre fix (was: "range_min ===
+     * range_max → mean=value, std=0.01 (floor)").
+     *
+     * A degenerate range is a POINT MASS, and there is no honest way to put one
+     * on this wire: ISL's `point_mass` branch returns `observed_state.value`
+     * (robustness_analyzer_v2.py:1171-1173), which a prior-only factor does not
+     * have, and its uniform validator rejects `range_min >= range_max` outright
+     * (robustness_v2.py:277-283) — sending one would 422 the WHOLE analysis, not
+     * just this factor. The old behaviour floored the width to 0.01 and shipped
+     * a normal centred, silently, on 0.0.
+     *
+     * So PLoT declines. With no entry emitted, ISL's root-default detector fires
+     * ROOT_NODE_DEFAULT_VALUE for the node (robustness_analyzer_v2.py:1826-1834)
+     * and the user is TOLD the value was defaulted. Visible failure over
+     * confident wrongness — and this is a behaviour change, deliberately made,
+     * not a test relaxed to fit.
+     */
+    it('range_min === range_max → DECLINED, so ISL discloses the defaulted root instead', () => {
       const nodes: EngineNodeV3[] = [
         {
           id: 'ext-factor',
@@ -378,11 +430,41 @@ describe('ISL Translator V3', () => {
         },
       ];
 
+      const result = buildParameterUncertaintiesV3(nodes);
+
+      expect(result).toBeUndefined();
+    });
+
+    it('a degenerate prior is declined WITHOUT taking its well-formed siblings down', () => {
+      // Discrimination: the decline must be scoped to the offending factor. A
+      // `continue` that had been a `return`/`break` would pass the case above
+      // and silently drop every later factor in the graph.
+      const nodes: EngineNodeV3[] = [
+        {
+          id: 'degenerate-f',
+          kind: 'factor',
+          label: 'Degenerate',
+          category: 'external',
+          prior: { distribution: 'uniform', range_min: 0.5, range_max: 0.5 },
+        },
+        {
+          id: 'healthy-f',
+          kind: 'factor',
+          label: 'Healthy',
+          category: 'external',
+          prior: { distribution: 'uniform', range_min: 0.1, range_max: 0.9 },
+        },
+      ];
+
       const result = buildParameterUncertaintiesV3(nodes)!;
 
-      expect(result).toHaveLength(1);
-      expect(result[0]).not.toHaveProperty('mean');
-      expect(result[0].std).toBe(0.01);
+      expect(result.map((u) => u.node_id)).toEqual(['healthy-f']);
+      expect(result[0]).toEqual({
+        node_id: 'healthy-f',
+        distribution: 'uniform',
+        range_min: 0.1,
+        range_max: 0.9,
+      });
     });
 
     it('range_min > range_max → swapped, std reflects the swapped width', () => {
@@ -399,11 +481,17 @@ describe('ISL Translator V3', () => {
       const result = buildParameterUncertaintiesV3(nodes)!;
 
       expect(result).toHaveLength(1);
-      // After swap: range_min=0.3, range_max=0.9.
-      // `std` is the discriminator: WITHOUT the swap the width is negative and
-      // floors to 0.01, so this assertion still fails if the swap is removed.
+      // WITHOUT the swap, range_min > range_max and the degenerate guard
+      // declines the factor entirely (and ISL's own validator would 422 the
+      // request), so this assertion still fails loudly if the swap is removed —
+      // it is not merely describing the happy path.
+      expect(result[0]).toEqual({
+        node_id: 'ext-factor',
+        distribution: 'uniform',
+        range_min: 0.3,
+        range_max: 0.9,
+      });
       expect(result[0]).not.toHaveProperty('mean');
-      expect(result[0].std).toBeCloseTo(0.6 / Math.sqrt(12), 3);
     });
 
     it('mixed graph: controllable + observable + external with prior', () => {
@@ -441,17 +529,24 @@ describe('ISL Translator V3', () => {
       const observable = result.find(u => u.node_id === 'observable-f');
       const external = result.find(u => u.node_id === 'external-f');
 
-      // Slice 6: each path is pinned by the `std` it derives, which differs
-      // per path (value-based vs prior-width), so the three branches stay
-      // distinguishable without the undeclared `mean`.
+      // Each path is pinned by what it DERIVES, and the three remain mutually
+      // distinguishable: the two observed_state paths by their own std, the
+      // prior path by being a different DISTRIBUTION FAMILY entirely.
       expect(controllable).toBeDefined();
-      expect(controllable!.std).toBeCloseTo(0.7 * 0.15, 5);
+      expect(controllable!.distribution).toBe('normal');
+      expect((controllable as { std: number }).std).toBeCloseTo(0.7 * 0.15, 5);
 
       expect(observable).toBeDefined();
-      expect(observable!.std).toBe(0.1); // 0.4 * 0.15 = 0.06, floored
+      expect(observable!.distribution).toBe('normal');
+      expect((observable as { std: number }).std).toBe(0.1); // 0.4 * 0.15 = 0.06, floored
 
       expect(external).toBeDefined();
-      expect(external!.std).toBeCloseTo(0.6 / Math.sqrt(12), 3);
+      expect(external).toEqual({
+        node_id: 'external-f',
+        distribution: 'uniform',
+        range_min: 0.2,
+        range_max: 0.8,
+      });
 
       for (const entry of result) expect(entry).not.toHaveProperty('mean');
     });
@@ -471,13 +566,13 @@ describe('ISL Translator V3', () => {
       const result = buildParameterUncertaintiesV3(nodes)!;
 
       expect(result).toHaveLength(1);
-      // Should use observed_state value, not prior. Slice 6: the discriminator
-      // is `std` — the observed_state path derives 0.9 * 0.15 = 0.135, whereas
-      // the prior path would derive 1.0 / sqrt(12) ≈ 0.289. This still fails if
-      // precedence flips.
+      // Should use observed_state, not the prior. The discriminator is now the
+      // FAMILY as well as the std: if precedence flipped, this would be a
+      // uniform over [0, 1] rather than a normal of std 0.9 * 0.15 = 0.135.
       expect(result[0]).not.toHaveProperty('mean');
-      expect(result[0].std).toBeCloseTo(0.135, 5);
-      expect(result[0].std).not.toBeCloseTo(1.0 / Math.sqrt(12), 3);
+      expect(result[0].distribution).toBe('normal');
+      expect(result[0]).not.toHaveProperty('range_min');
+      expect((result[0] as { std: number }).std).toBeCloseTo(0.135, 5);
     });
 
     it('unsupported distribution → skipped with no entry', () => {
@@ -511,7 +606,7 @@ describe('ISL Translator V3', () => {
      * This is a deliberate behaviour retirement, not a test bypass: the clamp
      * is gone from the producer too.
      */
-    it('out-of-range prior still derives std from the full range width', () => {
+    it('out-of-range prior is forwarded VERBATIM — PLoT does not silently re-domain it', () => {
       const nodes: EngineNodeV3[] = [
         {
           id: 'ext-factor',
@@ -526,8 +621,15 @@ describe('ISL Translator V3', () => {
 
       expect(result).toHaveLength(1);
       expect(result[0]).not.toHaveProperty('mean');
-      // width = 0.3 - (-0.5) = 0.8
-      expect(result[0].std).toBeCloseTo(0.8 / Math.sqrt(12), 3);
+      // The bounds now reach ISL as stated, negative end included. Clamping
+      // them here would be PLoT inventing a support the producer never
+      // declared — the same fabrication class the retired `mean` clamp was.
+      expect(result[0]).toEqual({
+        node_id: 'ext-factor',
+        distribution: 'uniform',
+        range_min: -0.5,
+        range_max: 0.3,
+      });
     });
   });
 });

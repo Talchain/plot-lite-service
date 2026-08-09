@@ -5,8 +5,8 @@
   "site": "routes/v2/run.ts → islService.callAnalysisEndpoint (client-supplied factor correlations, Capability #100 / D-23.4)",
   "liveness": "live",
   "note": "ROADMAP 2.763. Carries a non-empty factor_correlations array — the request-gated branch at translator-v3.ts:803-805, fed VERBATIM from body.factor_correlations (run.ts:6729). Before this producer NO fixture in the pairing emitted the key, so ISL's whole FactorCorrelation class (factor_a/factor_b/rho) was never walked and a drift inside it could not be reported. The pair members and rho values are derived from the route schema (run.ts:1333) and ISL's validate_factor_correlations (robustness_v2.py:1120), not invented.",
-  "wire_bytes_length": 2021,
-  "wire_bytes_sha256": "fd4e5b42dbd2a5c5e74bf66cbbfdb8bb11d0f6417f899240c3a8c2ae90a27889",
+  "wire_bytes_length": 2028,
+  "wire_bytes_sha256": "80ace26019c60fe29fb8efd78ce7d3bca437eda600738edaf0a8c33f5ec07f4a",
   "body": {
     "request_id": "req_slice2_pairing_fc",
     "graph": {
@@ -138,8 +138,9 @@
       },
       {
         "node_id": "fac_market",
-        "distribution": "normal",
-        "std": 0.11547005383792515
+        "distribution": "uniform",
+        "range_min": 0.2,
+        "range_max": 0.6
       },
       {
         "node_id": "con_cost_cap",

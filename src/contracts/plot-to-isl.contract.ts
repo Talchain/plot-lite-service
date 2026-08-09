@@ -167,8 +167,20 @@ export const PLOT_TO_ISL_CONTRACT: BoundaryContract = {
     {
       kind: 'derive',
       from: ['nodes[].observed_state.value', 'nodes[].observed_state.std'],
-      to: 'parameter_uncertainties[]',
+      to: 'parameter_uncertainties[] (distribution: normal)',
       why: 'ISL needs explicit uncertainty specs; PLoT synthesises from observed values',
+    },
+    {
+      kind: 'derive',
+      from: ['nodes[].prior.range_min', 'nodes[].prior.range_max'],
+      to: 'parameter_uncertainties[] (distribution: uniform)',
+      why:
+        'An external factor whose only quantitative statement is a `prior` has no ' +
+        'observed_state, and ISL reads a NORMAL entry\'s centre from observed_state.value ' +
+        '(defaulting to 0.0). Only the uniform family carries its centre on the wire, so ' +
+        'the declared support is forwarded verbatim as range_min/range_max. Sending a ' +
+        'width-only normal here parsed cleanly and sampled the factor outside its own ' +
+        'stated support — measured, and pinned in tests/isl-factor-sampler-centre.contract.test.ts.',
     },
   ],
 

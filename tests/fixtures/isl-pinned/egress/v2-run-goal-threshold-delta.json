@@ -5,8 +5,8 @@
   "site": "routes/v2/run.ts → islService.callAnalysisEndpoint (goal target attested in the SAMPLE frame)",
   "liveness": "live",
   "note": "ROADMAP 2.762. The other live goal-stamped shape: goal_threshold + goal_threshold_frame:\"delta\" + the auto-synthesised `auto_goal_threshold` constraint, whose value the 2.239 carry makes identical to the threshold. The only live shape in which goal_threshold and goal_constraints travel together.",
-  "wire_bytes_length": 1886,
-  "wire_bytes_sha256": "174f8e0e6a26fe7b85787254678df17d809e75f05eb0cc6272a92d07645ac7c1",
+  "wire_bytes_length": 1893,
+  "wire_bytes_sha256": "0dc8933d85a8b111d4a9e27f39169d20e84ffe034ef1341e7ec3a5f175b4b5d3",
   "body": {
     "request_id": "req_slice2_pairing_goal",
     "graph": {
@@ -138,8 +138,9 @@
       },
       {
         "node_id": "fac_market",
-        "distribution": "normal",
-        "std": 0.11547005383792515
+        "distribution": "uniform",
+        "range_min": 0.2,
+        "range_max": 0.6
       }
     ],
     "include_e_values": true,

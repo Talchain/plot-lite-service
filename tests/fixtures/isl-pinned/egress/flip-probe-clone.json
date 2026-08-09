@@ -5,8 +5,8 @@
   "site": "analysis/flip-thresholds.ts → createISLInferenceFn (probe on a factor already in the PU list)",
   "liveness": "live",
   "note": "The flip probe CLONES the base request and mutates it, downstream of the translator.",
-  "wire_bytes_length": 1678,
-  "wire_bytes_sha256": "275081f2600789d7fe67f270f1b0747c34f552d663ceeb0f9d240fcd8ae1dc49",
+  "wire_bytes_length": 1685,
+  "wire_bytes_sha256": "91f376e2bbedc0faecd031b977f92fa6d04c21a02a9d66463ac5a41d0bfe102e",
   "body": {
     "request_id": "req_slice2_pairing__flip_fac_headcount",
     "graph": {
@@ -136,8 +136,9 @@
       },
       {
         "node_id": "fac_market",
-        "distribution": "normal",
-        "std": 0.11547005383792515
+        "distribution": "uniform",
+        "range_min": 0.2,
+        "range_max": 0.6
       },
       {
         "node_id": "con_cost_cap",

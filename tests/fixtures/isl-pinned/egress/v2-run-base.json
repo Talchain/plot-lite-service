@@ -5,8 +5,8 @@
   "site": "routes/v2/run.ts → islService.callAnalysisEndpoint",
   "liveness": "live",
   "note": "The base /v2/run analysis body — the highest-traffic ISL request PLoT sends.",
-  "wire_bytes_length": 1871,
-  "wire_bytes_sha256": "9a58b85a9f17053ac4cca1c812c3d7a2cf64712a51294ef6efef04113a2a9119",
+  "wire_bytes_length": 1878,
+  "wire_bytes_sha256": "199a41bc392f2c5da51d00a0699d3bf5a4377799d737775f3109593bcf0e7fff",
   "body": {
     "request_id": "req_slice2_pairing",
     "graph": {
@@ -138,8 +138,9 @@
       },
       {
         "node_id": "fac_market",
-        "distribution": "normal",
-        "std": 0.11547005383792515
+        "distribution": "uniform",
+        "range_min": 0.2,
+        "range_max": 0.6
       },
       {
         "node_id": "con_cost_cap",

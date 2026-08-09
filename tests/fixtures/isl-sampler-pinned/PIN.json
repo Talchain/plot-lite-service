@@ -1,0 +1,68 @@
+{
+  "_README": [
+    "The ISL pin the FACTOR-SAMPLER CENTRE pairing is derived against.",
+    "",
+    "WHY A SECOND PIN. tests/fixtures/isl-pinned/PIN.json pins ISL's REQUEST MODELS,",
+    "and its pairing answers 'does ISL parse the keys PLoT sends?'. That question is",
+    "blind to the one this pairing asks: 'does ISL SAMPLE where PLoT meant?'. The two",
+    "need different source files (a sampler lives in src/services, not src/models) and",
+    "are re-pinned on different occasions, so sharing one PIN would silently couple a",
+    "model re-pin to a behaviour transcript. They are deliberately separate.",
+    "",
+    "WHY THIS SHA. 47f20068 was the sha DEPLOYED to ISL staging when this pairing was",
+    "created (2026-08-09). The claim being settled is about deployed behaviour, so the",
+    "pin is the deployed sha, not the newest one.",
+    "",
+    "RE-PINNING PROCEDURE (all steps, in order — the standing test fails if any is",
+    "skipped, which is the point):",
+    "  1. Fresh blobless clone of the ISL repo at the new sha, OUTSIDE this repo.",
+    "  2. Update `isl.sha`, `isl.committed_at`, and EVERY `source_sha256` entry.",
+    "  3. npx tsx tools/isl-contract/capture-sampler-cases.ts",
+    "  4. cd <isl-clone> && poetry run python <plot>/tools/isl-contract/replay-factor-sampler.py --isl-repo <isl-clone>",
+    "",
+    "WHY THE HASHES ARE HERE. tests/isl-factor-sampler-centre.contract.test.ts asserts",
+    "that the committed transcript was generated against exactly this pin",
+    "(transcript.pin_digest == sha256 of the canonical form of this file). Bumping the",
+    "pin without re-running the driver turns the suite RED instead of leaving a",
+    "behaviour claim silently derived against stale bytes."
+  ],
+  "isl": {
+    "repo": "Talchain/Inference-Service-Layer",
+    "ref": "staging",
+    "sha": "47f20068378958ba4642db91ba1b3b09fdd8e4e5",
+    "committed_at": "2026-08-08T10:34:12+01:00",
+    "pinned_by": "Prior-only external factor sampling centre (P0, 2026-08-09). The sha DEPLOYED to ISL staging at the time of measurement. ParameterUncertainty itself is UNCHANGED between this sha and the request-model pin (686fcb7f): `git diff 686fcb7f 47f20068 -- src/models/robustness_v2.py` touches only GoalConstraint.value_frame, so the two pins do not disagree about the class this pairing exercises."
+  },
+  "runtime": {
+    "python": "^3.11 (pyproject.toml:10)",
+    "pydantic": "2.6.1 (pyproject.toml:15)",
+    "pydantic_settings": "2.2.1",
+    "numpy": "^1.26.0",
+    "why_these": "FactorSampler needs numpy (SeededRNG wraps np.random.PCG64) and importing robustness_analyzer_v2 pulls src/config, which imports pydantic_settings as a package-init side effect."
+  },
+  "source_sha256": {
+    "_note": "Every file load-bearing for the SAMPLING claim, plus the import-side-effect files without which the driver cannot even import FactorSampler. The driver verifies each against the clone it is pointed at and REFUSES to run on a mismatch, and it additionally asserts each imported module's resolved __file__ sits inside that clone (an editable .pth can rebind imports to another checkout and every number would then measure the wrong tree).",
+    "src/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/config/__init__.py": "66d835151679ca73db34f399dd2bf63b270b538befd7b166a8040c50a2aee83f",
+    "src/config/stability_thresholds.py": "b388f9b284a26d1a6373431caf81cd662677261d9964d464109adfa80838afa0",
+    "src/constants/__init__.py": "b8bbb03b4ff4ecc8e647b3d42f2debff1f26e702d35638ca967821b09204ef8a",
+    "src/models/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/models/range_fit.py": "a3bf7e6052a9facee579ee4c967b80a1c430244f539a0c48c1f00ea528ce76bd",
+    "src/models/response_v2.py": "77e8fdad6f04535b583bf5a057fc1bf3f2807b68b1000a82e514f5da989b4930",
+    "src/models/robustness_v2.py": "e3ada612d4f35b09d68a9ef87269b08786609d6cf0461a019318ab670d9dc7ba",
+    "src/models/shared.py": "0e5014895ec203375646dea9db8f035f05a625e86eec340c713195ebf0e7b812",
+    "src/services/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/services/robustness_analyzer_v2.py": "d7f7beab61b058c0998ea2fedfe4112a8d95f63fa1c6e7dbac1ddb99e6bd9569",
+    "src/utils/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "src/utils/correlation.py": "e8845552739dd174fbead62d72dccb128ffac0c1e4b1ebcbfbbc95b1cd2927d4",
+    "src/utils/rng.py": "484931265c2aeaf8eb409afe4df35f3aaf7e3785def870e00e8ffd42ac814343"
+  },
+  "cited_bytes": {
+    "_note": "Line cites this pairing's comments depend on, re-derived at this sha. NEVER carry a line number forward across a re-pin.",
+    "ParameterUncertainty": "src/models/robustness_v2.py:243-291 (declares node_id/distribution/std/range_min/range_max; NO `mean`; validator requires range_min<range_max for distribution=='uniform')",
+    "FactorSampler.sample_factor_values centre": "src/services/robustness_analyzer_v2.py:1080-1086 (mean = 0.0, overridden only by node.observed_state.value)",
+    "FactorSampler normal branch": "src/services/robustness_analyzer_v2.py:1175-1178 (rng.normal(mean, std))",
+    "FactorSampler uniform branch": "src/services/robustness_analyzer_v2.py:1180-1188 (rng.uniform(range_min, range_max) — `mean` is NOT read)",
+    "root-default detector": "src/services/robustness_analyzer_v2.py:1816,1826-1834 (ROOT_NODE_DEFAULT_VALUE suppressed by mere PRESENCE in uncertainty_node_ids)"
+  }
+}
