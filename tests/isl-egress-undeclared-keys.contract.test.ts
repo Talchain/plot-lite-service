@@ -178,11 +178,39 @@ describe('PLoT → ISL egress carries no undeclared request key (slice 6)', () =
       expect(injected).toBeDefined();
       expect(injected.std).toBe(CONSTRAINT_PINNED_STD);
 
+      // Each entry must be WELL-FORMED FOR ITS OWN FAMILY. This used to assert
+      // `distribution === 'normal'` for everything, which was true only while
+      // the uniform-prior producer was mis-emitting a centre-less normal. A
+      // blanket "all normal" check would now have to be WEAKENED to pass —
+      // instead it is sharpened: a normal must carry a numeric std and no
+      // bounds, a uniform must carry both bounds and no std, and the two
+      // families must BOTH appear, which is a stronger statement that both
+      // translator producers really fired than "they all look alike" ever was.
+      const families = new Set<string>();
       for (const p of pu) {
         expect(typeof p.node_id).toBe('string');
-        expect(p.distribution).toBe('normal');
-        expect(typeof p.std).toBe('number');
+        families.add(p.distribution);
+        if (p.distribution === 'normal') {
+          expect(typeof p.std).toBe('number');
+          expect(p.range_min).toBeUndefined();
+          expect(p.range_max).toBeUndefined();
+        } else if (p.distribution === 'uniform') {
+          expect(typeof p.range_min).toBe('number');
+          expect(typeof p.range_max).toBe('number');
+          expect(p.range_min).toBeLessThan(p.range_max);
+          expect(p.std).toBeUndefined();
+        } else {
+          throw new Error(`unexpected distribution '${p.distribution}' for ${p.node_id}`);
+        }
       }
+      // `fac_market` is the prior-only external factor: no observed_state, so a
+      // normal here would leave ISL centring it on 0.0 (the P0 fixed by
+      // tests/isl-factor-sampler-centre.contract.test.ts). Bound by node id, not
+      // by "the one uniform", so it stays bound if another uniform appears.
+      const priorOnly = pu.find((p) => p.node_id === 'fac_market');
+      expect(priorOnly).toBeDefined();
+      expect(priorOnly.distribution).toBe('uniform');
+      expect(families).toEqual(new Set(['normal', 'uniform']));
 
       // Edge `strength.mean` IS declared by ISL — proof that the assertions
       // below target the specific undeclared keys and not the string "mean".
@@ -253,8 +281,23 @@ describe('PLoT → ISL egress carries no undeclared request key (slice 6)', () =
       for (const b of [cloneBody, insertBody]) {
         expect(b.parameter_uncertainties.map((p: any) => p.node_id)).toContain('con_cost_cap');
         for (const p of b.parameter_uncertainties as any[]) {
-          expect(typeof p.std).toBe('number');
+          // A uniform entry legitimately has no `std` (ISL reads its bounds).
+          // The probe only ever SPREADS these entries, so the point of the
+          // control is that each one survived the clone intact for its family.
+          if (p.distribution === 'uniform') {
+            expect(typeof p.range_min).toBe('number');
+            expect(typeof p.range_max).toBe('number');
+          } else {
+            expect(typeof p.std).toBe('number');
+          }
         }
+        // The prior-only factor's bounds must survive the probe clone unchanged
+        // — a probe that dropped them would send ISL a rangeless uniform, which
+        // ISL 422s (robustness_v2.py:277-283), taking the whole probe down.
+        const cloned = (b.parameter_uncertainties as any[]).find((p) => p.node_id === 'fac_market');
+        expect(cloned).toBeDefined();
+        expect(cloned.distribution).toBe('uniform');
+        expect(cloned.range_min).toBeLessThan(cloned.range_max);
       }
 
       // The probe moves observed_state.value — the field ISL actually reads.

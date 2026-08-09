@@ -334,7 +334,12 @@ describe('Translator: buildParameterUncertaintiesV3', () => {
     expect(pus).toBeUndefined();
   });
 
-  it('generates PU from external factor with uniform prior (std ≥ 0.01)', () => {
+  it('generates a UNIFORM PU from an external factor prior, bounds intact', () => {
+    // Was: "(std ≥ 0.01)" — a width-only normal, which left ISL centring this
+    // factor on 0.0 because a prior-only node has no observed_state for its
+    // normal branch to read. ISL's uniform branch takes the centre from these
+    // bounds instead (robustness_analyzer_v2.py:1180-1188 @ 47f20068); the
+    // behavioural proof lives in tests/isl-factor-sampler-centre.contract.test.ts.
     const nodes: EngineNodeV3[] = [
       {
         id: 'ext_factor',
@@ -348,10 +353,13 @@ describe('Translator: buildParameterUncertaintiesV3', () => {
     const pus = buildParameterUncertaintiesV3(nodes)!;
     const pu = pus.find((p) => p.node_id === 'ext_factor')!;
     expect(pu).toBeDefined();
-    expect(pu).not.toHaveProperty('mean'); // slice 6: only the width crosses
-    expect(pu.std).toBeGreaterThanOrEqual(0.01);
-    // Uniform [0.2, 0.8]: std = 0.6 / sqrt(12) ≈ 0.173
-    expect(pu.std).toBeCloseTo(0.6 / Math.sqrt(12), 4);
+    expect(pu).not.toHaveProperty('mean');
+    expect(pu).toEqual({
+      node_id: 'ext_factor',
+      distribution: 'uniform',
+      range_min: 0.2,
+      range_max: 0.8,
+    });
   });
 
   it('observed_state takes precedence over external prior', () => {

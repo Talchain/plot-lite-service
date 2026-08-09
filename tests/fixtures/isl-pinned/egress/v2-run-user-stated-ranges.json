@@ -5,8 +5,8 @@
   "site": "routes/v2/run.ts → islService.callAnalysisEndpoint (client-supplied user-stated ranges, ROADMAP 2.720 / pillar P4)",
   "liveness": "live",
   "note": "ROADMAP 2.720. Carries a non-empty user_stated_ranges array — the request-gated branch in toISLRobustnessRequest, fed from body.user_stated_ranges via the projection onto ISL's declared members. Before this producer NO fixture in the pairing emitted the key, so ISL's whole UserStatedRange class (node_id/lower/upper/domain/source/stated_at/method_version) was never walked and a drift inside it could not be reported — the same structural blindness that let goal_threshold_frame ride undeclared for five days. The row is derived from run.ts's route schema and ISL's range_fit.py, not invented, and names a node this fixture graph actually contains.",
-  "wire_bytes_length": 2068,
-  "wire_bytes_sha256": "370f1bc77da09897ace32293b8d02b0a3ec9440d224e802ccfc1957bbec8cbd7",
+  "wire_bytes_length": 2075,
+  "wire_bytes_sha256": "6c36e95b8e8bdf0c440ef7f45768b30fcc9c8401d7bf16feb42b5b0aafb17fd5",
   "body": {
     "request_id": "req_slice2_pairing_usr",
     "graph": {
@@ -138,8 +138,9 @@
       },
       {
         "node_id": "fac_market",
-        "distribution": "normal",
-        "std": 0.11547005383792515
+        "distribution": "uniform",
+        "range_min": 0.2,
+        "range_max": 0.6
       },
       {
         "node_id": "con_cost_cap",

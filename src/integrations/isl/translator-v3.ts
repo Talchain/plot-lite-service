@@ -199,18 +199,41 @@ export interface ISLRobustnessRequestV3 {
   analysis_types: Array<'comparison' | 'sensitivity' | 'robustness'>;
   /**
    * Members mirror ISL's `ParameterUncertainty`
-   * (isl/src/models/robustness_v2.py:254-267) EXACTLY: {node_id, distribution,
-   * std, range_min, range_max}. ISL has never declared a `mean` here — the
-   * sampling centre is read from the node's `observed_state.value`, not from
-   * this list — so a `mean` sent here was dropped by ISL's `extra: "ignore"`
-   * and could never move a result. Removed in contract step-2 slice 6; do not
-   * re-add a member ISL does not declare.
+   * (isl/src/models/robustness_v2.py:243-291 @ 47f20068) EXACTLY: {node_id,
+   * distribution, std, range_min, range_max}. ISL has never declared a `mean`
+   * here — for a NORMAL entry the sampling centre is read from the node's
+   * `observed_state.value`, not from this list — so a `mean` sent here was
+   * dropped by ISL's `extra: "ignore"` and could never move a result. Removed
+   * in contract step-2 slice 6; do not re-add a member ISL does not declare.
+   *
+   * The union is the point, and it is what closes the prior-only defect. ISL
+   * supports THREE families and only one of them takes its centre from the
+   * graph node:
+   *   - `normal`   → `rng.normal(observed_state.value ?? 0.0, std)`
+   *                  (robustness_analyzer_v2.py:1080-1086, 1175-1178)
+   *   - `uniform`  → `rng.uniform(range_min, range_max)` — the centre lives
+   *                  ENTIRELY on the wire; `observed_state` is not read at all
+   *                  (robustness_analyzer_v2.py:1180-1188), and the correlated
+   *                  copula path treats it the same way (1140-1149).
+   *   - `point_mass` → the observed value verbatim; useless to a node that has
+   *                  none, so PLoT never emits it.
+   * A factor whose only quantitative statement is a `prior` therefore MUST go
+   * out as `uniform`: sent as a `normal` it parses cleanly, and ISL then
+   * silently centres a declared Uniform[0.6,1.0] on 0.0.
    */
-  parameter_uncertainties?: Array<{
-    node_id: string;
-    distribution: 'normal';
-    std: number;
-  }>;
+  parameter_uncertainties?: Array<
+    | {
+        node_id: string;
+        distribution: 'normal';
+        std: number;
+      }
+    | {
+        node_id: string;
+        distribution: 'uniform';
+        range_min: number;
+        range_max: number;
+      }
+  >;
   /**
    * User-defined success threshold for goal.
    * When provided, ISL returns probability_of_goal per option
@@ -331,11 +354,12 @@ export interface ISLRobustnessRequestV3 {
    * ⚠ WHY THIS IS NOT THE `prior: {distribution:'uniform', range_min, range_max}`
    * PATH, and must never be routed into it. That path carries SYSTEM-derived
    * declared-uniform SUPPORTS (CEE's drafter mints them from brief wording), and
-   * `buildParameterUncertaintiesV3` converts them with σ = width/√12 — the exact
-   * moment-match for a uniform support. A HUMAN-STATED range is a ~50% credible
-   * interval, whose σ is 0.7413·width — 2.57× LARGER. Routing a human statement
-   * through the uniform conversion would silently understate the user's
-   * uncertainty. The two coexist by design and are fitted in different places.
+   * `buildParameterUncertaintiesV3` forwards them to ISL AS a uniform, bounds
+   * intact — the support is taken at its word, not fitted. A HUMAN-STATED range
+   * is a ~50% credible interval, whose σ is 0.7413·width — 2.57× LARGER than the
+   * same range read as a uniform support. Routing a human statement down the
+   * prior path would silently understate the user's uncertainty. The two coexist
+   * by design and are fitted in different places.
    *
    * ⚠ AND IT WAS DARK UNTIL NOW. ISL declared, implemented, tested and DEPLOYED
    * this converter, and PLoT's own pin note recorded *"user_stated_ranges (2.720,
@@ -662,6 +686,15 @@ export function toISLOption(option: OptionV3): ISLOptionV3 {
  * Non-finite, zero, and negative `observed_state.std` are treated as missing
  * and fall through to default synthesis.
  *
+ * SECOND PASS — external factors whose only quantitative statement is a `prior`.
+ * These have no `observed_state`, so they emit `{distribution:'uniform',
+ * range_min, range_max}`: the one ISL family whose centre travels on the wire
+ * rather than being read from the graph node. A degenerate range (min == max)
+ * is DECLINED rather than approximated, so ISL discloses the defaulted root
+ * instead of sampling a centre nobody stated. See the long note at the push
+ * site — this is the prior-only sampling-centre P0, and reverting it to a
+ * normal reinstates a silently-wrong analysis.
+ *
  * @param nodes Graph nodes
  * @returns Parameter uncertainties for ISL
  */
@@ -743,11 +776,46 @@ export function buildParameterUncertaintiesV3(
         [rangeMin, rangeMax] = [rangeMax, rangeMin];
       }
 
-      // Convert uniform prior to a normal WIDTH. Only the width crosses the
-      // boundary: ISL declares no `mean` on ParameterUncertainty and resolves
-      // the sampling centre from the node's own `observed_state.value`,
-      // defaulting to 0.0 when absent (robustness_analyzer_v2.py:852-855,
-      // 891-892, 3490-3494 @ 7d144c7f).
+      // ⚠ A DEGENERATE RANGE CANNOT BE EXPRESSED, SO IT IS DECLINED — LOUDLY.
+      // `range_min == range_max` is a point mass, and ISL has no way to carry
+      // one for a node with no `observed_state`: its `point_mass` branch
+      // returns the observed value (robustness_analyzer_v2.py:1171-1173),
+      // which for a prior-only factor is the 0.0 default. Emitting anything
+      // here would put a fabricated centre on the wire, so PLoT emits NOTHING
+      // and the factor falls to ISL's root-default detector, which fires
+      // ROOT_NODE_DEFAULT_VALUE precisely because no ParameterUncertainty
+      // entry is present (robustness_analyzer_v2.py:1826-1834). The user sees
+      // "no observed value provided … results may be unreliable" instead of a
+      // confident number drawn from nowhere. ISL's own validator would also
+      // 422 a `range_min >= range_max` uniform (robustness_v2.py:277-283), so
+      // sending one would take the whole analysis down rather than one factor.
+      if (!(rangeMin < rangeMax)) {
+        // Wave1-L1 (PII): raw range values are decision inputs — digested.
+        console.warn(
+          `[PARAMETER_UNCERTAINTY] node_id=${sha8(String(node.id))} prior range is degenerate (range_min == range_max, value_sha8=${sha8(rangeMin)}); no uncertainty emitted — ISL will disclose the defaulted root instead of sampling a fabricated centre`
+        );
+        continue;
+      }
+
+      // Send ISL the uniform it actually supports, bounds and all.
+      //
+      // ⚠ THIS REPLACED A σ = width/√12 NORMAL, AND THE REASON MATTERS. The
+      // old conversion was a correct moment-match for the WIDTH and had no
+      // channel for the CENTRE, because ISL's ParameterUncertainty declares no
+      // `mean`. What that missed is that ISL never needed one: its `uniform`
+      // branch reads the bounds straight off this entry and does not consult
+      // `observed_state` at all (robustness_analyzer_v2.py:1180-1188; the
+      // correlated copula path likewise, 1140-1149). A prior-only external
+      // factor has no `observed_state`, so the normal entry was centred on the
+      // 0.0 default: measured through ISL's own FactorSampler at 47f20068, a
+      // stated Uniform[0.6,1.0] sampled at mean -0.000434 with all 20,000
+      // draws OUTSIDE the declared support. Worse, it was uncaveated — the
+      // root-default detector is satisfied by the mere PRESENCE of an entry
+      // (robustness_analyzer_v2.py:1826-1834), so nothing warned. The pairing
+      // that measures this is tests/isl-factor-sampler-centre.contract.test.ts;
+      // do not revert this to a normal without re-running it.
+      //
+      // Preserved from the old conversion, because it is still true:
       //
       // ⚠ SCOPE BOUNDARY (ROADMAP 2.721, derived at the bytes 8 Aug 2026):
       // the ranges on this path are SYSTEM-derived declared-uniform SUPPORTS,
@@ -758,33 +826,24 @@ export function buildParameterUncertaintiesV3(
       // user-elicited range can reach this field: CEE's `prior_range_edit`
       // system event is `fact_and_commit` — a judgement receipt that never
       // writes the graph — and the calibration path (2.627) refuses to mint
-      // prior bounds from user statements. σ = width/√12 is the exact
-      // moment-match for a declared uniform support and is CORRECT here.
+      // prior bounds from user statements. A declared uniform support is
+      // exactly what a uniform entry means, so this is now a passthrough of
+      // the producer's own statement rather than a lossy fit of it.
       //
       // A USER-STATED range is a ~50% credible interval (Neil's 2.521 Q1
-      // ruling): its σ is 0.7413·width — 2.57× LARGER — fitted ISL-side per
+      // ruling): its σ is 0.7413·width — 2.57× LARGER than the uniform
+      // moment-match — fitted ISL-side per
       // `parallel-briefs/RANGE-TO-DISTRIBUTION-SPEC-2026-08-08.md` (§4.4
       // states this coexistence rule explicitly). A human-stated range must
-      // NEVER route through this conversion; it would silently understate the
-      // user's uncertainty and normalise their slips (the swap below is a
+      // NEVER route through this path; it would silently understate the
+      // user's uncertainty and normalise their slips (the swap above is a
       // producer-noise repair for LLM-minted priors, not a licence to reorder
       // what a human said).
-      //
-      // ⚠ KNOWN GAP, pre-existing and NOT introduced here: an external-prior
-      // factor has no `observed_state`, so ISL centres its sampling on 0.0
-      // rather than on the prior midpoint. Sending a `mean` never fixed that —
-      // ISL dropped the key via `extra: "ignore"` — it only made the gap look
-      // closed. Closing it needs an ISL-declared field or an `observed_state`
-      // for prior-only factors; tracked separately, not in slice 6.
-      let std = (rangeMax - rangeMin) / Math.sqrt(12);
-
-      // Floor std at 0.01
-      std = Math.max(0.01, std);
-
       uncertainties.push({
         node_id: node.id,
-        distribution: 'normal',
-        std,
+        distribution: 'uniform',
+        range_min: rangeMin,
+        range_max: rangeMax,
       });
     }
   }

@@ -813,7 +813,15 @@ export function createISLInferenceFn(
     options: any[];
     goal_node_id: string;
     n_samples?: number;
-    parameter_uncertainties?: Array<{ node_id: string; distribution: string; std: number }>;
+    // A `uniform` entry carries bounds and NO `std` (ISL ParameterUncertainty,
+    // robustness_v2.py:243-291 @ 47f20068). The clone below only spreads these
+    // entries, so a prior-only factor rides through a probe untouched — but the
+    // type must say so, or the next reader adds `pu.std` arithmetic that is
+    // `undefined` for exactly the factors whose centre this repo just fixed.
+    parameter_uncertainties?: Array<
+      | { node_id: string; distribution: 'normal'; std: number }
+      | { node_id: string; distribution: 'uniform'; range_min: number; range_max: number }
+    >;
     // Resolved seed sent to the main ISL analysis call (explicit request seed,
     // or PLoT-derived seed when omitted). Forwarded verbatim on every probe so
     // common random numbers stay intentional and aligned with the base analysis.
@@ -857,10 +865,20 @@ export function createISLInferenceFn(
     }
 
     // Clone the graph for THIS probe and set the target factor's
-    // observed_state.value to the probe value. ISL's comparison samples each factor
-    // from Normal(observed_state.value, parameter_uncertainties.std): the comparison
+    // observed_state.value to the probe value. For a NORMAL parameter_uncertainty
+    // ISL samples the factor from Normal(observed_state.value, std): the comparison
     // MEAN is read from the graph node's observed_state.value — this line is the
     // entire mechanism that moves the winner.
+    //
+    // ⚠ It moves NORMAL factors only. A `uniform` entry takes its centre from
+    // range_min/range_max and never reads observed_state
+    // (robustness_analyzer_v2.py:1180-1188 @ 47f20068), so writing a probe value
+    // onto such a node would do nothing. That is not reachable today and must not
+    // become reachable silently: flip candidates are filtered by
+    // getFactorCurrentValue (coaching/flip-thresholds.ts:270-286), which returns
+    // null for a prior-only factor, so a uniform factor is never probed — it only
+    // ever rides through the cloned list unchanged, which is correct, because the
+    // probe world should keep sampling it exactly as the base analysis does.
     //
     // Slice 6: PLoT used to ALSO write `parameter_uncertainties[].mean` here
     // "for contract honesty / possible future consumers". It was neither: ISL's

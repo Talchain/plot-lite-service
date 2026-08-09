@@ -167,7 +167,12 @@ describe('PLoT → ISL boundary contract (B4.5)', () => {
       (pu: any) => pu.node_id === 'factor-a'
     );
     expect(factorAPU).toBeDefined();
-    // Distribution is always 'normal'
+    // The observed_state path emits 'normal'. NOT "always normal" — that was
+    // true only while the prior-only path was mis-emitting a centre-less normal.
+    // A prior-only external factor now emits 'uniform' with range_min/range_max
+    // (see tests/v2-isl-translator.test.ts and the sampler pairing); this
+    // fixture carries no such node, so the assertion is scoped to the path it
+    // actually exercises rather than generalised past it.
     expect(factorAPU!.distribution).toBe('normal');
     // Slice 6: the derivation is now observable through `std` (the user-supplied
     // 0.1 is honoured verbatim) plus the value's own declared location on the
@@ -189,10 +194,13 @@ describe('PLoT → ISL boundary contract (B4.5)', () => {
     expect(islRequest.include_e_values).toBe(true);
     expect(islRequest.include_voi).toBe(true);
 
-    // parameter_uncertainties[].distribution enriched
+    // parameter_uncertainties[].distribution enriched — PLoT mints the family;
+    // it is not present on the inbound engine graph. The enrichment claim is
+    // that the key EXISTS and names a family ISL declares, not that it is always
+    // the same family (a prior-only external factor is 'uniform').
     if (islRequest.parameter_uncertainties && islRequest.parameter_uncertainties.length > 0) {
       for (const pu of islRequest.parameter_uncertainties) {
-        expect(pu.distribution).toBe('normal');
+        expect(['normal', 'uniform']).toContain(pu.distribution);
       }
     }
   });

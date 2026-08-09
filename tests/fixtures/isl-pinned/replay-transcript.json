@@ -122,7 +122,7 @@
       "fixture": "tests/fixtures/isl-pinned/egress/flip-probe-clone.json",
       "endpoint": "/api/v1/robustness/analyze/v2",
       "liveness": "live",
-      "wire_bytes_sha256": "275081f2600789d7fe67f270f1b0747c34f552d663ceeb0f9d240fcd8ae1dc49",
+      "wire_bytes_sha256": "91f376e2bbedc0faecd031b977f92fa6d04c21a02a9d66463ac5a41d0bfe102e",
       "model": "RobustnessRequestV2",
       "parses": true,
       "validation_errors": [],
@@ -256,8 +256,9 @@
           },
           {
             "node_id": "fac_market",
-            "distribution": "normal",
-            "std": 0.11547005383792515
+            "distribution": "uniform",
+            "range_min": 0.2,
+            "range_max": 0.6
           },
           {
             "node_id": "con_cost_cap",
@@ -281,7 +282,7 @@
       "fixture": "tests/fixtures/isl-pinned/egress/flip-probe-insert.json",
       "endpoint": "/api/v1/robustness/analyze/v2",
       "liveness": "live",
-      "wire_bytes_sha256": "7480c0c6eb97bb179ca9aaa0d650a8161087fc02497820cc097099104018eefd",
+      "wire_bytes_sha256": "3de31b50ce5906521a14f1c0c306b79cc13e6732d8e9325103475ac5bc9e0e3e",
       "model": "RobustnessRequestV2",
       "parses": true,
       "validation_errors": [],
@@ -418,8 +419,9 @@
           },
           {
             "node_id": "fac_market",
-            "distribution": "normal",
-            "std": 0.11547005383792515
+            "distribution": "uniform",
+            "range_min": 0.2,
+            "range_max": 0.6
           },
           {
             "node_id": "con_cost_cap",
@@ -557,7 +559,7 @@
       "fixture": "tests/fixtures/isl-pinned/egress/v2-run-base-constraint-weight.json",
       "endpoint": "/api/v1/robustness/analyze/v2",
       "liveness": "live",
-      "wire_bytes_sha256": "ac0c70db142c338ac2b3ede43b9546dfca6e03aa4123f3f83d7588902bf6a8f4",
+      "wire_bytes_sha256": "112f808444b1419fdaace86f0f9b66e85be8a5ebc1312af01b987876de699275",
       "model": "RobustnessRequestV2",
       "parses": true,
       "validation_errors": [],
@@ -693,8 +695,9 @@
           },
           {
             "node_id": "fac_market",
-            "distribution": "normal",
-            "std": 0.11547005383792515
+            "distribution": "uniform",
+            "range_min": 0.2,
+            "range_max": 0.6
           },
           {
             "node_id": "con_cost_cap",
@@ -734,7 +737,7 @@
       "fixture": "tests/fixtures/isl-pinned/egress/v2-run-base.json",
       "endpoint": "/api/v1/robustness/analyze/v2",
       "liveness": "live",
-      "wire_bytes_sha256": "9a58b85a9f17053ac4cca1c812c3d7a2cf64712a51294ef6efef04113a2a9119",
+      "wire_bytes_sha256": "199a41bc392f2c5da51d00a0699d3bf5a4377799d737775f3109593bcf0e7fff",
       "model": "RobustnessRequestV2",
       "parses": true,
       "validation_errors": [],
@@ -870,8 +873,9 @@
           },
           {
             "node_id": "fac_market",
-            "distribution": "normal",
-            "std": 0.11547005383792515
+            "distribution": "uniform",
+            "range_min": 0.2,
+            "range_max": 0.6
           },
           {
             "node_id": "con_cost_cap",
@@ -911,7 +915,7 @@
       "fixture": "tests/fixtures/isl-pinned/egress/v2-run-factor-correlations.json",
       "endpoint": "/api/v1/robustness/analyze/v2",
       "liveness": "live",
-      "wire_bytes_sha256": "fd4e5b42dbd2a5c5e74bf66cbbfdb8bb11d0f6417f899240c3a8c2ae90a27889",
+      "wire_bytes_sha256": "80ace26019c60fe29fb8efd78ce7d3bca437eda600738edaf0a8c33f5ec07f4a",
       "model": "RobustnessRequestV2",
       "parses": true,
       "validation_errors": [],
@@ -1047,8 +1051,9 @@
           },
           {
             "node_id": "fac_market",
-            "distribution": "normal",
-            "std": 0.11547005383792515
+            "distribution": "uniform",
+            "range_min": 0.2,
+            "range_max": 0.6
           },
           {
             "node_id": "con_cost_cap",
@@ -1101,7 +1106,7 @@
       "fixture": "tests/fixtures/isl-pinned/egress/v2-run-goal-threshold-delta.json",
       "endpoint": "/api/v1/robustness/analyze/v2",
       "liveness": "live",
-      "wire_bytes_sha256": "174f8e0e6a26fe7b85787254678df17d809e75f05eb0cc6272a92d07645ac7c1",
+      "wire_bytes_sha256": "0dc8933d85a8b111d4a9e27f39169d20e84ffe034ef1341e7ec3a5f175b4b5d3",
       "model": "RobustnessRequestV2",
       "parses": true,
       "validation_errors": [],
@@ -1237,8 +1242,9 @@
           },
           {
             "node_id": "fac_market",
-            "distribution": "normal",
-            "std": 0.11547005383792515
+            "distribution": "uniform",
+            "range_min": 0.2,
+            "range_max": 0.6
           }
         ],
         "goal_threshold": 0.72,
@@ -1277,7 +1283,7 @@
       "fixture": "tests/fixtures/isl-pinned/egress/v2-run-goal-threshold-level.json",
       "endpoint": "/api/v1/robustness/analyze/v2",
       "liveness": "live",
-      "wire_bytes_sha256": "044b4011b60cd27642aa534c436098f5e4b10bc173d4dea582f998d5b2e7f85c",
+      "wire_bytes_sha256": "ab39fc0fbee41e79dd2c474fcaf5d0f44e96e6662d3e2c0f63da2c91871fe419",
       "model": "RobustnessRequestV2",
       "parses": true,
       "validation_errors": [],
@@ -1413,8 +1419,9 @@
           },
           {
             "node_id": "fac_market",
-            "distribution": "normal",
-            "std": 0.11547005383792515
+            "distribution": "uniform",
+            "range_min": 0.2,
+            "range_max": 0.6
           }
         ],
         "goal_threshold": 0.72,
@@ -1443,7 +1450,7 @@
       "fixture": "tests/fixtures/isl-pinned/egress/v2-run-user-stated-ranges.json",
       "endpoint": "/api/v1/robustness/analyze/v2",
       "liveness": "live",
-      "wire_bytes_sha256": "370f1bc77da09897ace32293b8d02b0a3ec9440d224e802ccfc1957bbec8cbd7",
+      "wire_bytes_sha256": "6c36e95b8e8bdf0c440ef7f45768b30fcc9c8401d7bf16feb42b5b0aafb17fd5",
       "model": "RobustnessRequestV2",
       "parses": true,
       "validation_errors": [],
@@ -1579,8 +1586,9 @@
           },
           {
             "node_id": "fac_market",
-            "distribution": "normal",
-            "std": 0.11547005383792515
+            "distribution": "uniform",
+            "range_min": 0.2,
+            "range_max": 0.6
           },
           {
             "node_id": "con_cost_cap",

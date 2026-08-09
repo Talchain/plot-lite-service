@@ -5,8 +5,8 @@
   "site": "routes/v2/run.ts → islService.callAnalysisEndpoint (goal target attested as an absolute LEVEL)",
   "liveness": "live",
   "note": "ROADMAP 2.762. Carries goal_threshold + goal_threshold_frame:\"level\" and NO goal_constraints — the shape routes/v2/run.ts emits when the goal node stamps a LEVEL frame, because auto-synthesis refuses on frame grounds and the 2.266 carry keeps the target. Before this producer NO fixture in the pairing emitted goal_threshold at all, so the frame field was structurally unobservable to the gate.",
-  "wire_bytes_length": 1750,
-  "wire_bytes_sha256": "044b4011b60cd27642aa534c436098f5e4b10bc173d4dea582f998d5b2e7f85c",
+  "wire_bytes_length": 1757,
+  "wire_bytes_sha256": "ab39fc0fbee41e79dd2c474fcaf5d0f44e96e6662d3e2c0f63da2c91871fe419",
   "body": {
     "request_id": "req_slice2_pairing_goal",
     "graph": {
@@ -138,8 +138,9 @@
       },
       {
         "node_id": "fac_market",
-        "distribution": "normal",
-        "std": 0.11547005383792515
+        "distribution": "uniform",
+        "range_min": 0.2,
+        "range_max": 0.6
       }
     ],
     "include_e_values": true,
