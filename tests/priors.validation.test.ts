@@ -139,39 +139,19 @@ describe('Priors validation', () => {
     });
   });
 
-  describe('/v1/run_timeslices with priors', () => {
-    it('accepts priors in timeslices request', async () => {
-      const res = await fetch(`${server.baseUrl}/v1/run_timeslices`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...basePayload,
-          timeslices: ['T1', 'T2'],
-          priors: { A: 0.6 },
-          seed: 4242
-        })
-      });
-
-      expect(res.status).toBe(200);
-      const data = await res.json();
-      expect(data.schema).toBe('run_timeslices.v1');
-    });
-
-    it('validates priors in timeslices', async () => {
-      const res = await fetch(`${server.baseUrl}/v1/run_timeslices`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          ...basePayload,
-          timeslices: ['T1'],
-          priors: { A: 2.0 },  // Invalid
-          seed: 4242
-        })
-      });
-
-      expect(res.status).toBe(400);
-      const data = await res.json();
-      expect(data.error.message).toContain('between 0 and 1');
-    });
-  });
+  /**
+   * The `/v1/run_timeslices with priors` block was REMOVED on 2026-08-13 when
+   * that route was withdrawn (typed 501, see tests/analysis-routes.refusal.test.ts).
+   *
+   * Its two cases asserted a 200 with `schema: 'run_timeslices.v1'` for valid
+   * priors, and a 400 "between 0 and 1" for invalid ones. Neither outcome is
+   * reachable any more, and deliberately so: the refusal is UNCONDITIONAL and
+   * precedes body validation, because returning 400 for a malformed body would
+   * imply a well-formed one would have been answered. The withdrawn route's
+   * treatment of a malformed request is pinned in the refusal suite instead.
+   *
+   * Prior validation itself is unaffected — `validatePriors` keeps live
+   * consumers in /v1/run, /v1/optimise and /v1/run_bundle, and the
+   * `/v1/run with priors` block above still exercises it end-to-end.
+   */
 });

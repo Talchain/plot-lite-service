@@ -137,6 +137,21 @@ export class PlotLiteClient {
     return this.request<RunBundleResponse>('POST', '/v1/run_bundle', request);
   }
 
+  /**
+   * @deprecated WITHDRAWN 2026-08-13 — the server answers 501 for every input.
+   *
+   * `/v1/run_timeslices` was ruled FABRICATING: its published p10/p50/p90 were a
+   * closed-form function of `seed` and the SHA-256 of the slice NAME, with the
+   * request graph validated and then never read, and `confidence` a hard-coded
+   * 0.85 on every slice. Renaming a slice moved the numbers; changing the graph
+   * did not.
+   *
+   * The method is kept so an existing integrator gets a typed, explained refusal
+   * (`code: ANALYSIS_UNAVAILABLE`, `retryable: false`) rather than a 404 that
+   * reads like a typo. There is no replacement call — the capability was
+   * withdrawn, not moved. The client-side validation below still runs, so a
+   * malformed request still fails locally on its own terms.
+   */
   async runTimeslices(request: RunTimeslicesRequest): Promise<RunTimeslicesResponse> {
     // Client-side validation
     const timeslicesValidation = validateTimeslices(request.timeslices);

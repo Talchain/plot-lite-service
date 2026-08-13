@@ -1,3 +1,16 @@
+/**
+ * ⛔ WITHDRAWN 2026-08-13 — this example no longer demonstrates a working call.
+ *
+ * `/v1/run_timeslices` answers 501 (`code: ANALYSIS_UNAVAILABLE`,
+ * `retryable: false`) for every input. It was ruled FABRICATING: the published
+ * percentiles were a closed-form function of the seed and the SHA-256 of the
+ * slice NAME, with the request graph — including the `slice_overrides` shown
+ * below — validated and then never read.
+ *
+ * The file is kept as a record of the request shape that is now refused, so an
+ * integrator recognising their own code here can see exactly what was
+ * withdrawn and why. Running it will print the refusal.
+ */
 import { PlotLiteClient } from '../../src/index.js';
 
 async function main() {
