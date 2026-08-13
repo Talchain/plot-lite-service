@@ -9,7 +9,56 @@ and `DecisionGuideAI` (UI).
 
 ## Current contents
 
-### `talchain-schemas-0.39.0.tgz`
+### `talchain-schemas-0.40.0.tgz`
+
+**Purpose:** PARITY (0.39.0 → 0.40.0, one minor), taken as part of ROADMAP
+2.1023/2.1024 because the frame/freshness audit found PLoT **two minors behind
+the active contract** (`olumi-schemas` main = 0.40.0) while reasoning about
+frame fields that cross this exact boundary. Like 0.39.0 this bump **closes
+nothing on its own and is meant to be INERT here** — it exists so PLoT is never
+the hop that hard-fails on a field a producer has started sending.
+
+**Provenance of these bytes.** Packed from a clean clone of the **tagged**
+commit, asserted equal to the tag before packing:
+
+| | |
+|---|---|
+| tag | `v0.40.0` |
+| commit | `09c82c9784b2f8220176945ce3ed692352842ae7` (asserted `HEAD == v0.40.0^{commit}`) |
+| sha256 | `19d7fa78cf830fb0e8865830d5bee63870d69f631e48cc173c03b42b11b3f126` |
+
+⚠ **Honest note on step 2 of the recipe below:** for this bump the `EXPECTED`
+hash was **DERIVED by packing the tagged commit**, not compared against an
+independently published value — so it proves the bytes match *that commit*, not
+that they match some other party's build. Anyone re-deriving it should get the
+same hash from the same tag; if they do not, that is a finding, not a warning.
+
+**What changed, derived from `git diff v0.39.0..v0.40.0 -- src/`** (seven files,
++210/−11), not from release notes:
+
+| change | does PLoT consume it? |
+|---|---|
+| `OBSERVED_STATE_SOURCE_LITERALS` — the observed-state `source` vocabulary DECLARED in the contract for the first time (union of CEE's 7 + UI's 11, plus `panel_elicited`) | **no** — new export, no PLoT reference |
+| `elicited_from` + the PR4 evidence-loop fields on `graph.ts` | **no** |
+| collab additions (`RoundParticipantRefSchema`, `src/boundary/collab.ts`) | **no** — PLoT has zero collab references |
+| `turn-payload.ts` additions | **no** |
+| `SCHEMA_SHA` / `SCHEMA_PACKAGE_VERSION` regenerated (`0.39.0`→`0.40.0`) | **no** — PLoT mirrors neither constant |
+| `src/fixtures/index.ts` (+55) | no |
+
+**MEASURED, not assumed:** every symbol PLoT imports from `@talchain/schemas`
+(`SeedSourceType`, `GoalThresholdFrame`, `LIMITS`, `DEFAULT_EXISTS_PROBABILITY`,
+`CeeTypedErrorSchema`, `DetailLevel`, `AnalysisEnrichmentSchema`,
+`DecisionRecordAnalysisSummarySchema`, `PlotCeeUpstreamEnvelope`,
+`EnrichmentFactorEvppiEntry`) returns **zero diff lines** across
+`v0.39.0..v0.40.0`. Nothing existing changed shape.
+
+⚠ The new `source` vocabulary is a **CONSUMER-SIDE VOCABULARY, NEVER A WIRE
+GATE** — 0.40.0 keeps the wire field as `z.string()` deliberately, and says so
+in its own source comment. PLoT must not narrow anything against it.
+
+### `talchain-schemas-0.39.0.tgz` *(HISTORICAL — superseded by 0.40.0 above; the
+tarball is no longer in this directory, per the one-version rule at the foot of
+this file.)*
 
 **Purpose:** PARITY ONLY (0.38.0 → 0.39.0, one minor). Unlike the 0.38.0 bump
 below — taken to close a named, still-open gap — **this one closes nothing and
@@ -344,10 +393,10 @@ canonical hash with the schemas lane FIRST, then reproduce it.
 
 ```bash
 # 0. Tag + merge the new version in olumi-schemas first (that repo's own release flow).
-#    Values below are the LAST COMPLETED bump (0.39.0) — replace all three.
-V=0.39.0
-SHA=76fe0ed9f6a26e884420c2ea5115fa1edb7d2b27      # the tagged commit
-EXPECTED=4c05a7f71efe56c8144b6125f44181b64c56a996c1d38234212bc09e025c92f0
+#    Values below are the LAST COMPLETED bump (0.40.0) — replace all three.
+V=0.40.0
+SHA=09c82c9784b2f8220176945ce3ed692352842ae7      # the tagged commit
+EXPECTED=19d7fa78cf830fb0e8865830d5bee63870d69f631e48cc173c03b42b11b3f126
 
 # 1. Pack from a clean clone of the tagged commit (NOT from the registry)
 git clone --filter=blob:none https://github.com/Talchain/olumi-schemas.git /tmp/schemas-$V
