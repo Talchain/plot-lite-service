@@ -27,18 +27,32 @@
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
+import { islConstraintAnalysis, assertCapturedContract } from './helpers/isl-constraint-contract.js';
 
 // ---------------------------------------------------------------------------
-// ISL mock — captures the outbound request body verbatim, and returns a
-// constraint_analysis whenever constraints were sent, so the RESPONSE-side
-// assertions below exercise the real assembly path rather than a stub.
+// ISL mock — captures the outbound request body verbatim, and answers with
+// ISL's REAL constraint contract, derived from the dated capture corpus.
+//
+// ⚠ ROADMAP 2.1025 — THIS MOCK USED TO FABRICATE, AND THAT IS WHAT HID A LIVE
+// DEFECT. It previously returned a `constraint_analysis` block whenever ANY
+// constraint was sent, framed or not. Real ISL evaluates ONLY constraints
+// stamped `value_frame: 'delta'` and otherwise omits the block entirely
+// (captures A/D/E vs B, ISL `c695feb7`). Because the mock answered for
+// unstamped constraints, T5b below went GREEN while the deployed product
+// delivered NOTHING for that case — the joint-goal figure the test asserted
+// simply did not exist in production. A mock that fabricates the consumer's
+// response is a test agreeing with itself.
+//
+// The rule now lives in ONE place, derived from the captures, and is shared
+// with tests/auto-constraint-value-frame.route.test.ts so the fabrication
+// cannot be fixed in one file and quietly survive in another.
 // ---------------------------------------------------------------------------
 
 let capturedISLRequestBody: any = null;
 
 function mockOptionRows(body: any) {
   const options = body.options || [];
-  const constraints = body.goal_constraints || [];
+  const analysis = islConstraintAnalysis(body.goal_constraints || [], 0.0054);
   return options.map((opt: any, idx: number) => ({
     option_id: opt.id,
     outcome: {
@@ -46,20 +60,7 @@ function mockOptionRows(body: any) {
       n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0,
     },
     rank: idx + 1,
-    // The witnessed shape: ISL evaluates whatever constraints it is sent and
-    // returns a near-zero probability for a level-vs-delta comparison.
-    ...(constraints.length > 0
-      ? {
-          constraint_analysis: {
-            constraints: constraints.map((c: any) => ({
-              constraint_id: c.constraint_id,
-              prob_satisfied: 0.0054,
-              satisfied: false,
-            })),
-            joint_probability: 0.0054,
-          },
-        }
-      : {}),
+    ...(analysis !== undefined ? { constraint_analysis: analysis } : {}),
   }));
 }
 
@@ -189,6 +190,17 @@ describe('ROADMAP 2.266 — auto-synthesis is gated on the ISL sample frame', ()
       ...extra,
     };
   }
+
+  // -------------------------------------------------------------------------
+  // T0 — THE INSTRUMENT ITSELF. Every response-side assertion in this file is
+  // only worth what the mock's contract is worth, so the contract is re-derived
+  // from ISL's real captured bytes on every run. If ISL's behaviour ever moves,
+  // this REDs here rather than silently blessing a fabricated verdict — which is
+  // exactly how the pre-2.1025 version of this mock hid a live defect.
+  // -------------------------------------------------------------------------
+  it('T0 INSTRUMENT: the mock contract still matches ISL\'s captured behaviour', () => {
+    assertCapturedContract();
+  });
 
   // -------------------------------------------------------------------------
   // T1 — THE WITNESSED RUN-1 SHAPE. Threshold present, frame ABSENT.

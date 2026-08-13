@@ -31,21 +31,19 @@
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { islConstraintAnalysis, assertCapturedContract } from './helpers/isl-constraint-contract.js';
 
 let capturedISLRequestBody: any = null;
 
 // ---------------------------------------------------------------------------
 // ISL mock — models the CAPTURED fail-closed contract rather than fabricating.
-// Derived from the dated corpus, not from this lane's belief about ISL.
+// The rule is SHARED (tests/helpers/isl-constraint-contract.ts) and derived from
+// the dated corpus, so it cannot be fixed here and quietly left fabricating in
+// tests/goal-threshold-frame-synthesis-gate.test.ts, which is where it hid.
 // ---------------------------------------------------------------------------
 function mockResultRows(body: any) {
   const options = body.options || [];
-  const constraints = body.goal_constraints || [];
-  // ISL evaluates ONLY constraints stamped `value_frame: 'delta'`; everything
-  // else yields no constraint_analysis at all (corpus arms A / D / E).
-  const evaluable = constraints.filter((c: any) => c.value_frame === 'delta');
+  const analysis = islConstraintAnalysis(body.goal_constraints || []);
   return options.map((opt: any, idx: number) => ({
     option_id: opt.id,
     outcome: {
@@ -53,18 +51,7 @@ function mockResultRows(body: any) {
       n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0,
     },
     rank: idx + 1,
-    ...(evaluable.length > 0
-      ? {
-          constraint_analysis: {
-            constraints: evaluable.map((c: any) => ({
-              constraint_id: c.constraint_id,
-              prob_satisfied: 0.856,
-              satisfied: true,
-            })),
-            joint_probability: 0.856,
-          },
-        }
-      : {}),
+    ...(analysis !== undefined ? { constraint_analysis: analysis } : {}),
   }));
 }
 
@@ -266,25 +253,7 @@ describe('ROADMAP 2.1023 — the auto-synthesised constraint carries value_frame
   // fabrication. (Trap 12: derive, don't mirror — and fail loud on drift.)
   // -------------------------------------------------------------------------
   it('T4 CORPUS: the captured ISL arms still say framed=analysis, unframed=absent', () => {
-    const dir = fileURLToPath(new URL('./fixtures/isl-constraint-value-frame-20260807/', import.meta.url));
-    const read = (n: string) => JSON.parse(readFileSync(dir + n, 'utf8'));
-
-    const aReq = read('A-control-no-frame.request.json');
-    const aRes = read('A-control-no-frame.response.json');
-    const bReq = read('B-valid-delta.request.json');
-    const bRes = read('B-valid-delta.response.json');
-
-    // Preconditions: the arms differ EXACTLY as claimed.
-    expect(aReq.goal_constraints[0].value_frame).toBeUndefined();
-    expect(bReq.goal_constraints[0].value_frame).toBe('delta');
-
-    // Non-empty control: both captures actually carry results.
-    expect(aRes.results.length).toBeGreaterThan(0);
-    expect(bRes.results.length).toBeGreaterThan(0);
-
-    // The contract the mock models.
-    for (const r of aRes.results) expect(r.constraint_analysis ?? null).toBeNull();
-    for (const r of bRes.results) expect(r.constraint_analysis?.joint_probability).toBeTypeOf('number');
+    assertCapturedContract();
   });
 
   // -------------------------------------------------------------------------
