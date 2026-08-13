@@ -73,6 +73,30 @@
  * regenerated golden against the committed one (12 diff lines total, all above).
  * The behavioural pins live in tests/gates/numeric-safety-deep-scan.test.ts §D3
  * (previously skipped, now LIVE) and tests/isl-adapters.test.ts.
+ *
+ * REGENERATED again for ROADMAP 2.1024 (2026-08-13) — THE HASH VERSION BUMP.
+ * `response_hash` is now computed from the EFFECTIVE ISL REQUEST rather than a
+ * parallel semantic projection of the inbound request, and `HASH_VERSION` moved
+ * 7 → 8. A version bump invalidates every prior hash BY DESIGN, so this golden's
+ * hash had to move; that is the change being pinned, not a surprise.
+ *
+ * The regeneration changes EXACTLY 14 lines, and every one is accounted for:
+ *   - `_meta.hash_version` 7 → 8
+ *   - `response_hash` 60e3ac213554be4f → 0745a6e63dc5d0d0, in all FOUR places it
+ *     is echoed (top-level `response_hash`, `graph_hash`, the nested
+ *     `decision_brief` copy, and `_meta.response_hash`) — they agree, which is
+ *     itself the point: one hash, echoed, not four independently computed
+ *   - `brief_id` follows (it is derived from the response hash, hence
+ *     deterministic — this golden would be flaky otherwise)
+ *   - `_meta.response_content_hash` follows: rch_v2:290b87b5111e9d8a →
+ *     rch_v2:b5462664775055c7
+ * NOTHING ELSE moved: no analysis quantity, no option row, no factor entry — the
+ * canonicalisation changed, the computation did not. Verified by diffing the
+ * regenerated golden against the committed one (14 diff lines total, all above).
+ *
+ * ⚠ The `60e3ac213554be4f` values in the 2.160 paragraph above are HISTORY and
+ * are deliberately left alone — they record what was true at that regeneration.
+ * A bulk find-and-replace across this header would falsify the record.
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -336,8 +360,8 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     // surface, so slice S1's additive `driver_order` legitimately changes it —
     // and leaving a stale value here would have read as "S1 changed something
     // it should not have" rather than "S1 added a field, deliberately".
-    expect(rawBody.response_hash).toBe('60e3ac213554be4f');
-    expect(rawBody._meta.response_hash).toBe('60e3ac213554be4f');
+    expect(rawBody.response_hash).toBe('0745a6e63dc5d0d0');
+    expect(rawBody._meta.response_hash).toBe('0745a6e63dc5d0d0');
   });
 
   // FAMILY-4 SLICE S1 (2026-07-27): explicit pin of the ONLY response-content
@@ -388,7 +412,7 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     // ⭐ ADDITIVITY, pinned by value: `response_hash` canonicalises the
     // REQUEST, so an added response field must NOT move it. If this ever
     // flips, an "additive" slice has changed the UI freshness token.
-    expect(rawBody.response_hash).toBe('60e3ac213554be4f');
+    expect(rawBody.response_hash).toBe('0745a6e63dc5d0d0');
     // `response_content_hash` hashes the public semantic surface and therefore
     // SHOULD move when that surface changes. Re-pinned each time so the next
     // content change is also forced to be deliberate:
@@ -424,6 +448,21 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //                                    content hash moves, which is the
     //                                    correct direction for an additive
     //                                    surface change.)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:290b87b5111e9d8a');
+    //  2.1024  rch_v2:b5462664775055c7 (HASH_VERSION 7 → 8: `response_hash` is
+    //                                    now derived from the EFFECTIVE ISL
+    //                                    REQUEST rather than a parallel
+    //                                    projection of the inbound one. ⚠ NOTE
+    //                                    THE DIRECTION IS DIFFERENT FROM EVERY
+    //                                    ROW ABOVE: here `response_hash` DOES
+    //                                    move — that is the change — while no
+    //                                    analysis quantity moves at all. The
+    //                                    content hash follows only because it
+    //                                    covers `_meta`, which carries both
+    //                                    `hash_version` and `response_hash`.
+    //                                    No option row, factor entry or
+    //                                    probability changed; the
+    //                                    canonicalisation changed, the
+    //                                    computation did not.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:b5462664775055c7');
   });
 });

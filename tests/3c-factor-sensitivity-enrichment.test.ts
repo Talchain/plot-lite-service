@@ -215,10 +215,10 @@ describe('3C: Response hash policy', () => {
       expect(hashWithIdent).toBe(hashWithout);
     });
 
-    it('hash version is 7', () => {
+    it('hash version is 8', () => {
       const req = makeRequest();
       const canonical = JSON.parse(canonicaliseRequest(req, GRAPH, '42'));
-      expect(canonical.version).toBe(7); // Track S: bumped 6→7 (n_samples in canonical form)
+      expect(canonical.version).toBe(8); // 2.1024: bumped 7→8 (hash computed from the EFFECTIVE ISL request)
     });
   });
 });

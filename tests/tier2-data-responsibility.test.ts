@@ -508,14 +508,17 @@ describe('P.6: Hash version 7 — ISL-derived fields excluded', () => {
     } as RunRequestV3;
   }
 
-  it('P6-1: HASH_VERSION is 7', () => {
-    // Track S: bumped 6→7 (n_samples added to canonical form).
-    expect(HASH_VERSION).toBe(7);
+  it('P6-1: HASH_VERSION is 8', () => {
+    // 2.1024: bumped 7→8 — the hash is now computed from the EFFECTIVE ISL
+    // request, so every v7 hash is invalid by construction. A LITERAL pin, not a
+    // derived one, on purpose: a version bump must be a DELIBERATE edit, because
+    // it invalidates every stored hash downstream.
+    expect(HASH_VERSION).toBe(8);
   });
 
-  it('P6-2: version field in canonical form is 7', () => {
+  it('P6-2: version field in canonical form is 8', () => {
     const canonical = JSON.parse(canonicaliseRequest(makeReq(), HASH_GRAPH, '42'));
-    expect(canonical.version).toBe(7);
+    expect(canonical.version).toBe(8);
   });
 
   it('P6-3: same request with different factor_stability → same hash', () => {
@@ -564,9 +567,9 @@ describe('P.6: Hash version 7 — ISL-derived fields excluded', () => {
     expect(canonical).not.toContain('"factor_stability"');
   });
 
-  it('P6-7: __hash_version=7 present in serialised hash input (via version field)', () => {
+  it('P6-7: __hash_version=8 present in serialised hash input (via version field)', () => {
     const canonical = JSON.parse(canonicaliseRequest(makeReq(), HASH_GRAPH, '42'));
-    expect(canonical.version).toBe(7);
+    expect(canonical.version).toBe(8);
   });
 
   it('P6-8: same input always produces same hash (determinism)', () => {
