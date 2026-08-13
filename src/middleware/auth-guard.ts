@@ -9,7 +9,8 @@ import type { FastifyRequest, FastifyReply } from 'fastify';
 import { timingSafeEqual } from 'crypto';
 import { replyWithAppError } from '../errors.js';
 import { isDemoMode } from './demo-mode.js';
-import { getExpectedAuthToken } from '../config/auth-token.js';
+import { getExpectedAuthToken, getStagedAuthToken } from '../config/auth-token.js';
+import { incAuthTokenMatch } from '../observability/authTokenMetrics.js';
 
 export interface AuthGuardOptions {
   /** Allow demo mode bypass (for SSE streaming routes) */
@@ -79,11 +80,16 @@ export async function authGuard(
   // Get authorization header
   const headers = req.headers || {};
   const authHeader = String(headers.authorization || headers.Authorization || '');
-  // Single source of truth: PLOT_AUTH_TOKEN (the caller-facing name every live
-  // caller — CEE PLoTClient — already sends, and the only auth var provisioned
-  // on staging) with a fallback to the historical AUTH_TOKEN. No two-var mirror
-  // to keep in sync. This read is reached only after the AUTH_ENABLED early-return
-  // above, so it stays inert until the auth flip.
+  // The ACTIVE secret: PLOT_AUTH_TOKEN (the caller-facing name every live caller
+  // — CEE PLoTClient, the staging smoke + load-probe workflows — already sends,
+  // and the only auth var provisioned on staging), resolved through one function
+  // rather than a hand-maintained two-var mirror. Reached only after the
+  // AUTH_ENABLED early-return above, so it stays inert until the auth flip.
+  //
+  // ⚠ It is no longer the ONLY accepted value: an optional STAGED secret is
+  // accepted alongside it during a rotation (see below). This comment used to say
+  // "single source of truth", which the code beneath it now contradicts — the
+  // single source of truth is the RESOLVER, not the number of accepted secrets.
   const expectedToken = getExpectedAuthToken();
 
   // Check for Bearer token
@@ -111,29 +117,69 @@ export async function authGuard(
   // Extract and validate token
   const providedToken = authHeader.slice('Bearer '.length).trim();
 
-  // Check token length first (prevent timing attacks)
-  if (!expectedToken || providedToken.length !== expectedToken.length) {
-    await replyWithAppError(reply, {
-      type: 'BAD_INPUT',
-      statusCode: 403,
-      message: 'Invalid token',
-      fields: { code: 'FORBIDDEN' },
-    });
-    return false;
+  // ── DUAL ACCEPTANCE: ACTIVE, then optional STAGED ────────────────────────
+  //
+  // ⚠ EACH CANDIDATE IS LENGTH-CHECKED AND COMPARED INDEPENDENTLY, AND BOTH ARE
+  // EVALUATED UNCONDITIONALLY. Do not "simplify" this to `matches(active) ||
+  // matches(staged)`, and do not hoist a single length check above the pair.
+  //
+  // The length test exists only because `timingSafeEqual` THROWS on unequal
+  // lengths — it is a precondition, not a security check. With two candidates a
+  // single hoisted length test (against ACTIVE) returns 403 before STAGED is ever
+  // considered, which is wrong twice over:
+  //
+  //   1. FUNCTIONALLY — a staged token of a different length is rejected, so
+  //      rotation fails for the exact case it exists to serve. A genuinely NEW
+  //      secret will not share the old one's length.
+  //   2. AS A DISCLOSURE — the work performed would vary with WHICH candidate the
+  //      provided token matched on length, making the guard's behaviour a function
+  //      of a property of the secrets. A rotation mechanism that leaks which of two
+  //      secrets you hold is worse than the manual cutover it replaces.
+  //
+  // A `||` short-circuit has the same defect in the other direction: it skips the
+  // second comparison whenever the first matches, so the work depends on which
+  // secret was presented. Both are computed, then the outcome is chosen.
+  //
+  // Pinned by tests/auth.dual-acceptance.test.ts, whose staged fixture is
+  // deliberately a DIFFERENT LENGTH from the active one — an equal-length fixture
+  // would pass against the single-check version and prove nothing.
+  const stagedToken = getStagedAuthToken();
+
+  const activeMatch = tokenMatches(providedToken, expectedToken);
+  const stagedMatch = tokenMatches(providedToken, stagedToken);
+
+  if (activeMatch) {
+    incAuthTokenMatch('active');
+    return true;
+  }
+  if (stagedMatch) {
+    // Still on the old secret's replacement path — the counter is what tells an
+    // operator when ACTIVE has stopped being used and may safely be removed.
+    incAuthTokenMatch('staged');
+    return true;
   }
 
-  // Timing-safe comparison
-  if (!timingSafeEqual(Buffer.from(providedToken), Buffer.from(expectedToken))) {
-    await replyWithAppError(reply, {
-      type: 'BAD_INPUT',
-      statusCode: 403,
-      message: 'Invalid token',
-      fields: { code: 'FORBIDDEN' },
-    });
-    return false;
-  }
+  await replyWithAppError(reply, {
+    type: 'BAD_INPUT',
+    statusCode: 403,
+    message: 'Invalid token',
+    fields: { code: 'FORBIDDEN' },
+  });
+  return false;
+}
 
-  return true;
+/**
+ * Constant-shape comparison of one candidate.
+ *
+ * Returns false for an absent candidate (unset STAGED is the normal state) and for
+ * a length mismatch — the latter because `timingSafeEqual` throws on unequal
+ * lengths, so the check is a precondition of calling it, not a security decision.
+ * Never throws, never logs, never returns anything derived from the secret.
+ */
+function tokenMatches(provided: string, candidate: string): boolean {
+  if (!candidate) return false;
+  if (provided.length !== candidate.length) return false;
+  return timingSafeEqual(Buffer.from(provided), Buffer.from(candidate));
 }
 
 /**
