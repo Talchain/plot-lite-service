@@ -162,13 +162,20 @@ describe('Hash baseline-awareness (2.919, v7 amendment)', () => {
     expect(canonOf(gNull)).not.toContain('"baseline"');
   });
 
-  it('B8: HASH_VERSION deliberately stays 7 — the amendment is presence-conditional, so no universal flip', () => {
-    // A version bump would put the new number in EVERY canonical form and
-    // flip every stored hash. Keeping v7 with a presence-conditional key
-    // bounds the flip to baseline-BEARING requests only (none exist on the
-    // live wire today — CEE 2.877 mints them from here on). A new
-    // baseline-bearing canonical form cannot collide with any pre-change
-    // form: no pre-change form ever contained the key.
-    expect(HASH_VERSION).toBe(7);
+  it('B8: the 2.919 baseline amendment did not itself bump the version (now 8, bumped later by 2.1024)', () => {
+    // ORIGINAL INTENT, UNCHANGED AND STILL THE POINT: a version bump puts a new
+    // number in EVERY canonical form and flips every stored hash. The 2.919
+    // amendment deliberately avoided one by making `baseline` PRESENCE-
+    // CONDITIONAL, bounding the flip to baseline-BEARING requests. That property
+    // is what B6/B7 above actually verify, and it is untouched.
+    //
+    // ⚠ THE CONSTANT HAS SINCE MOVED, FOR A DIFFERENT REASON. ROADMAP 2.1024
+    // bumped 7 → 8 because the canonical form is now derived from the EFFECTIVE
+    // ISL REQUEST rather than a parallel projection — a universal flip that IS
+    // intended and IS the change. Updating this literal does not weaken 2.919's
+    // claim; it records that a later, deliberate bump happened. The title was
+    // rewritten rather than left saying 'stays 7', which is no longer true and
+    // would have read as a false statement about the current code.
+    expect(HASH_VERSION).toBe(8);
   });
 });

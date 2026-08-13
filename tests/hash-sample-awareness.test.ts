@@ -52,8 +52,11 @@ const hashWith = (req: RunRequestV3, nSamples?: number) =>
   computeResponseHash(canonicaliseRequest(req, GRAPH, String(req.seed ?? '42'), undefined, undefined, nSamples));
 
 describe('Hash sample-awareness (v7)', () => {
-  it('HASH_VERSION is 7', () => {
-    expect(HASH_VERSION).toBe(7);
+  it('HASH_VERSION is 8', () => {
+    // 2.1024: 7→8. v7 added n_samples; v8 moved the whole canonical form onto
+    // the EFFECTIVE ISL request. The sample-depth guarantees below are unchanged
+    // by that move — n_samples rides the ISL request too.
+    expect(HASH_VERSION).toBe(8);
   });
 
   it('same graph + same seed + different n_samples → different response_hash', () => {

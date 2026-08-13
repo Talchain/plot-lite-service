@@ -122,7 +122,7 @@ describe('CIL C2: Canonical hash with goal_constraints', () => {
     expect(hashA).toBe(hashB);
   });
 
-  it('hash version is 7 (includes version in canonical form)', () => {
+  it('hash version is 8 (includes version in canonical form)', () => {
     const req = makeRequest({
       goal_constraints: [
         { constraint_id: 'c1', node_id: 'goal', operator: '>=', value: 20000 },
@@ -133,7 +133,7 @@ describe('CIL C2: Canonical hash with goal_constraints', () => {
     const parsed = JSON.parse(canonical);
 
     // Track S: HASH_VERSION bumped 6→7 (n_samples added to canonical form).
-    expect(parsed.version).toBe(7);
+    expect(parsed.version).toBe(8); // 2.1024: 7→8, hash derived from the EFFECTIVE ISL request
     expect(parsed.n_samples).toBe(10_000); // Paul-ruled lenient defaults 2026-07-17: standard depth 4000→10000 (PR-E was 1000→4000)
     expect(parsed.goal_constraints).toBeDefined();
     expect(parsed.goal_constraints).toHaveLength(1);
