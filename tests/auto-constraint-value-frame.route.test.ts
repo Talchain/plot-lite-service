@@ -225,7 +225,41 @@ describe('ROADMAP 2.1023 — the auto-synthesised constraint carries value_frame
   // the mock agreeing with itself. Bound to the captured corpus, so the mock's
   // contract is derived from ISL's witnessed behaviour, not from belief.
   // -------------------------------------------------------------------------
-  it('T3 INSTRUMENT: an UNFRAMED user constraint yields NO constraint_analysis (mock fails closed)', async () => {
+  // -------------------------------------------------------------------------
+  // T3 INSTRUMENT — THE MOCK ITSELF, ASSERTED DIRECTLY.
+  //
+  // ⚠ WHY THIS IS A UNIT ASSERTION AND NOT A ROUTE ONE. The route-level version
+  // (T3b below) DOES NOT DISCRIMINATE, and a mutant proved it: re-fabricating
+  // the shared contract so it ignores `value_frame` left T3b GREEN. The reason
+  // is that PLoT withholds the ENTIRE constraint block itself when the target's
+  // samples carry no absolute anchor (CONSTRAINT_TARGET_UNRELIABLE), so T3b
+  // passes for a PLoT-side reason whatever the mock returns — a guard agreeing
+  // with itself. Binding the claim to the contract function is what actually
+  // pins it: mutate the rule and this REDs immediately.
+  // -------------------------------------------------------------------------
+  it('T3 INSTRUMENT: the shared contract evaluates ONLY delta-framed constraints', () => {
+    const unframed = [{ constraint_id: 'c_unframed', value: 0.5 }];
+    const level = [{ constraint_id: 'c_level', value: 0.5, value_frame: 'level' }];
+    const misspelled = [{ constraint_id: 'c_typo', value: 0.5, value_frmae: 'delta' } as any];
+    const delta = [{ constraint_id: 'c_delta', value: 0.5, value_frame: 'delta' }];
+
+    // Corpus arms A / E / D — no verdict at all, block ABSENT (not empty).
+    expect(islConstraintAnalysis(unframed)).toBeUndefined();
+    expect(islConstraintAnalysis(level)).toBeUndefined();
+    expect(islConstraintAnalysis(misspelled)).toBeUndefined();
+
+    // Corpus arm B — CONTRAST CONTROL. Without this, a contract that returned
+    // `undefined` for everything would satisfy all three assertions above.
+    const analysed = islConstraintAnalysis(delta);
+    expect(analysed?.joint_probability).toBeTypeOf('number');
+    expect(analysed?.constraints.map((c) => c.constraint_id)).toEqual(['c_delta']);
+
+    // A mixed list evaluates the framed member ONLY.
+    const mixed = islConstraintAnalysis([...unframed, ...delta]);
+    expect(mixed?.constraints.map((c) => c.constraint_id)).toEqual(['c_delta']);
+  });
+
+  it('T3b ROUTE: an UNFRAMED user constraint yields no joint-goal figure on the wire', async () => {
     const { res, isl } = await run(
       basePayload(
         { goal_threshold: 0.8, goal_threshold_raw: 6000000, goal_threshold_unit: '£' },
