@@ -273,7 +273,11 @@ export interface ConfidenceBadge {
     identifiability: number; // 0-1
     linearity_distance: number; // 0-1 (1 = in range)
     k_coverage: number; // 0-1
-    calibration: number; // 0-1
+    // Optional/legacy: the canonical calculateConfidence() no longer emits a
+    // calibration factor (it was a fixed-0.5 placeholder — see confidence.ts).
+    // Only the SCM meta fallback in routes/v1/run.ts still populates this,
+    // from a real sign_stability value.
+    calibration?: number; // 0-1
   };
 }
 

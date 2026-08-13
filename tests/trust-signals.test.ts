@@ -26,7 +26,6 @@ describe('Trust Signals - Unit Tests', () => {
         identifiable: true,
         in_linear_range: true,
         k_samples: 1000,
-        calibrated: false,
       });
 
       expect(confidence.level).toBe('HIGH');
@@ -54,11 +53,18 @@ describe('Trust Signals - Unit Tests', () => {
     });
 
     it('returns MEDIUM for acceptable graph', () => {
+      // NOTE: after removing the fixed-0.5 calibration placeholder and
+      // renormalising the three real factors, the old input
+      // (identifiable, outside-linear, k=500) now scores 0.77 -> HIGH, because
+      // the placeholder was artificially suppressing genuinely-strong cases.
+      // A genuine MEDIUM under the corrected formula is strong identifiability
+      // but outside the linear range AND low sample coverage:
+      //   round(1000*412/1000)=412 + round(500*294/1000)=147 + round(300*294/1000)=88 = 647 -> 0.65
       const confidence = calculateConfidence({
         graph: simpleGraph,
         identifiable: true,
         in_linear_range: false,
-        k_samples: 500,
+        k_samples: 100,
       });
 
       expect(confidence.level).toBe('MEDIUM');

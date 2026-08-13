@@ -59,7 +59,6 @@ export function getDemoRunResponse(seed: number = 42): any {
     identifiable: true,
     in_linear_range: true,
     k_samples: 1000,
-    calibrated: false,
   });
 
   const linearity_warning = checkLinearity({

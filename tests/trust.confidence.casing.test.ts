@@ -15,7 +15,6 @@ describe('Confidence Level Casing Invariant', () => {
       identifiable: true,
       in_linear_range: true,
       k_samples: 1000,
-      calibrated: false,
     });
 
     // Must be one of uppercase values (UI contract)
@@ -35,7 +34,6 @@ describe('Confidence Level Casing Invariant', () => {
       identifiable: true,
       in_linear_range: true,
       k_samples: 5000,
-      calibrated: true,
     });
     expect(high.level).toBe('HIGH');
     expect(high.level).toBe(high.level.toUpperCase());
@@ -49,7 +47,6 @@ describe('Confidence Level Casing Invariant', () => {
       identifiable: true,
       in_linear_range: true,
       k_samples: 1000,
-      calibrated: false,
     });
     expect(['HIGH', 'MEDIUM']).toContain(medium.level);
     expect(medium.level).toBe(medium.level.toUpperCase());
@@ -63,7 +60,6 @@ describe('Confidence Level Casing Invariant', () => {
       identifiable: false,
       in_linear_range: false,
       k_samples: 100,
-      calibrated: false,
     });
     expect(low.level).toBe('LOW');
     expect(low.level).toBe(low.level.toUpperCase());

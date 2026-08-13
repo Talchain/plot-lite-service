@@ -8,30 +8,28 @@ describe('Confidence Integer Math (determinism)', () => {
   };
 
   it('HIGH threshold: exactly 750/1000', () => {
-    // identifiable=1, linear=1, k=1000 (kcov=1), calibrated=false (0.5)
-    // raw = 350*1 + 250*1 + 250*1 + 150*0.5 = 350+250+250+75 = 925
+    // identifiable=1 (412), linear=1 (294), k=1000 -> kcov=1 (294)
+    // raw = 412 + 294 + 294 = 1000
     const result = calculateConfidence({
       graph: mockGraph,
       identifiable: true,
       in_linear_range: true,
       k_samples: 1000,
-      calibrated: false,
     });
     expect(result.level).toBe('HIGH');
     expect(result.score).toBeGreaterThanOrEqual(0.75);
   });
 
   it('MEDIUM threshold: exactly 500/1000', () => {
-    // identifiable=0.3, linear=0.5, k=500 (kcov=0.7), calibrated=false (0.5)
-    // raw = 350*0.3 + 250*0.5 + 250*0.7 + 150*0.5 = 105+125+175+75 = 480
+    // identifiable=0.3, linear=0.5, k=500 -> kcov=0.7
+    // raw = round(300*412/1000)=124 + round(500*294/1000)=147 + round(700*294/1000)=206 = 477
     const result = calculateConfidence({
       graph: mockGraph,
       identifiable: false,
       in_linear_range: false,
       k_samples: 500,
-      calibrated: false,
     });
-    expect(result.level).toBe('LOW'); // 480 < 500
+    expect(result.level).toBe('LOW'); // 477 < 500
   });
 
   it('deterministic: same inputs produce same output', () => {
@@ -40,7 +38,6 @@ describe('Confidence Integer Math (determinism)', () => {
       identifiable: true,
       in_linear_range: true,
       k_samples: 800,
-      calibrated: false,
     };
     
     const r1 = calculateConfidence(inputs);
@@ -58,7 +55,6 @@ describe('Confidence Integer Math (determinism)', () => {
       identifiable: true,
       in_linear_range: true,
       k_samples: 1000,
-      calibrated: false,
     };
     
     const r1 = calculateConfidence(base);

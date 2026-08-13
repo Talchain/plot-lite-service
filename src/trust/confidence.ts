@@ -9,11 +9,18 @@ export interface ConfidenceInputs {
   identifiable: boolean;
   in_linear_range: boolean;
   k_samples?: number;
-  calibrated?: boolean;
 }
 
 /**
- * Calculate confidence score based on graph quality and coverage
+ * Calculate confidence score based on graph quality and coverage.
+ *
+ * Every term below is a computed function of the inputs. The former
+ * "calibration" factor was a placeholder that resolved to a fixed 0.5 for
+ * every production call (all callers passed `calibrated: false`, so it never
+ * varied) yet carried 15% of the weight budget — a constant standing in for a
+ * computation. It has been removed and its weight redistributed across the
+ * three genuinely-computed factors, proportionally, so the score remains a
+ * well-formed value in [0, 1] traceable end-to-end to inputs.
  */
 export function calculateConfidence(inputs: ConfidenceInputs): ConfidenceBadge {
   const {
@@ -21,7 +28,6 @@ export function calculateConfidence(inputs: ConfidenceInputs): ConfidenceBadge {
     identifiable,
     in_linear_range,
     k_samples = 1000,
-    calibrated = false,
   } = inputs;
 
   const node_count = graph.nodes.length;
@@ -40,22 +46,19 @@ export function calculateConfidence(inputs: ConfidenceInputs): ConfidenceBadge {
   else if (k_samples >= 500) k_coverage_score = 0.7;
   else k_coverage_score = 0.3;
 
-  // Factor 4: Calibration (placeholder - no behavior change when false)
-  // When true, would use actual calibration metrics; for now, neutral value
-  const calibration_score = calibrated ? 1.0 : 0.5;
-
-  // Integer math for determinism (weights sum to 1000)
-  // Weights: 350 (identifiability) + 250 (linearity) + 250 (k_coverage) + 150 (calibration)
+  // Integer math for determinism (weights sum to 1000).
+  // Weights: 412 (identifiability) + 294 (linearity) + 294 (k_coverage).
+  // These are the original 350 : 250 : 250 weights renormalised to sum 1000
+  // after dropping the 150-weight calibration placeholder
+  // (350 * 1000/850 = 412, 250 * 1000/850 = 294).
   const ident_raw = Math.round(identifiability_score * 1000);
   const linear_raw = Math.round(linearity_score * 1000);
   const kcov_raw = Math.round(k_coverage_score * 1000);
-  const calib_raw = Math.round(calibration_score * 1000);
 
-  const overall_raw = 
-    Math.round(ident_raw * 350 / 1000) +
-    Math.round(linear_raw * 250 / 1000) +
-    Math.round(kcov_raw * 250 / 1000) +
-    Math.round(calib_raw * 150 / 1000);
+  const overall_raw =
+    Math.round(ident_raw * 412 / 1000) +
+    Math.round(linear_raw * 294 / 1000) +
+    Math.round(kcov_raw * 294 / 1000);
 
   // Thresholds: high >= 750, medium >= 500 (out of 1000)
   let level: ConfidenceLevel;
@@ -106,7 +109,6 @@ export function calculateConfidence(inputs: ConfidenceInputs): ConfidenceBadge {
       identifiability: identifiability_score,
       linearity_distance: linearity_score,
       k_coverage: k_coverage_score,
-      calibration: calibration_score,
     },
   };
 }

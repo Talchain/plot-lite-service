@@ -823,7 +823,6 @@ export async function registerRunRoute(app: FastifyInstance) {
         identifiable: identifiability.identifiable,
         in_linear_range: !linearity_warning.outside_range,
         k_samples: K_evaluated ?? budget.k,
-        calibrated: false,
       });
 
       // Threshold crossings with actual p50
