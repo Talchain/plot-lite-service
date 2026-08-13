@@ -160,13 +160,44 @@ export const HASH_VERSION = 8;
  * the ISL request would silently stay out of the hash, which is exactly the
  * v1–v7 defect. With a denylist, a new ISL field enters the hash automatically.
  *
- * Drift direction, stated explicitly: if ISL ever gains a genuinely
- * non-deterministic field that is not listed here, the hash becomes unstable and
- * the failure is a CACHE MISS — a false "changed", never a false "unchanged".
- * That is the safe direction and the reason the denylist is acceptable where an
- * allowlist is not.
+ * Drift direction, stated as a BOUND rather than an absolute: for any field
+ * whose value is a JSON primitive, array or plain object — which is every field
+ * on the ISL request today — an unlisted non-deterministic field destabilises
+ * the hash into a CACHE MISS, i.e. a false "changed", never a false "unchanged".
+ * That is the safe direction and the reason a denylist is acceptable here where
+ * an allowlist is not.
+ *
+ * ⚠ THE GUARANTEE IS NOT UNCONDITIONAL, AND THE EXCEPTION IS WORTH NAMING.
+ * `canonicaliseDeep` walks own enumerable keys, so a value carrying a `toJSON`
+ * (a `Date`, a `Decimal`, a class instance with no own enumerable fields)
+ * canonicalises to `{}` while `JSON.stringify` puts its real content on the
+ * wire. Two materially different requests would then hash the SAME — a false
+ * "unchanged", the wrong direction. **Not reachable today:** the ISL request is
+ * assembled from plain JSON throughout. It becomes reachable the moment a
+ * non-plain value is introduced into it, so treat that as the trigger to revisit
+ * this, not as a theoretical aside.
  */
 const NON_DETERMINISTIC_ISL_KEYS = new Set(['request_id']);
+
+/**
+ * ISL-request keys whose ARRAY ORDER IS SEMANTIC and must therefore survive
+ * canonicalisation unsorted (ROADMAP 2.1026).
+ *
+ * `options` is the only member today, and it is here for a measured reason:
+ * ISL derives edge sensitivity, factor sensitivity and fragile-edge
+ * classification from `options[0]` and discloses it as
+ * `sensitivity_reference_option_id`, which reaches the user. Two requests whose
+ * options differ only in ORDER are therefore DIFFERENT COMPUTATIONS and must
+ * hash differently.
+ *
+ * ⚠ THIS IS A HAND-MAINTAINED LIST, WITH THE SAFE POLARITY. A set-like array
+ * wrongly listed here costs cache hits; an ORDERED array wrongly OMITTED is a
+ * false "unchanged" — the defect class this file exists to close. So the bar for
+ * adding is low and the bar for removing is high: removing a key asserts that
+ * ISL treats that array as unordered, which needs evidence from ISL's bytes, not
+ * from its field name.
+ */
+const ORDER_SIGNIFICANT_ISL_KEYS = new Set(['options']);
 
 /**
  * Fallback Monte Carlo sample depth used when canonicalising a request whose
@@ -230,12 +261,33 @@ function canonicaliseNumber(value: number | undefined | null): number {
  * request therefore cannot omit a computation input, because an input that
  * reached ISL without appearing here does not exist.
  *
- * ORDER-INSENSITIVITY. Object keys are sorted recursively, and arrays are sorted
- * by their canonical serialisation. Every array on this request is a SET in
- * ISL's semantics (nodes, edges, options, constraints, parameter uncertainties,
- * correlations, stated ranges) — none carries meaning in its position — so
- * sorting preserves the v1–v7 guarantee that option/node order does not change
- * the hash, without naming a single field to sort by.
+ * ORDER HANDLING — AND `options` IS NOT A SET (ROADMAP 2.1026).
+ * Object keys are sorted recursively. Arrays are sorted by their canonical
+ * serialisation **except** the ones named in {@link ORDER_SIGNIFICANT_ISL_KEYS}.
+ *
+ * ⚠ AN EARLIER VERSION OF THIS COMMENT CLAIMED EVERY ARRAY HERE IS A SET. THAT
+ * WAS FALSE, AND THE FALSE CLAIM WAS LOAD-BEARING. `options[0]` is
+ * SEMANTICALLY PRIVILEGED: ISL computes edge sensitivity, factor sensitivity and
+ * fragile-edge classification against the FIRST option and discloses it as
+ * `sensitivity_reference_option_id`, which PLoT surfaces to the user
+ * (`engine-v3.ts` — "uses the first option in the request";
+ * `isl-types.ts:272-273,1196`). Nothing sorts options before the translator, so
+ * the caller's order IS the order ISL sees.
+ *
+ * PROVEN BY EXECUTION at this tip: reordering two options handed ISL a genuinely
+ * different reference option (intervention `0.9` vs `0.2`) while the v8 hash was
+ * byte-identical — precisely the defect this canonicaliser exists to close,
+ * surviving in a different field. It is PRE-EXISTING (v1–v7 sorted options too,
+ * explicitly by id), so it is not a regression — but sorting them here would
+ * have shipped a false justification for it, and the test would have pinned the
+ * blind spot as if it were a guarantee.
+ *
+ * These ARE sets, and are sorted: `graph.nodes` and `graph.edges` (ISL keys them
+ * by id / by endpoints), `goal_constraints` (keyed by `constraint_id`),
+ * `parameter_uncertainties` (keyed by `node_id`), `factor_correlations` (an
+ * unordered pair set), `user_stated_ranges` (keyed by member) and
+ * `analysis_types`. For those, sorting keeps the v1–v7 guarantee that member
+ * order is not semantic, without naming a field to sort by.
  */
 function canonicaliseDeep(value: unknown): unknown {
   if (typeof value === 'number') {
@@ -272,12 +324,21 @@ function canonicaliseDeep(value: unknown): unknown {
  * Exported for the gate test that pins the denylist's effect.
  */
 export function canonicaliseISLRequest(islRequest: Record<string, unknown>): unknown {
-  const stripped: Record<string, unknown> = {};
-  for (const key of Object.keys(islRequest)) {
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(islRequest).sort()) {
     if (NON_DETERMINISTIC_ISL_KEYS.has(key)) continue;
-    stripped[key] = islRequest[key];
+    const value = islRequest[key];
+    if (value === undefined) continue;
+
+    if (ORDER_SIGNIFICANT_ISL_KEYS.has(key) && Array.isArray(value)) {
+      // Canonicalise each MEMBER (so their object keys sort and floats
+      // normalise) while leaving the ARRAY's order exactly as ISL will read it.
+      out[key] = value.map(canonicaliseDeep);
+      continue;
+    }
+    out[key] = canonicaliseDeep(value);
   }
-  return canonicaliseDeep(stripped);
+  return out;
 }
 
 // -----------------------------------------------------------------------------

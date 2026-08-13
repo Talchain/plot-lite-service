@@ -307,14 +307,46 @@ describe('ROADMAP 2.1024 — the freshness hash covers every analysis-changing i
   });
 
   // -------------------------------------------------------------------------
-  // T4 — CONTRAST CONTROL / ORDER-INSENSITIVITY. The v1–v7 guarantee that
-  // member ORDER is not semantic must survive the move to deep canonicalisation.
-  // This is what stops the fix being "hash the raw bytes", which would be a
-  // different and worse contract.
+  // T4 — `options` IS AN ORDERED LIST, NOT A SET (ROADMAP 2.1026).
+  //
+  // ⚠ THIS TEST PREVIOUSLY ASSERTED THE OPPOSITE, AND WAS WRONG. It pinned
+  // "reordering options does NOT change the hash" as a guarantee. Measured at
+  // this tip, reordering hands ISL a genuinely DIFFERENT reference option —
+  // `options[0]` drives edge sensitivity, factor sensitivity and fragile-edge
+  // classification, and is disclosed to the user as
+  // `sensitivity_reference_option_id`. So the old assertion pinned a BLIND SPOT
+  // as a property: it would have gone green forever while the hash reported two
+  // different computations as the same one.
+  //
+  // The precondition below is the load-bearing part — it proves the reorder
+  // actually changed what ISL receives, so the hash difference is the code's
+  // doing and not the fixture's.
   // -------------------------------------------------------------------------
-  it('T4 CONTRAST: reordering options does NOT change the hash', async () => {
+  it('T4 DEFECT: reordering options DOES change the hash (options[0] is the ISL reference)', async () => {
     const a = await hashOf(basePayload());
     const b = await hashOf(basePayload({ options: [...OPTIONS].reverse() }));
+
+    // Precondition: ISL really did receive a different reference option.
+    expect(a.isl.options[0].id).not.toBe(b.isl.options[0].id);
+    expect(JSON.stringify(a.isl.options[0].interventions))
+      .not.toBe(JSON.stringify(b.isl.options[0].interventions));
+
+    expect(b.hash, 'a different reference option is a different computation').not.toBe(a.hash);
+  });
+
+  it('T4-set CONTRAST: reordering goal_constraints does NOT change the hash (a real set)', async () => {
+    // Two DIFFERENT target nodes on purpose: two constraints on the same node
+    // collapse to one before the wire, and the precondition below caught exactly
+    // that when this test was first written against a single node.
+    const twoConstraints = [
+      { constraint_id: 'c1', node_id: 'goal_arr', operator: '>=', value: 0.8 },
+      { constraint_id: 'c2', node_id: 'factor_a_node', operator: '>=', value: 0.3 },
+    ];
+    const a = await hashOf(basePayload({ goal_constraints: twoConstraints }));
+    const b = await hashOf(basePayload({ goal_constraints: [...twoConstraints].reverse() }));
+    // Precondition: both really carried two constraints to the wire.
+    expect(a.isl.goal_constraints).toHaveLength(2);
+    expect(b.isl.goal_constraints).toHaveLength(2);
     expect(b.hash).toBe(a.hash);
   });
 
