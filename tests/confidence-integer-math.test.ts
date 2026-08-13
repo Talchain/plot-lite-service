@@ -15,7 +15,6 @@ describe('Confidence Integer Math (determinism)', () => {
       identifiable: true,
       in_linear_range: true,
       k_samples: 1000,
-      calibrated: false,
     });
     expect(result.level).toBe('HIGH');
     expect(result.score).toBeGreaterThanOrEqual(0.75);
@@ -29,7 +28,6 @@ describe('Confidence Integer Math (determinism)', () => {
       identifiable: false,
       in_linear_range: false,
       k_samples: 500,
-      calibrated: false,
     });
     expect(result.level).toBe('LOW'); // 480 < 500
   });
@@ -40,7 +38,6 @@ describe('Confidence Integer Math (determinism)', () => {
       identifiable: true,
       in_linear_range: true,
       k_samples: 800,
-      calibrated: false,
     };
     
     const r1 = calculateConfidence(inputs);
@@ -58,7 +55,6 @@ describe('Confidence Integer Math (determinism)', () => {
       identifiable: true,
       in_linear_range: true,
       k_samples: 1000,
-      calibrated: false,
     };
     
     const r1 = calculateConfidence(base);

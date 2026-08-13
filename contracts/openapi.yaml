@@ -4633,12 +4633,18 @@ components:
         score: { type: number, minimum: 0, maximum: 1 }
         factors:
           type: object
+          description: |
+            The grounded determinants of `score`. Each varies with the request.
+            The `calibration` key was removed on 2026-08-13: it was a
+            placeholder that resolved to a constant 0.5 for every request the
+            service could receive, holding 15% of the weight budget and making
+            the top of the 0-1 range unreachable. Real calibration is a separate
+            concern with its own owner and is not published on this badge.
           properties:
             identifiability: { type: number }
             linearity_distance: { type: number }
             k_coverage: { type: number }
-            calibration: { type: number }
-    
+
     critiqueItem:
       type: object
       required: [severity, message]

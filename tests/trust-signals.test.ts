@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { calculateConfidence } from '../src/trust/confidence.js';
+import { calculateConfidence, CONFIDENCE_THRESHOLDS } from '../src/trust/confidence.js';
 import { buildCritique } from '../src/trust/critique-builder.js';
 import { checkLinearity, detectThresholdCrossings } from '../src/trust/linearity.js';
 import { buildExplainDelta } from '../src/trust/explain-delta.js';
@@ -26,7 +26,6 @@ describe('Trust Signals - Unit Tests', () => {
         identifiable: true,
         in_linear_range: true,
         k_samples: 1000,
-        calibrated: false,
       });
 
       expect(confidence.level).toBe('HIGH');
@@ -62,8 +61,17 @@ describe('Trust Signals - Unit Tests', () => {
       });
 
       expect(confidence.level).toBe('MEDIUM');
-      expect(confidence.score).toBeGreaterThanOrEqual(0.5);
-      expect(confidence.score).toBeLessThan(0.75);
+      // Band boundaries are DERIVED from the module's own thresholds, not
+      // copied. The previous version hardcoded `< 0.75`, which was the old
+      // HIGH threshold on a scale that included the placeholder calibration
+      // term's constant offset — so it broke when that term was removed even
+      // though this case's LEVEL was deliberately preserved.
+      expect(confidence.score).toBeGreaterThanOrEqual(
+        CONFIDENCE_THRESHOLDS.MEDIUM / CONFIDENCE_THRESHOLDS.SCALE
+      );
+      expect(confidence.score).toBeLessThan(
+        CONFIDENCE_THRESHOLDS.HIGH / CONFIDENCE_THRESHOLDS.SCALE
+      );
     });
   });
 
