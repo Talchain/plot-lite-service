@@ -184,10 +184,39 @@ describe('⭐ ACCEPTANCE CRITERION: the metric proves which token is still in us
     expect(rendered === '' || rendered.includes('used="staged"} 0')).toBe(true);
   });
 
-  it('NEVER emits a token value', () => {
+  it('NEVER emits a token value', async () => {
+    // ⚠ THE REQUESTS ARE LOAD-BEARING, NOT SETUP. `renderAuthTokenMatch()` returns
+    // '' until something has matched, and `beforeEach` resets the counters — so an
+    // assertion made without driving traffic first checks "'' does not contain the
+    // token", which is true of every possible implementation.
+    //
+    // That is not hypothetical: this test was written that way, and a mutation that
+    // rendered the ACTIVE token straight into the exposition SURVIVED it. Both
+    // candidates are exercised so the rendered output is non-empty for the right
+    // reason, and the non-emptiness is asserted before the absence is.
+    await get(ACTIVE_TOKEN);
+    await get(DIFFERENT_LENGTH_STAGED);
     const rendered = renderAuthTokenMatch();
+    expect(rendered).not.toBe('');
+    expect(rendered).toContain('used="active"} 1');
+    expect(rendered).toContain('used="staged"} 1');
     expect(rendered).not.toContain(ACTIVE_TOKEN);
     expect(rendered).not.toContain(DIFFERENT_LENGTH_STAGED);
+  });
+
+  it('/health exposes rotation PRESENCE only — never a value, length or prefix', async () => {
+    // The ROOT `/health` (open) carries the operational payload; `/v1/health` is a
+    // different, auth-gated route and does not. Asserted against the one that
+    // actually publishes it — an operator watching a rotation reads this one.
+    const body = await (await fetch(`${BASE()}/health`)).text();
+    const parsed = JSON.parse(body) as { auth_secrets?: { active?: unknown; staged?: unknown } };
+    // Bind by identity: the booleans must actually be present and true here, so a
+    // renamed or dropped field fails rather than silently satisfying the absence.
+    expect(parsed.auth_secrets).toEqual({ active: true, staged: true });
+    expect(body).not.toContain(ACTIVE_TOKEN);
+    expect(body).not.toContain(DIFFERENT_LENGTH_STAGED);
+    // No length disclosure either — a bare count would narrow a brute-force search.
+    expect(body).not.toContain(String(ACTIVE_TOKEN.length));
   });
 });
 
