@@ -261,6 +261,30 @@ function canonicaliseNumber(value: number | undefined | null): number {
  * request therefore cannot omit a computation input, because an input that
  * reached ISL without appearing here does not exist.
  *
+ * ⚠ IT IS A SUPERSET, NOT A REPLACEMENT — SAY SO, BECAUSE THE SHORT VERSION IS
+ * WRONG (ROADMAP 2.1027). On the `isl_v3` class the canonical form carries the
+ * effective ISL request **in addition to** the retained inbound projection
+ * (graph, options, goal_threshold, goal_constraints); it does not replace it.
+ * Describing this as "hashes the ISL request instead of a projection" is false
+ * and was corrected here after a probe refuted it: two runs whose raw
+ * intervention values differ (60000 vs 90000) but which CLAMP to the same wire
+ * value produced **byte-identical ISL requests and DIFFERENT hashes**.
+ *
+ * That is the intended behaviour, and the reason is that this hash keys a
+ * RESPONSE, not only a computation. The response echoes raw, pre-normalisation
+ * quantities (`original_value`, repair records, disclosed inputs), so two runs
+ * with an identical ISL request can still produce different response bodies.
+ * Dropping the projection would let a consumer serve one run's body for
+ * another's inputs.
+ *
+ * The two directions, stated plainly:
+ *   · a change that reaches ISL ALWAYS moves the hash        — no false "unchanged";
+ *   · a change that does NOT reach ISL may ALSO move it      — a conservative
+ *     false "changed", costing a cache miss.
+ * The first is the correctness property; the second is the safe direction to err
+ * in. `T-superset` in the route suite pins exactly this, so the behaviour is
+ * deliberate rather than incidental.
+ *
  * ORDER HANDLING — AND `options` IS NOT A SET (ROADMAP 2.1026).
  * Object keys are sorted recursively. Arrays are sorted by their canonical
  * serialisation **except** the ones named in {@link ORDER_SIGNIFICANT_ISL_KEYS}.

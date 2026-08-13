@@ -357,6 +357,59 @@ describe('ROADMAP 2.1024 — the freshness hash covers every analysis-changing i
   });
 
   // -------------------------------------------------------------------------
+  // T-superset — THE HASH COVERS THE EFFECTIVE ISL REQUEST *PLUS* THE INBOUND
+  // PROJECTION, AND THAT IS DELIBERATE (ROADMAP 2.1027).
+  //
+  // ⚠ WRITTEN BECAUSE A PROBE REFUTED THIS PR'S OWN DESCRIPTION. "Hashes the
+  // effective ISL request rather than a projection" is FALSE as stated — the
+  // projection is retained alongside. Two runs whose raw intervention values
+  // differ but CLAMP to the same wire value send a byte-identical ISL request
+  // and still hash differently.
+  //
+  // That is correct: this hash keys a RESPONSE, and the response echoes raw
+  // pre-normalisation quantities, so identical-wire runs can have different
+  // bodies. The property to preserve is directional — anything reaching ISL
+  // always moves the hash (no false "unchanged"); something not reaching ISL
+  // may also move it (a conservative false "changed", i.e. a cache miss).
+  //
+  // The precondition is the whole test: it proves the two ISL requests really
+  // are byte-identical, so the differing hash can only come from the projection.
+  // -------------------------------------------------------------------------
+  it('T-superset: identical ISL requests may still hash differently (projection retained)', async () => {
+    const clampPayload = (leverA: number) => ({
+      graph: {
+        nodes: [
+          { id: 'goal_arr', kind: 'goal', label: 'g', observed_state: { value: 0.4, baseline: 0.35 } },
+          {
+            id: 'lever', kind: 'factor', label: 'l',
+            observed_state: { value: 15000 },
+            state_space: { range: { min: 0, max: 50000 } },
+          },
+        ],
+        edges: [{ from: 'lever', to: 'goal_arr', strength: { mean: 0.6, std: 0.1 } }],
+      },
+      options: [
+        { id: 'opt1', label: 'A', interventions: { lever: { value: leverA, source: 'user_specified' } } },
+        { id: 'opt2', label: 'B', interventions: { lever: { value: 10000, source: 'user_specified' } } },
+      ],
+      goal_node_id: 'goal_arr',
+      seed: 'hash-v8-superset',
+    });
+
+    // Both clamp to the ceiling, so the WIRE is identical...
+    const a = await hashOf(clampPayload(60000));
+    const b = await hashOf(clampPayload(90000));
+
+    const strip = (r: any) => JSON.stringify({ ...r, request_id: 0 });
+    expect(a.isl.options[0].interventions).toEqual(b.isl.options[0].interventions);
+    expect(strip(a.isl), 'PRECONDITION: the ISL requests must be byte-identical')
+      .toBe(strip(b.isl));
+
+    // ...yet the raw inputs differ, and the response echoes them, so the hash moves.
+    expect(b.hash, 'the retained projection must still discriminate').not.toBe(a.hash);
+  });
+
+  // -------------------------------------------------------------------------
   // T5 — THE NON-DETERMINISTIC KEY IS EXCLUDED. `request_id` is a fresh UUID on
   // every call; if it entered the hash, T3 would fail and the hash would be
   // useless as a cache key. T3 already proves this indirectly — this pins the
