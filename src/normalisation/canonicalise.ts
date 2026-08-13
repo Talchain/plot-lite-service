@@ -151,7 +151,22 @@ import { STANDARD_N_SAMPLES_DEFAULT } from '../config/sampling.js';
 // -----------------------------------------------------------------------------
 
 /** Hash version to prevent collisions when canonicalisation changes */
-export const HASH_VERSION = 7;
+export const HASH_VERSION = 8;
+
+/**
+ * ISL-request keys that are NOT part of the computation and must not enter the
+ * hash. A DENYLIST on purpose (ROADMAP 2.1024): an allowlist is the
+ * hand-maintained mirror this whole change exists to abolish — a field added to
+ * the ISL request would silently stay out of the hash, which is exactly the
+ * v1–v7 defect. With a denylist, a new ISL field enters the hash automatically.
+ *
+ * Drift direction, stated explicitly: if ISL ever gains a genuinely
+ * non-deterministic field that is not listed here, the hash becomes unstable and
+ * the failure is a CACHE MISS — a false "changed", never a false "unchanged".
+ * That is the safe direction and the reason the denylist is acceptable where an
+ * allowlist is not.
+ */
+const NON_DETERMINISTIC_ISL_KEYS = new Set(['request_id']);
 
 /**
  * Fallback Monte Carlo sample depth used when canonicalising a request whose
@@ -192,6 +207,78 @@ function canonicaliseNumber(value: number | undefined | null): number {
   return normaliseFloat(value);
 }
 
+
+// -----------------------------------------------------------------------------
+// Effective ISL request canonicalisation (v8)
+// -----------------------------------------------------------------------------
+
+/**
+ * Canonicalise the EFFECTIVE ISL request — the bytes PLoT actually sends to the
+ * compute layer — into a deterministic, order-insensitive form.
+ *
+ * WHY THIS EXISTS (ROADMAP 2.1024). Up to v7 the hash was computed from a
+ * PARALLEL SEMANTIC PROJECTION of the inbound request: a hand-maintained list of
+ * fields someone had to remember to extend. It drifted, exactly as the estate's
+ * dominant defect predicts. Measured at `b9f6b5a7`, four analysis-changing
+ * fields were absent from it — the goal frame, the constraint frame, node prior
+ * bounds/distribution, and factor correlations — so a request changing ALL FOUR
+ * produced a byte-identical hash while producing a materially different ISL
+ * request and a different answer. "Unchanged" was a lie.
+ *
+ * The fix is structural rather than another field: anything that changes what
+ * ISL computes must, by construction, change the ISL request. Hashing that
+ * request therefore cannot omit a computation input, because an input that
+ * reached ISL without appearing here does not exist.
+ *
+ * ORDER-INSENSITIVITY. Object keys are sorted recursively, and arrays are sorted
+ * by their canonical serialisation. Every array on this request is a SET in
+ * ISL's semantics (nodes, edges, options, constraints, parameter uncertainties,
+ * correlations, stated ranges) — none carries meaning in its position — so
+ * sorting preserves the v1–v7 guarantee that option/node order does not change
+ * the hash, without naming a single field to sort by.
+ */
+function canonicaliseDeep(value: unknown): unknown {
+  if (typeof value === 'number') {
+    if (!Number.isFinite(value)) return null;
+    if (Object.is(value, -0)) return 0;
+    return normaliseFloat(value);
+  }
+  if (value === null || typeof value !== 'object') return value;
+
+  if (Array.isArray(value)) {
+    // Sort by canonical serialisation so member ORDER cannot change the hash.
+    return value
+      .map(canonicaliseDeep)
+      .sort((a, b) => {
+        const sa = JSON.stringify(a) ?? '';
+        const sb = JSON.stringify(b) ?? '';
+        return sa < sb ? -1 : sa > sb ? 1 : 0;
+      });
+  }
+
+  const out: Record<string, unknown> = {};
+  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
+    const v = (value as Record<string, unknown>)[key];
+    // `undefined` is absent, not a value — JSON.stringify drops it anyway, and
+    // materialising it as null would make an omitted key differ from itself.
+    if (v === undefined) continue;
+    out[key] = canonicaliseDeep(v);
+  }
+  return out;
+}
+
+/**
+ * Strip the non-deterministic keys, then canonicalise deeply.
+ * Exported for the gate test that pins the denylist's effect.
+ */
+export function canonicaliseISLRequest(islRequest: Record<string, unknown>): unknown {
+  const stripped: Record<string, unknown> = {};
+  for (const key of Object.keys(islRequest)) {
+    if (NON_DETERMINISTIC_ISL_KEYS.has(key)) continue;
+    stripped[key] = islRequest[key];
+  }
+  return canonicaliseDeep(stripped);
+}
 
 // -----------------------------------------------------------------------------
 // Canonical Node
@@ -328,6 +415,16 @@ interface CanonicalConstraint {
 
 interface CanonicalRequest {
   version: number;
+  /**
+   * Which computation this hash describes (v8). Named on purpose so the two
+   * classes can never be mistaken for one another: `isl_v3` is hashed from the
+   * EFFECTIVE ISL request, `pre_isl` from the inbound projection because no ISL
+   * request was built (ISL disabled, or an early return before the call). Two
+   * different questions must not share one answer under one field name.
+   */
+  computation_class: 'isl_v3' | 'pre_isl';
+  /** The effective ISL request, canonicalised. Null on the `pre_isl` class. */
+  isl_request: unknown;
   seed: string;
   /** Resolved Monte Carlo sample depth (v7) — affects MC error of all surfaced numbers */
   n_samples: number;
@@ -374,7 +471,8 @@ export function canonicaliseRequest(
   seedUsed: string,
   _identifiability?: IdentifiabilityAssessment,
   _factorStability?: FactorStabilityEntry[],
-  nSamples?: number
+  nSamples?: number,
+  islRequest?: Record<string, unknown>
 ): string {
   // v7: resolve the sample depth the same way the route does, so an omitted
   // n_samples and an explicit default-valued one canonicalise identically.
@@ -385,6 +483,8 @@ export function canonicaliseRequest(
       : DEFAULT_HASH_N_SAMPLES);
   const canonical: CanonicalRequest = {
     version: HASH_VERSION,
+    computation_class: islRequest !== undefined ? 'isl_v3' : 'pre_isl',
+    isl_request: islRequest !== undefined ? canonicaliseISLRequest(islRequest) : null,
     seed: seedUsed,
     n_samples: resolvedNSamples,
     goal_node_id: req.goal_node_id,
@@ -462,8 +562,9 @@ export function hashRequest(
   seedUsed: string,
   identifiability?: IdentifiabilityAssessment,
   factorStability?: FactorStabilityEntry[],
-  nSamples?: number
+  nSamples?: number,
+  islRequest?: Record<string, unknown>
 ): string {
-  const canonical = canonicaliseRequest(req, normalizedGraph, seedUsed, identifiability, factorStability, nSamples);
+  const canonical = canonicaliseRequest(req, normalizedGraph, seedUsed, identifiability, factorStability, nSamples, islRequest);
   return computeResponseHash(canonical);
 }

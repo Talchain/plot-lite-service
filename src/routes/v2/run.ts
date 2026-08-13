@@ -5692,11 +5692,31 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             // (filter, validation, merge) and is stripped at wire boundaries
             // (ISL translator). For UI consumers, the canonical provenance signal
             // is _meta.constraint_sources.
+            // ROADMAP 2.1023 — STAMP THE FRAME WE ALREADY PROVED.
+            // Synthesis reaches this branch ONLY when `frameIsSampleFrame` held,
+            // i.e. the goal node attested `goal_threshold_frame: 'delta'`. The
+            // frame is therefore KNOWN here, and omitting it was not a missing
+            // fact — it was a fact we held and did not put on the wire.
+            //
+            // ISL fails closed on an unstamped constraint: it returns NO
+            // `constraint_analysis` at all, so `constraint_probabilities`,
+            // `probability_of_joint_goal`, `goal_fit` and win-sensitivity are
+            // absent from the user's response behind a 200. Witnessed in this
+            // repo's dated capture corpus against ISL c695feb7 —
+            // `tests/fixtures/isl-constraint-value-frame-20260807/`, arms A
+            // (unframed → absent) vs B (delta → 0.856/0.032).
+            //
+            // Bound to `nodeGoalThresholdFrame`, NOT to a literal 'delta': if
+            // the gate above ever admits another sample-frame member, the stamp
+            // follows it instead of silently mis-declaring. The value can only
+            // be 'delta' today — that is the gate's doing, not this line's
+            // assumption.
             const autoConstraint: GoalConstraint & { _internal: InternalMetadata } = {
               constraint_id: 'auto_goal_threshold',
               node_id: body.goal_node_id,
               operator: '>=',
               value: autoThreshold,
+              value_frame: nodeGoalThresholdFrame,
               label: 'Goal target',
               _internal: { source: 'auto_from_goal_threshold' },
             };
@@ -7835,7 +7855,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Recompute response hash (v6: ISL-derived fields excluded — identifiability
         // and factor_stability are passed for API backwards compat but ignored by
         // canonicaliseRequest; see canonicalise.ts BREAKING CHANGE v6).
-        responseHash = hashRequest(body, filteredGraph, plotSeedUsed, toIdentifiabilityResponse(identifiabilityResult), factorStability, nSamples);
+        //
+        // ROADMAP 2.1024 (v8): on this path an ISL request EXISTS, so the hash is
+        // computed from the EFFECTIVE ISL REQUEST — the bytes that produced this
+        // response — instead of a parallel projection that has to be remembered
+        // into. This is the only call site that can do so; the base hash above
+        // covers the early-return paths, where no ISL request was ever built and
+        // there is correspondingly no analysis to be fresh or stale about. The
+        // canonical form NAMES which of the two it is (`computation_class`), so
+        // the classes cannot silently collide.
+        responseHash = hashRequest(body, filteredGraph, plotSeedUsed, toIdentifiabilityResponse(identifiabilityResult), factorStability, nSamples, islRequest as unknown as Record<string, unknown>);
 
         const sensitivityData: SensitivityData = {
           edgeSensitivity,
