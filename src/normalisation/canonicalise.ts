@@ -196,6 +196,16 @@ const NON_DETERMINISTIC_ISL_KEYS = new Set(['request_id']);
  * adding is low and the bar for removing is high: removing a key asserts that
  * ISL treats that array as unordered, which needs evidence from ISL's bytes, not
  * from its field name.
+ *
+ * ⚠ SCOPE — AND WHY THE TWO HALVES OF THIS FILE DELIBERATELY DISAGREE. This
+ * exemption applies ONLY to the `isl_request` component. The retained inbound
+ * projection below still sorts `options` by id (as it has since v1), and so does
+ * the whole `pre_isl` class. That is not an inconsistency to reconcile: the two
+ * answer different questions. The projection describes WHAT THE CALLER ASKED
+ * FOR, where option order carries no meaning; `isl_request` describes WHAT ISL
+ * WAS ASKED, where `options[0]` is the reference option. Aligning them by
+ * sorting here would restore the defect; aligning them by unsorting there would
+ * churn hashes for no gain. **Do not "fix" one to match the other.**
  */
 const ORDER_SIGNIFICANT_ISL_KEYS = new Set(['options']);
 
