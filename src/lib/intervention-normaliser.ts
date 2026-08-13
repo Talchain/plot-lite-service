@@ -1707,6 +1707,77 @@ export function normaliseGoalConstraints(
     // `refusedConstraintRecords` handling in routes/v2/run.ts, which mirrors
     // what the temporal filter does by REPLACING the list before the active set
     // is derived. Pinned by tests/constraint-delta-frame-refusal.route.test.ts.
+    // ROADMAP 2.1023 — THE AUTO-SYNTHESISED CONSTRAINT UNSTAMPS RATHER THAN
+    // REFUSES, because refusing it WITHDRAWS THE USER'S TARGET.
+    //
+    // Measured, not reasoned: stamping `value_frame` on the synthesised
+    // constraint (2.1023) put it inside this refusal for every run where
+    // normalisation re-scales the value (e.g. a raw £20k target against a 50k
+    // cap → 0.4). The refusal itself behaves correctly — but the 2.239 carry
+    // binds `goal_threshold` to the synthesised constraint, so removing the
+    // constraint ALSO removed the target, and `goal_threshold` stopped reaching
+    // ISL entirely. That silently deletes the DIRECT goal probability, which
+    // 2.266's T3/T3b exist to guarantee survives every constraint refusal
+    // ("refusing the constraint never withdraws the target").
+    //
+    // WHY UNSTAMPING IS SAFE HERE AND NOT IN GENERAL. The paragraph above
+    // rejects dropping `value_frame` because ISL fail-closes an unstamped
+    // constraint by omitting the ENTIRE `constraint_analysis` block, so one
+    // unstamped constraint would delete every SIBLING's verdict. The
+    // synthesised constraint has no siblings BY CONSTRUCTION: synthesis runs
+    // only when the compiled set is empty (`routes/v2/run.ts` — the
+    // `constraintCompilation.constraints.length === 0` branch), so it is always
+    // the sole constraint. The objection does not reach this case.
+    //
+    // WHAT THE USER GETS. Exactly today's behaviour for this class: the
+    // constraint travels unstamped, ISL declines to evaluate it, and the
+    // joint-goal figure is absent — but the TARGET still reaches ISL, so the
+    // direct goal probability survives. Strictly no worse than before 2.1023,
+    // and better wherever normalisation leaves the value intact (there the
+    // stamp stands and the joint-goal science is delivered).
+    //
+    // ⚠ THIS IS A PINNED KNOWN GAP, NOT A CLOSURE. The joint-goal figure is
+    // still unavailable whenever a synthesised target needs re-scaling.
+    // Closing it needs the delta-scale contract established at ISL's bytes
+    // (the same blocker the paragraph above names) — out of PLoT's hands.
+    // `tests/auto-constraint-value-frame.route.test.ts` pins EXACTLY this
+    // boundary, so the suite REDs if the gap either grows or silently closes.
+    const isAutoSynthesised =
+      (constraint as { _internal?: { source?: string } })._internal?.source ===
+      'auto_from_goal_threshold';
+
+    if (
+      value_frame === 'delta' &&
+      (normalised !== value || clamped) &&
+      isAutoSynthesised
+    ) {
+      repairs.push({
+        field: `constraint.value_frame.${constraint_id}`,
+        action: 'removed',
+        from_value: 'delta',
+        to_value: 'unstamped',
+        reason:
+          `the auto-synthesised goal constraint was re-scaled by normalisation ` +
+          `(${value} → ${normalised}), so PLoT can no longer attest the frame the ` +
+          `number was stated in. The frame is dropped rather than the constraint ` +
+          `refused, because refusing it would also withdraw the user's goal target. ` +
+          `ISL will not evaluate an unstamped constraint, so the joint-goal figure ` +
+          `is absent — the direct goal probability is unaffected.`,
+      });
+      // Same shape as the normal path below, minus `value_frame` — so the wire
+      // is byte-identical to the pre-2.1023 unstamped constraint.
+      normalisedConstraints.push({
+        constraint_id,
+        node_id,
+        operator,
+        value: normalised,
+        original_value: value,
+        label,
+        weight,
+      });
+      continue;
+    }
+
     if (value_frame === 'delta' && (normalised !== value || clamped)) {
       refused.push({
         constraint_id,

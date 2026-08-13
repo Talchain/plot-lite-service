@@ -292,6 +292,76 @@ describe('ROADMAP 2.1023 — the auto-synthesised constraint carries value_frame
   // OWN frame; the fix must stamp the synthesised one WITHOUT overwriting
   // anyone else's. Without this, "stamp every constraint delta" would pass T1.
   // -------------------------------------------------------------------------
+  // -------------------------------------------------------------------------
+  // T6 — THE KNOWN GAP, PINNED EXACTLY.
+  //
+  // When normalisation RE-SCALES the synthesised value, PLoT can no longer
+  // attest the frame the number was stated in, so the stamp is dropped and the
+  // constraint travels unstamped — ISL declines to evaluate it and the
+  // joint-goal figure stays absent. That gap is REAL and stays open until the
+  // delta-scale contract is settled at ISL's bytes.
+  //
+  // ⚠ WHY THIS TEST EXISTS RATHER THAN A SILENCE. Stamping unconditionally put
+  // the constraint inside the 2.878 delta-fidelity REFUSAL, which removed it —
+  // and because the 2.239 carry binds `goal_threshold` to the synthesised
+  // constraint, that ALSO withdrew the user's target, silently deleting the
+  // DIRECT goal probability. A gap recorded in the suite is honest; a gap
+  // invisible to it is how a fix ships its own inverse. This REDs if the gap
+  // grows (target lost again) OR silently closes (stamp survives re-scaling).
+  // -------------------------------------------------------------------------
+  it('T6 KNOWN GAP: a RE-SCALED synthesised constraint is unstamped, and the TARGET survives', async () => {
+    const { res, isl } = await run({
+      graph: {
+        nodes: [
+          { id: 'goal_arr', kind: 'goal', label: 'ARR', goal_threshold_cap: 50000, goal_threshold_frame: 'delta' },
+          {
+            id: 'lever', kind: 'factor', label: 'MRR',
+            observed_state: { value: 15000 },
+            state_space: { range: { min: 0, max: 50000 } },
+          },
+          { id: 'other', kind: 'factor', label: 'Market', observed_state: { value: 0.3 } },
+        ],
+        edges: [
+          { from: 'lever', to: 'goal_arr', strength: { mean: 0.6, std: 0.1 } },
+          { from: 'other', to: 'goal_arr', strength: { mean: 0.3, std: 0.1 } },
+        ],
+      },
+      options: [
+        { id: 'opt1', label: 'A', interventions: { lever: { value: 25000, source: 'user_specified' } } },
+        { id: 'opt2', label: 'B', interventions: { lever: { value: 10000, source: 'user_specified' } } },
+      ],
+      goal_node_id: 'goal_arr',
+      seed: 'auto-frame-21023-rescale',
+      goal_threshold: 20000,
+    });
+
+    expect(res.statusCode).toBe(200);
+
+    // Precondition: this run really did re-scale (20000 → 0.4), or the case below
+    // proves nothing about re-scaling.
+    const auto = ((isl.goal_constraints ?? []) as any[]).find(
+      (c) => c.constraint_id === 'auto_goal_threshold',
+    );
+    expect(auto, 'the constraint must still be SENT, not refused').toBeDefined();
+    expect(auto.value).toBe(0.4);
+
+    // THE GAP: unstamped, so ISL will not evaluate it.
+    expect(auto.value_frame).toBeUndefined();
+
+    // THE INVARIANT THAT MUST NOT BREAK AGAIN: refusing/unstamping a constraint
+    // never withdraws the target (2.266 T3/T3b), so the DIRECT goal probability
+    // still has its threshold.
+    expect(isl.goal_threshold).toBe(0.4);
+
+    // And the drop is DISCLOSED by name, not silent.
+    const repairs = ((res.json() as any)?._meta?.repairs_applied ?? []) as any[];
+    const dropped = repairs.find(
+      (r) => r.field === 'constraint.value_frame.auto_goal_threshold',
+    );
+    expect(dropped, 'the unstamping must be disclosed').toBeDefined();
+    expect(dropped.to_value).toBe('unstamped');
+  });
+
   it("T5 SCOPE: a user constraint's own 'level' frame is NOT overwritten by the fix", async () => {
     const { isl } = await run(
       basePayload(GOAL_TARGET_DELTA, {
