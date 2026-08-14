@@ -2989,114 +2989,93 @@ paths:
 
   /v1/run_timeslices:
     post:
-      summary: Run Timeslices
-      description: Evaluate graph across multiple time periods with optional overrides
+      summary: Run timeslices (WITHDRAWN)
+      description: |
+        **Withdrawn 2026-08-13. This endpoint returns 501 and computes nothing.**
+
+        Ruled FABRICATING — the same finding as `/v1/sensitivity` and `/v1/score`
+        under the numerics science review of 2026-07-26 — and verified at the
+        bytes before withdrawal. The published `p10`/`p50`/`p90` were a
+        closed-form function of `seed` and the SHA-256 of the slice NAME:
+
+            sliceSeed = seed + parseInt(sha256(slice).slice(0,8), 16) % 10000
+            p50       = round((sliceSeed / 10000 + 0.5) * 1000) / 1000
+            p10       = p50 * 0.8;   p90 = p50 * 1.2
+
+        So renaming a slice moved the "forecast", while changing every weight,
+        belief and value in the graph did not. `p10`/`p90` were not estimated at
+        all — a fixed ±20% band encoding no uncertainty about anything — and
+        `confidence` was the literal `0.85` on every slice of every request.
+
+        The graph was READ AND THEN DISCARDED, which is worse than never reading
+        it. The handler validated `graph.nodes`/`graph.edges` against the public
+        limits, validated `priors` and `evidence` against the node ids, and
+        assembled a per-slice graph by merging `slice_overrides` node-by-node —
+        and then never referenced the result. A caller supplying per-slice
+        overrides received positive confirmation that their edits had been
+        accepted (a 200, a changed response, no warning) while the arithmetic
+        that produced the numbers could not see them.
+
+        As with `/v1/counterfactual`, the surrounding machinery was real: a
+        `model_card` carrying `seed`, `response_hash` and `timeslices_count` — a
+        determinism stamp that held only because the output was a constant
+        function of the input. A caller had no way to detect any of it.
+
+        The path stays mounted rather than returning 404 so caller telemetry can
+        establish who was relying on it. That matters more here than on any
+        previous withdrawal: this route carries a published SDK client method
+        (`runTimeslices()`), a worked example and a README entry, so a
+        repo-scoped sweep cannot rule out an external integrator. Per-route
+        caller counts are published on `/health` and `/v1/health` under
+        `route_callers`.
       operationId: runTimeslices
       tags: [v1, inference]
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: [graph, timeslices]
-              properties:
-                graph: { $ref: '#/components/schemas/graph' }
-                timeslices:
-                  type: array
-                  maxItems: 12
-                  items: { type: string }
-                slice_overrides:
-                  type: array
-                  items:
-                    type: object
-                    required: [slice]
-                    properties:
-                      slice: { type: string }
-                      nodes:
-                        type: array
-                        items: { type: object }
-                      edges:
-                        type: array
-                        items: { type: object }
-                priors: { type: object }
-                evidence:
-                  type: array
-                  items:
-                    type: object
-                    required: [node_id, source]
-                    properties:
-                      node_id: { type: string }
-                      source: { type: string }
-                      note: { type: string }
-                      weight: { type: number, minimum: 0, maximum: 1 }
-                seed: { type: integer }
-            examples:
-              basic:
-                value:
-                  graph:
-                    nodes: [{ id: "demand", label: "Demand" }]
-                    edges: []
-                  timeslices: ["Q1", "Q2", "Q3", "Q4"]
-                  slice_overrides:
-                    - slice: "Q2"
-                      nodes: [{ id: "demand", value: 1.2 }]
-                  priors: { demand: 0.6 }
-                  seed: 4242
+      deprecated: true
       responses:
-        '200':
-          description: Timeslices results
+        '401':
+          description: |
+            Missing bearer token. The /v1/* auth guard runs as a preHandler,
+            BEFORE this route's handler, so this outcome is reachable on a
+            withdrawn path exactly as on a live one. Carries
+            `WWW-Authenticate: Bearer`.
           content:
             application/json:
               schema:
-                type: object
-                properties:
-                  schema: { type: string, example: "run_timeslices.v1" }
-                  results:
-                    type: array
-                    items:
-                      type: object
-                      properties:
-                        slice: { type: string }
-                        summary:
-                          type: object
-                          properties:
-                            p10: { type: number }
-                            p50: { type: number }
-                            p90: { type: number }
-                        confidence: { type: number }
-                  model_card:
-                    type: object
-                    properties:
-                      seed: { type: integer }
-                      response_hash: { type: string }
-                      timeslices_count: { type: integer }
-                  meta:
-                    type: object
-                    properties:
-                      evidence_applied:
-                        type: array
-                        items:
-                          type: object
-                          properties:
-                            node_id: { type: string }
-                            source: { type: string }
-                            weight: { type: number }
-        '400':
-          description: Bad input
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                unauthorized:
+                  value:
+                    schema: error.v1
+                    code: UNAUTHORIZED
+                    message: Missing bearer token
+        '403':
+          description: |
+            Invalid bearer token. Also produced by the preHandler auth guard,
+            before the handler is reached.
           content:
             application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
               examples:
-                too_many_slices:
+                forbidden:
                   value:
-                    schema: "error.v1"
-                    code: "BAD_INPUT"
-                    message: "Maximum 12 timeslices allowed"
-                invalid_prior:
+                    schema: error.v1
+                    code: FORBIDDEN
+                    message: Invalid token
+        '501':
+          description: Capability withdrawn — no timeslice estimate is computed for any input
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/errorV1'
+              examples:
+                withdrawn:
                   value:
-                    schema: "error.v1"
-                    code: "BAD_INPUT"
-                    message: "Prior value must be between 0 and 1"
+                    schema: error.v1
+                    code: ANALYSIS_UNAVAILABLE
+                    message: "/v1/run_timeslices has been withdrawn: route published seed-derived numerics not computed from the request graph; see numerics science review 2026-07-26"
+                    reason: route published seed-derived numerics not computed from the request graph; see numerics science review 2026-07-26
+                    retryable: false
 
   /v1/suggest/edge-function:
     post:
@@ -4633,12 +4612,18 @@ components:
         score: { type: number, minimum: 0, maximum: 1 }
         factors:
           type: object
+          description: |
+            The grounded determinants of `score`. Each varies with the request.
+            The `calibration` key was removed on 2026-08-13: it was a
+            placeholder that resolved to a constant 0.5 for every request the
+            service could receive, holding 15% of the weight budget and making
+            the top of the 0-1 range unreachable. Real calibration is a separate
+            concern with its own owner and is not published on this badge.
           properties:
             identifiability: { type: number }
             linearity_distance: { type: number }
             k_coverage: { type: number }
-            calibration: { type: number }
-    
+
     critiqueItem:
       type: object
       required: [severity, message]

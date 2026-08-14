@@ -81,7 +81,6 @@ export async function registerSelfCheckRoute(app: FastifyInstance) {
       identifiable: identifiability.identifiable,
       in_linear_range: !linearity_warning.outside_range,
       k_samples: budget.k,
-      calibrated: false,
     });
 
     // Threshold crossings

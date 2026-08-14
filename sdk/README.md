@@ -29,7 +29,8 @@ console.log(result.summary); // { p10, p50, p90 }
 
 ## Features
 
-- ✅ **7 Inference Methods**: run, compare, inspect, intervene, optimise, runBundle, runTimeslices
+- ✅ **6 Inference Methods**: run, compare, inspect, intervene, optimise, runBundle
+  (`runTimeslices` is **WITHDRAWN** — the server answers 501 for every input; see below)
 - ✅ **Priors Support**: Number and distribution formats with validation (⚠️ validation-only in v1.6.0)
 - ✅ **Evidence Annotations**: Attach evidence with source tracking
 - ✅ **Timeslices**: Temporal graph evaluation (up to 12 slices)
@@ -52,8 +53,20 @@ const result = await client.run({
 });
 ```
 
-### runTimeslices(request)
-Evaluate graph across multiple time periods (max 12 slices).
+### runTimeslices(request) — ⛔ WITHDRAWN 2026-08-13
+**This endpoint returns 501 for every input and computes nothing. There is no
+replacement call.**
+
+It was ruled FABRICATING: the published `p10`/`p50`/`p90` were a closed-form
+function of `seed` and the SHA-256 of the slice NAME, so renaming a slice moved
+the "forecast" while changing the graph did not. `p10`/`p90` were a fixed ±20%
+band around `p50`, and `confidence` was the literal `0.85` on every slice of
+every request. The request graph — including any `slice_overrides` you supplied —
+was validated and then never read by the arithmetic that produced the numbers.
+
+The method is retained so an existing integrator receives a typed, explained
+refusal (`code: ANALYSIS_UNAVAILABLE`, `retryable: false`) instead of a bare 404.
+The call below is kept only to document the shape that is now refused.
 
 ```typescript
 const result = await client.runTimeslices({

@@ -2,7 +2,7 @@
  * The withdrawn analysis routes must answer a typed 501 refusal — and must be
  * instrumented while they do it.
  *
- * TEN routes, THREE findings, one disposition.
+ * ELEVEN routes, THREE findings, one disposition.
  *
  * Seven `/v1/analysis/*` routes were ruled VACUOUS by the authenticity matrix
  * of 2026-07-26: each scored every option against the same shared graph with
@@ -166,12 +166,35 @@ const VACUOUS: Array<{ route: string; payload: Record<string, unknown> }> = [
 ];
 
 /**
- * The two FABRICATING routes (numerics science review 2026-07-26). Different
- * finding, same disposition: /v1/sensitivity's tornado was a closed-form
- * function of the seed and each node's own value with `graph.edges` never read,
- * and /v1/score's utilities were a function of the seed and the node's ARRAY
- * INDEX with a constant 0.8-wide band. Both stamped
- * `inference_mode: 'model_based'` on output no inference produced.
+ * The FABRICATING routes (numerics science review 2026-07-26; /v1/run_timeslices
+ * added 2026-08-13). Different finding from VACUOUS, same disposition:
+ * /v1/sensitivity's tornado was a closed-form function of the seed and each
+ * node's own value with `graph.edges` never read, and /v1/score's utilities were
+ * a function of the seed and the node's ARRAY INDEX with a constant 0.8-wide
+ * band. Both stamped `inference_mode: 'model_based'` on output no inference
+ * produced.
+ *
+ * /v1/run_timeslices is the same class, reached by a different route. Its whole
+ * per-slice computation was:
+ *
+ *     const sliceHash = createHash('sha256').update(slice).digest('hex').slice(0, 8);
+ *     const sliceSeed = seed + parseInt(sliceHash, 16) % 10000;
+ *     const baseP50   = Math.round((sliceSeed / 10000 + 0.5) * 1000) / 1000;   // "Placeholder"
+ *     const p10 = baseP50 * 0.8;  const p90 = baseP50 * 1.2;
+ *     const confidence = 0.85;
+ *
+ * So the published p10/p50/p90 were a closed-form function of the seed and the
+ * SLICE NAME's hash — rename a slice and the "forecast" moves; change the graph
+ * and it does not. The request graph was validated (node/edge limits, priors,
+ * evidence) and a per-slice `sliceGraph` was even assembled from
+ * `slice_overrides` — and then never read by the arithmetic that produced the
+ * numbers. That is worse than not reading it: the override machinery gave a
+ * caller positive evidence their per-slice edits had been applied.
+ *
+ * `confidence: 0.85` was a hard-coded literal on every slice of every request,
+ * and the response shipped under a `model_card` carrying the seed, a
+ * `response_hash` and a slice count — a determinism stamp that held only because
+ * the output was a constant function of the input.
  */
 const FABRICATING: Array<{ route: string; payload: Record<string, unknown> }> = [
   {
@@ -199,6 +222,26 @@ const FABRICATING: Array<{ route: string; payload: Record<string, unknown> }> = 
         edges: [],
       },
       utilities: { type: 'linear', weights: { optA: 0.5, optB: 0.5 } },
+    },
+  },
+  {
+    // The payload that matters: perfectly well-formed, with per-slice overrides,
+    // priors and evidence all supplied — exactly the request that used to come
+    // back as four confident quarterly distributions at confidence 0.85.
+    route: '/v1/run_timeslices',
+    payload: {
+      seed: 4242,
+      graph: {
+        nodes: [
+          { id: 'demand', label: 'Demand', value: 100 },
+          { id: 'revenue', label: 'Revenue', value: 250 },
+        ],
+        edges: [{ from: 'demand', to: 'revenue', weight: 0.9, belief: 0.8 }],
+      },
+      timeslices: ['2026-Q1', '2026-Q2', '2026-Q3', '2026-Q4'],
+      slice_overrides: [{ slice: '2026-Q2', nodes: [{ id: 'demand', value: 120 }] }],
+      priors: { demand: 0.6 },
+      evidence: [{ node_id: 'demand', source: 'historical_data_2025', weight: 0.8 }],
     },
   },
 ];
@@ -317,6 +360,16 @@ describe.each(WITHDRAWN)('$route — withdrawn', ({ route, payload, reason }) =>
       'adjustment_set',
       'baseline',
       'counterfactual.v1',
+      // /v1/run_timeslices — the per-slice distributions and the determinism
+      // stamp that made them read as computed. Note the bare route name is
+      // deliberately NOT listed: the 501 message names the route it refuses, so
+      // asserting its absence would fail for the right output.
+      'run_timeslices.v1',
+      'timeslices_count',
+      'response_hash',
+      'summary',
+      'p10',
+      'p90',
     ]) {
       expect(raw).not.toContain(leak);
     }
@@ -380,7 +433,7 @@ describe('cross-cutting', () => {
     expect(res.json().code).not.toBe('ANALYSIS_UNAVAILABLE');
   });
 
-  it('all ten withdrawn routes are still MOUNTED — a 404 would destroy the evidence', async () => {
+  it('all eleven withdrawn routes are still MOUNTED — a 404 would destroy the evidence', async () => {
     for (const { route, payload } of WITHDRAWN) {
       const res = await app.inject({ method: 'POST', url: route, payload });
       expect(res.statusCode, `${route} must be 501, not 404`).toBe(501);
@@ -393,7 +446,7 @@ describe('cross-cutting', () => {
       await app.inject({ method: 'POST', url: route, payload });
     }
     // The pre-change thresholds route alone ran 2 sweeps x 2 options of Monte
-    // Carlo. Ten refusals must be trivially fast.
+    // Carlo. Eleven refusals must be trivially fast.
     expect(Date.now() - t0).toBeLessThan(2000);
   });
 });

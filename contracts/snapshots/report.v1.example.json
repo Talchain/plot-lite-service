@@ -1,14 +1,13 @@
 {
   "confidence": {
     "factors": {
-      "calibration": 0.5,
       "identifiability": 1,
       "k_coverage": 0.3,
       "linearity_distance": 1
     },
     "level": "HIGH",
     "reason": "Strong identifiability, 5 nodes well-connected, within linear range, k=32",
-    "score": 0.75
+    "score": 0.79
   },
   "critique": [
     {

@@ -94,6 +94,14 @@ const MAX_KEY_ID_LEN = 24;
  *     `in_linear_range` literals. Telemetry matters most on THIS one: the
  *     reference sweep that cleared it was repo-scoped, so an external caller
  *     could not be ruled out by inspection.
+ *   - `/v1/run_timeslices`, withdrawn 2026-08-13 as the same FABRICATING
+ *     finding as `/v1/sensitivity` and `/v1/score`: its p10/p50/p90 were a
+ *     closed-form function of the seed and the SHA-256 of the slice NAME, with
+ *     the assembled per-slice graph never read and `confidence` a hard-coded
+ *     0.85 on every slice of every request. Telemetry matters here for the same
+ *     reason it did on `/v1/counterfactual`, and more: this route carries a
+ *     published OpenAPI entry, an SDK client method and a worked example, so a
+ *     repo-scoped sweep cannot rule out an external integrator.
  */
 export const REFUSED_ROUTES = [
   '/v1/analysis/dominance',
@@ -106,6 +114,7 @@ export const REFUSED_ROUTES = [
   '/v1/counterfactual',
   '/v1/sensitivity',
   '/v1/score',
+  '/v1/run_timeslices',
 ] as const;
 
 const REFUSED_SET: ReadonlySet<string> = new Set(REFUSED_ROUTES);

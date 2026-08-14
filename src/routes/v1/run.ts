@@ -823,7 +823,6 @@ export async function registerRunRoute(app: FastifyInstance) {
         identifiable: identifiability.identifiable,
         in_linear_range: !linearity_warning.outside_range,
         k_samples: K_evaluated ?? budget.k,
-        calibrated: false,
       });
 
       // Threshold crossings with actual p50
@@ -854,6 +853,24 @@ export async function registerRunRoute(app: FastifyInstance) {
       });
 
       // Update confidence if SCM meta available
+      //
+      // ⚠ SEPARATE, UNFIXED FINDING — reported 2026-08-13, deliberately NOT
+      // changed by the lane that removed the placeholder calibration term.
+      // This block DISCARDS the confidence just computed by
+      // calculateConfidence() and substitutes a hard-coded `level: 'MEDIUM'`,
+      // a hard-coded `score: 0.6` and a hard-coded `linearity_distance: 1.0`,
+      // for every request that reaches it — i.e. whenever SCM-Lite ran and
+      // returned `unique_graphs`. The substituted score is not derived from the
+      // graph, and `linearity_distance: 1.0` asserts the run was inside the
+      // linear range without consulting `linearity_warning`, which was computed
+      // immediately above and may say otherwise.
+      //
+      // Left in place because it is a different defect from the one this change
+      // addresses and fixing it silently would bundle an unreviewed behaviour
+      // change into a fabrication removal. It needs its own row and its own
+      // evidence: whether SCM-Lite is enabled on the deployed instance was NOT
+      // derivable here (render.yaml says SCM_LITE_ENABLE=0 for both services,
+      // but render.yaml is not the deployed env, and /v1/health is auth-gated).
       if (inferenceResult.meta?.unique_graphs) {
         // scmLevelMap reserved for future confidence calibration
         confidence = {
@@ -864,7 +881,6 @@ export async function registerRunRoute(app: FastifyInstance) {
             identifiability: identifiability.identifiable ? 1.0 : 0.3,
             linearity_distance: 1.0,
             k_coverage: Math.min(k_samples / 1000, 1.0),
-            calibration: inferenceResult.meta.sign_stability || 0.5,
           },
         };
       }

@@ -1,235 +1,75 @@
 /**
- * POST /v1/run_timeslices - Temporal causal runs
- * Evaluates the same graph across multiple timeslices with optional per-slice overrides
+ * POST /v1/run_timeslices — WITHDRAWN (typed 501 refusal).
+ *
+ * Ruled FABRICATING on 2026-08-13, the same finding as `/v1/sensitivity` and
+ * `/v1/score` under the numerics science review of 2026-07-26: the published
+ * numbers were a closed-form function of the seed and a name hash, with the
+ * request graph never entering the computation.
+ *
+ * THE WHOLE PER-SLICE COMPUTATION WAS:
+ *
+ *     const sliceHash = createHash('sha256').update(slice).digest('hex').slice(0, 8);
+ *     const sliceSeed = seed + parseInt(sliceHash, 16) % 10000;
+ *     // Placeholder: deterministic p50 based on slice seed
+ *     const baseP50   = Math.round((sliceSeed / 10000 + 0.5) * 1000) / 1000;
+ *     const p10 = Math.round(baseP50 * 0.8 * 1000) / 1000;
+ *     const p90 = Math.round(baseP50 * 1.2 * 1000) / 1000;
+ *     const confidence = 0.85;
+ *
+ * Three separate claims in that block were false to the caller:
+ *
+ *   1. THE DISTRIBUTION WAS A NAME HASH. p50 was determined by `seed` and the
+ *      SHA-256 of the slice LABEL. Rename '2026-Q1' to 'Q1' and the forecast
+ *      moves; change every weight, belief and value in the graph and it does
+ *      not. p10/p90 were not estimated at all — they were p50 × 0.8 and
+ *      p50 × 1.2, a fixed ±20% band that encodes no uncertainty about anything.
+ *
+ *   2. THE GRAPH WAS READ, THEN DISCARDED — which is worse than never reading
+ *      it. The handler validated `graph.nodes`/`graph.edges` against the public
+ *      limits, validated `priors` against the node ids, validated `evidence`
+ *      against the node ids, and assembled a per-slice `sliceGraph` by merging
+ *      `slice_overrides` node-by-node and swapping in override edges. Every one
+ *      of those steps ran, and `sliceGraph` was then never referenced again.
+ *      A caller supplying per-slice overrides received positive confirmation
+ *      that their edits had been accepted — a 200, no warning — while the
+ *      arithmetic that produced the numbers could not see them.
+ *
+ *   3. `confidence: 0.85` WAS A LITERAL, on every slice of every request, for
+ *      all inputs. It was not a computed figure that happened to be stable.
+ *
+ * And it shipped under a `model_card` carrying `seed`, `response_hash` and
+ * `timeslices_count` — a determinism stamp that held only because the output
+ * was a constant function of the input, which is exactly the shape that makes a
+ * fabricated number read as a measured one. Same trap as `/v1/counterfactual`
+ * (ROADMAP 2.105): the numbers were placeholders and the credibility furniture
+ * around them was not.
+ *
+ * WHY REFUSE RATHER THAN DELETE. A 404 is indistinguishable from a typo and
+ * destroys the evidence. This route is published in `contracts/openapi.yaml`,
+ * carries an SDK method (`sdk/src/client.ts` `runTimeslices()`), a worked SDK
+ * example and a README entry, so an integrator may hold a client built against
+ * it. The typed 501 tells that caller the capability was withdrawn and why, and
+ * keeps the path mounted so `routeCallerTelemetry` can establish who — if
+ * anyone — was relying on it. That evidence is the whole reason the path stays
+ * mounted; see src/routes/v1/refuse-unavailable.ts.
+ *
+ * WHAT WAS DELETED WITH THE ROUTE. Only module-local code: the validation
+ * chain, the override merge and the placeholder arithmetic, none of which was
+ * exported. Shared helpers it imported — `validatePriors`, `validateEvidence`,
+ * `sanitizeEvidence`, `recordAuditEvent`, the limits constants — are untouched
+ * and still used by live routes. `MAX_TIMESLICES` was module-local and is gone
+ * with the handler it bounded.
  */
+
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
-import { createHash } from 'crypto';
-import { recordAuditEvent } from '../../governance/audit-ring.js';
-import { replyWithAppError } from '../../errors.js';
-
-interface SliceOverride {
-  slice: string;
-  nodes?: Array<{ id: string; [key: string]: any }>;
-  edges?: Array<{ from: string; to: string; [key: string]: any }>;
-}
-
-import { MAX_NODES, MAX_EDGES } from '../../constants/limits.js';
-
-interface RunTimeslicesRequest {
-  graph: { nodes: any[]; edges: any[] };
-  timeslices: string[];
-  slice_overrides?: SliceOverride[];
-  priors?: Record<string, number | { mean: number; sd: number }>;
-  evidence?: Array<{ node_id: string; source: string; note?: string; weight?: number }>;
-  seed?: number;
-}
-
-const MAX_TIMESLICES = 12;
+import {
+  refuseUnavailable,
+  FABRICATED_NUMERICS_REASON,
+  WITHDRAWN_ROUTE_OPTIONS,
+} from './refuse-unavailable.js';
 
 export async function registerRunTimeslicesRoute(app: FastifyInstance) {
-  app.post('/v1/run_timeslices', async (req: FastifyRequest, reply: FastifyReply) => {
-    const start = Date.now();
-    const body = req.body as RunTimeslicesRequest;
-    
-    // Validation
-    if (!body.graph || !body.graph.nodes || !Array.isArray(body.graph.nodes)) {
-      return replyWithAppError(reply, { 
-        type: 'BAD_INPUT', 
-        statusCode: 400,
-        message: 'graph.nodes required',
-        fields: { field: 'graph.nodes' },
-      });
-    }
-    
-    if (!body.timeslices || !Array.isArray(body.timeslices) || body.timeslices.length === 0) {
-      return replyWithAppError(reply, { 
-        type: 'BAD_INPUT', 
-        statusCode: 400,
-        message: 'timeslices array required with at least one slice',
-        fields: { field: 'timeslices' },
-      });
-    }
-    
-    if (body.timeslices.length > MAX_TIMESLICES) {
-      return replyWithAppError(reply, { 
-        type: 'BAD_INPUT', 
-        statusCode: 400,
-        message: `Maximum ${MAX_TIMESLICES} timeslices allowed, got ${body.timeslices.length}`,
-        fields: { field: 'timeslices' },
-      });
-    }
-    
-    // Validate base graph limits
-    if (body.graph.nodes.length > MAX_NODES) {
-      return replyWithAppError(reply, { 
-        type: 'BAD_INPUT', 
-        statusCode: 400,
-        message: `graph exceeds max ${MAX_NODES} nodes`,
-        fields: { field: 'graph.nodes' },
-      });
-    }
-    
-    const baseEdges = body.graph.edges || [];
-    if (baseEdges.length > MAX_EDGES) {
-      return replyWithAppError(reply, { 
-        type: 'BAD_INPUT', 
-        statusCode: 400,
-        message: `graph exceeds max ${MAX_EDGES} edges`,
-        fields: { field: 'graph.edges' },
-      });
-    }
-    
-    // Validate slice_overrides reference valid slices
-    const sliceSet = new Set(body.timeslices);
-    const overrides = body.slice_overrides || [];
-    for (const override of overrides) {
-      if (!sliceSet.has(override.slice)) {
-        return replyWithAppError(reply, { 
-          type: 'BAD_INPUT', 
-          statusCode: 400,
-          message: `slice_override references unknown slice: ${override.slice}`,
-          fields: { field: 'slice_overrides[].slice' },
-        });
-      }
-    }
-    
-    // Validate priors if present
-    if (body.priors) {
-      const { validatePriors } = await import('../../lib/validate-priors.js');
-      const nodeIds = new Set<string>(body.graph.nodes.map((n: any) => String(n.id)));
-      const priorsValidation = validatePriors(body.priors, nodeIds);
-      
-      if (!priorsValidation.valid) {
-        const firstError = priorsValidation.errors[0];
-        return replyWithAppError(reply, {
-          type: 'BAD_INPUT', 
-          statusCode: 400,
-          message: firstError.message,
-          fields: { field: firstError.field },
-        });
-      }
-    }
-
-    // Validate evidence if present
-    if (body.evidence) {
-      const { validateEvidence } = await import('../../lib/validate-evidence.js');
-      const nodeIds = new Set<string>(body.graph.nodes.map((n: any) => String(n.id)));
-      const evidenceValidation = validateEvidence(body.evidence, nodeIds);
-
-      if (!evidenceValidation.valid) {
-        const firstError = evidenceValidation.errors[0];
-        return replyWithAppError(reply, {
-          type: 'BAD_INPUT',
-          statusCode: 400,
-          message: firstError.message,
-          fields: { field: firstError.field },
-        });
-      }
-    }
-    
-    const seed = body.seed || 4242;
-    
-    // Build override map
-    const overrideMap = new Map<string, SliceOverride>();
-    for (const override of overrides) {
-      overrideMap.set(override.slice, override);
-    }
-    
-    // Process each timeslice
-    const results: Array<{
-      slice: string;
-      summary: { p10: number; p50: number; p90: number };
-      confidence: number;
-    }> = [];
-    
-    for (const slice of body.timeslices) {
-      // Apply overrides if present
-      let sliceGraph = { ...body.graph };
-      const override = overrideMap.get(slice);
-      if (override) {
-        // Merge nodes
-        const nodeMap = new Map(body.graph.nodes.map((n: any) => [n.id, { ...n }]));
-        if (override.nodes) {
-          for (const node of override.nodes) {
-            nodeMap.set(node.id, { ...nodeMap.get(node.id), ...node });
-          }
-        }
-        sliceGraph.nodes = Array.from(nodeMap.values());
-        
-        // Use override edges if provided, otherwise base edges
-        if (override.edges !== undefined) {
-          sliceGraph.edges = override.edges.map((e: any) => ({ ...e }));
-        }
-      }
-      
-      // Deterministic computation per slice (use slice name in seed derivation)
-      const sliceHash = createHash('sha256').update(slice).digest('hex').slice(0, 8);
-      const sliceSeed = seed + parseInt(sliceHash, 16) % 10000;
-      
-      // Placeholder: deterministic p50 based on slice seed
-      const baseP50 = Math.round((sliceSeed / 10000 + 0.5) * 1000) / 1000;
-      const p10 = Math.round(baseP50 * 0.8 * 1000) / 1000;
-      const p50 = baseP50;
-      const p90 = Math.round(baseP50 * 1.2 * 1000) / 1000;
-      const confidence = 0.85;
-      
-      results.push({
-        slice,
-        summary: { p10, p50, p90 },
-        confidence
-      });
-    }
-    
-    // Create response hash
-    const responseHash = createHash('sha256')
-      .update(JSON.stringify(results))
-      .digest('hex')
-      .slice(0, 16);
-    
-    const duration = Date.now() - start;
-    req.log.info({ 
-      evt: 'run_timeslices', 
-      id: req.id, 
-      route: '/v1/run_timeslices',
-      nodes: body.graph.nodes.length,
-      edges: baseEdges.length,
-      timeslices: body.timeslices.length,
-      overrides: overrides.length,
-      priors_count: body.priors ? Object.keys(body.priors).length : 0,
-      evidence_count: body.evidence ? body.evidence.length : 0,
-      seed,
-      duration_ms: duration
-    });
-    
-    // Record audit event
-    recordAuditEvent({
-      evt: 'run_timeslices',
-      route: '/v1/run_timeslices',
-      id: req.id,
-      seed,
-      response_hash: responseHash,
-      status: 200,
-      ts: new Date().toISOString()
-    });
-    
-    const response: any = {
-      schema: 'run_timeslices.v1',
-      results,
-      model_card: {
-        seed,
-        response_hash: responseHash,
-        timeslices_count: body.timeslices.length
-      }
-    };
-
-    // Add sanitized evidence if present
-    if (body.evidence && body.evidence.length > 0) {
-      const { sanitizeEvidence } = await import('../../lib/validate-evidence.js');
-      response.meta = {
-        evidence_applied: sanitizeEvidence(body.evidence)
-      };
-    }
-
-    return reply.code(200).send(response);
-  });
+  app.post('/v1/run_timeslices', WITHDRAWN_ROUTE_OPTIONS, async (req: FastifyRequest, reply: FastifyReply) =>
+    refuseUnavailable(req, reply, '/v1/run_timeslices', FABRICATED_NUMERICS_REASON)
+  );
 }

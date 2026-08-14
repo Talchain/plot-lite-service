@@ -269,11 +269,26 @@ export interface ConfidenceBadge {
   level: ConfidenceLevel;
   reason: string;
   score: number; // 0-1
+  /**
+   * The grounded determinants of `score` as computed by `calculateConfidence`.
+   * Every key it publishes varies with the request — a factor that reports the
+   * same number for every possible input tells a caller a determinant exists
+   * where none does. The `calibration` key was removed on 2026-08-13 for
+   * exactly that reason (a placeholder, constant across the whole reachable
+   * domain); real calibration is owned by `confidence-calibrated.ts`, which
+   * measures it. See src/trust/confidence.ts.
+   *
+   * ⚠ THIS IS A PROPERTY OF `calculateConfidence`, NOT OF THE TYPE. One other
+   * producer builds this shape: the SCM fallback in `src/routes/v1/run.ts`,
+   * which overwrites the computed badge with hard-coded values and emits a
+   * constant `linearity_distance: 1.0`. That path is a separate, deliberately
+   * untouched defect (documented at its site), so the invariant above holds for
+   * the calculated badge and NOT for every value that satisfies this interface.
+   */
   factors: {
     identifiability: number; // 0-1
     linearity_distance: number; // 0-1 (1 = in range)
     k_coverage: number; // 0-1
-    calibration: number; // 0-1
   };
 }
 
