@@ -149,6 +149,24 @@ export async function orchestrateDecisionReview(
     input.m1Coaching
   );
 
+  // ROADMAP 2.1248: null ⇔ ISL returned no analysed options, so no winner
+  // exists. CEE's DecisionReviewInputSchema requires a non-null winner, and
+  // the old fabricated `{id:'', label:'', win_probability: 0}` reached the
+  // reviewing model as a measured figure. Skip with a named reason instead —
+  // visible absence over confident wrongness.
+  if (request === null) {
+    logger?.warn({
+      event: DecisionReviewEvents.SKIPPED,
+      request_id: input.requestId,
+      reason: ReviewSkipReasons.NO_ANALYSED_OPTIONS,
+    });
+    return {
+      m1_review: null,
+      review_status: 'skipped',
+      review_skip_reason: ReviewSkipReasons.NO_ANALYSED_OPTIONS,
+    };
+  }
+
   // Use pre-resolved flip data from run.ts if available (avoids redundant ISL calls).
   // Otherwise fall back to resolving via binary search (backward compatibility).
   if (input.preResolvedFlipData) {
@@ -455,8 +473,15 @@ export function buildIslResultsForCorrection(
       win_probability: opt.win_probability ?? 0,
       expected_outcome: opt.expected_outcome ?? opt.outcome?.mean,
     })),
+    // ROADMAP 2.1248: absent stability stays ABSENT. `?? 0` handed the
+    // number-corrector a fabricated 0 as an AUTHORITATIVE
+    // 'robustness.recommendation_stability' source — it could "correct" a
+    // model-written figure TO 0, or bless a written "0%" as grounded, for a
+    // run ISL never assessed. A measured 0 is real and is preserved.
     robustness: {
-      recommendation_stability: islResult.robustness?.recommendation_stability ?? 0,
+      ...(islResult.robustness?.recommendation_stability !== undefined
+        ? { recommendation_stability: islResult.robustness.recommendation_stability }
+        : {}),
     },
     factor_sensitivity: (islResult.factor_sensitivity ?? [])
       .filter((f) => !isOptionControlledLever(f, structuralLeverIds))

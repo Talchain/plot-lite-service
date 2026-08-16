@@ -104,7 +104,15 @@ export interface ISLResultInput {
  * @param options Request options
  * @param islResult ISL response data
  * @param m1Coaching M1 coaching output
- * @returns DecisionReviewRequest ready to send to CEE
+ * @returns DecisionReviewRequest ready to send to CEE, or NULL when ISL
+ *   returned no analysed options. ROADMAP 2.1248: the builder previously
+ *   fabricated `winner: {id:'', label:'', win_probability: 0}` in that case
+ *   — a confident empty-identity winner at 0% that CEE serialises verbatim
+ *   into the reviewing model's prompt. CEE's `DecisionReviewInputSchema`
+ *   requires a non-null winner, so an honest absent winner is NOT
+ *   representable on this wire — the honest behaviour is to not build the
+ *   request at all; the orchestrator skips with a named reason
+ *   (`NO_ANALYSED_OPTIONS`), visible absence instead of confident wrongness.
  */
 export function buildDecisionReviewRequest(
   brief: string,
@@ -112,7 +120,7 @@ export function buildDecisionReviewRequest(
   options: OptionV3[],
   islResult: ISLResultInput,
   m1Coaching: M1Coaching
-): DecisionReviewRequest {
+): DecisionReviewRequest | null {
   // Compute brief hash
   const briefHash = computeBriefHash(brief);
 
@@ -135,8 +143,12 @@ export function buildDecisionReviewRequest(
   // Build deterministic coaching data
   const deterministicCoaching = buildDeterministicCoaching(m1Coaching);
 
-  // Get winner and runner-up
+  // Get winner and runner-up. No winner ⇒ no request: a review of a decision
+  // with no analysed options has nothing true to say, and the old
+  // `{id:'', label:'', win_probability: 0}` fallback fed the reviewing model
+  // a fabricated measurement (ROADMAP 2.1248).
   const { winner, runnerUp } = getWinnerAndRunnerUp(optionComparison);
+  if (!winner) return null;
 
   // Compute flip threshold data. Excluded set is the STRUCTURAL UNION, not
   // just the all-options intersection: a some-but-not-all-options lever must
@@ -170,16 +182,16 @@ export function buildDecisionReviewRequest(
     // 2.480(a): outcome_mean is emitted ONLY when extractOptionComparison
     // measured one. The key is omitted rather than sent as an explicit
     // undefined, so the in-memory object and the wire agree.
-    winner: winner
-      ? {
-          id: winner.option_id,
-          label: winner.option_label ?? winner.option_id,
-          win_probability: winner.win_probability,
-          ...(winner.expected_outcome !== undefined
-            ? { outcome_mean: winner.expected_outcome }
-            : {}),
-        }
-      : { id: '', label: '', win_probability: 0 },
+    // 2.1248: winner is non-null by the guard above — the fabricated
+    // empty-identity fallback is gone; no winner means no request.
+    winner: {
+      id: winner.option_id,
+      label: winner.option_label ?? winner.option_id,
+      win_probability: winner.win_probability,
+      ...(winner.expected_outcome !== undefined
+        ? { outcome_mean: winner.expected_outcome }
+        : {}),
+    },
     runner_up: runnerUp
       ? {
           id: runnerUp.option_id,
@@ -360,14 +372,27 @@ function parseEdgeId(edgeId: string): [string, string] {
 
 /**
  * Extract robustness data from ISL result.
+ *
+ * ROADMAP 2.1248: absent inputs propagate as ABSENT keys — never as a
+ * plausible middle value. `?? 0` / `?? false` / `?? 'unknown'` manufactured
+ * a confident "not robust, 0% stability" claim for runs ISL never assessed,
+ * and CEE serialises this object verbatim into the reviewing model's prompt.
+ * A MEASURED 0 or false is a real measurement and is preserved. CEE's
+ * request schema admits absence (`z.record(z.unknown()).optional()`).
  */
 function extractRobustness(islResult: ISLResultInput): RobustnessData {
   const robustness = islResult.robustness;
 
   return {
-    recommendation_stability: robustness?.recommendation_stability ?? 0,
-    flip_risk_category: robustness?.flip_risk_category ?? 'unknown',
-    is_robust: robustness?.is_robust ?? false,
+    ...(robustness?.recommendation_stability !== undefined
+      ? { recommendation_stability: robustness.recommendation_stability }
+      : {}),
+    ...(robustness?.flip_risk_category !== undefined
+      ? { flip_risk_category: robustness.flip_risk_category }
+      : {}),
+    ...(robustness?.is_robust !== undefined
+      ? { is_robust: robustness.is_robust }
+      : {}),
   };
 }
 

@@ -3656,6 +3656,11 @@ function buildResponse(
     // Lane PLoT-R3: warning_codes echo + DEFAULT-coded disclosures for the
     // brief's claim-safe surfaces (provisional_doctrine_v0 wording).
     inference_warnings: inferenceWarnings,
+    // ROADMAP 2.1247: the SAME flip array the response publishes at
+    // `flip_thresholds` below and the display verdict already consumes —
+    // one variable, so the brief's robustness_caveat and the evidence it
+    // cites can never come from two different runs.
+    flip_thresholds: flipThresholds,
     response_hash: responseHash,
     // Track S: depth-aware brief lineage (config_version + lineage.n_samples).
     meta: { seed_used: meta.seedUsed, n_samples: meta.nSamples },

@@ -26,7 +26,12 @@ export interface IslResultsForCorrection {
     expected_outcome?: number;
   }>;
   robustness: {
-    recommendation_stability: number;
+    /**
+     * ROADMAP 2.1248: OPTIONAL — absent when ISL did not measure it. A
+     * fabricated `?? 0` here became an authoritative correction source; the
+     * source is now emitted only for a measured value (a measured 0 is real).
+     */
+    recommendation_stability?: number;
     overall_confidence?: number;
   };
   factor_sensitivity: Array<{
@@ -193,12 +198,15 @@ function buildIslNumberSources(
     });
   }
 
-  // Robustness
-  sources.push({
-    value: islResults.robustness.recommendation_stability,
-    source: 'robustness.recommendation_stability',
-    isPercentage: true,
-  });
+  // Robustness. 2.1248: only a MEASURED stability is an authoritative source
+  // — an absent one must not enter the corrector as a confident 0.
+  if (islResults.robustness.recommendation_stability !== undefined) {
+    sources.push({
+      value: islResults.robustness.recommendation_stability,
+      source: 'robustness.recommendation_stability',
+      isPercentage: true,
+    });
+  }
   if (islResults.robustness.overall_confidence !== undefined) {
     sources.push({
       value: islResults.robustness.overall_confidence,

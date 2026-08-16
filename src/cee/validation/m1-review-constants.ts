@@ -237,6 +237,13 @@ export const ReviewSkipReasons = {
   NO_M1_COACHING: 'NO_M1_COACHING',
   /** User's decision brief text not provided — review requires context */
   BRIEF_MISSING: 'BRIEF_MISSING',
+  /**
+   * ROADMAP 2.1248: ISL returned no analysed options, so no winner exists.
+   * The request builder previously fabricated `winner: {id:'', label:'',
+   * win_probability: 0}` and sent it to CEE as a measured figure; the honest
+   * behaviour is this named skip — visible absence over confident wrongness.
+   */
+  NO_ANALYSED_OPTIONS: 'NO_ANALYSED_OPTIONS',
 } as const;
 
 export type ReviewSkipReason = typeof ReviewSkipReasons[keyof typeof ReviewSkipReasons];

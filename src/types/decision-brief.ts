@@ -59,8 +59,13 @@ export interface DecisionBriefV1 {
    *     `src/coaching/readiness-tone.ts` against the broader signal set —
    *     fragile edges, robustness level, recommendation stability, evidence
    *     gaps, low driver confidence, near-tie status).
+   *
+   * ROADMAP 2.1248: an ABSENT or unrecognised level maps to `'not_assessed'`
+   * — the same honest token the sibling `robustness.display_verdict` already
+   * ships for exactly these runs. It previously defaulted to `'moderate'`,
+   * presenting a fabricated middle value as a measured one.
    */
-  robustness: 'robust' | 'moderate' | 'fragile';
+  robustness: 'robust' | 'moderate' | 'fragile' | 'not_assessed';
 
   /** Merged warnings from critiques and model critiques (max 10) */
   warnings: BriefWarning[];
@@ -184,14 +189,52 @@ export interface BriefDefaultedAssumption {
 }
 
 export interface BriefRobustnessCaveat {
-  /** provisional_doctrine_v0 wording — honest, no invented certainty */
+  /**
+   * CLAIM 1 — aggregate stability under the perturbations tested, derived
+   * from the robustness MARGINALS (is_robust / level). provisional_doctrine_v0
+   * wording — honest, no invented certainty.
+   *
+   * ROADMAP 2.1247: when the same run's flip evidence ATTESTS that no tested
+   * factor flips the leader (`all_no_effect`), this claim keeps its marginal
+   * verdict but drops the flip language ("small changes … could change which
+   * option leads") that the payload's own evidence refutes — the same
+   * correction `display_verdict_reason` received in ROADMAP 2.278.
+   */
   text: string;
   /**
-   * Which upstream signal the wording was derived from:
+   * Which upstream signal claim 1's wording was derived from:
    * 'is_robust' — ISL boolean flag; 'level' — ISL robustness level;
    * 'absent' — neither present (wording says robustness was not assessed).
+   * Flip evidence NEVER changes the basis (it is claim 2's input, not claim 1's).
    */
   basis: 'is_robust' | 'level' | 'absent';
+  /**
+   * CLAIM 2 — what this run's per-factor flip probes attest, scoped to the
+   * PROBED SET (ROADMAP 2.292 scoping: ISL probes only eligible root factors,
+   * so the copy says "the factors we could test", never a universal).
+   *
+   * Present ONLY when the probes support a claim:
+   *   'all_no_effect'     — every probed factor attested unable to flip;
+   *   'computed'          — at least one real flip threshold was found;
+   *   'partial_no_effect' — at least one flip found AND every other probed
+   *                         factor attested unable to flip.
+   * ABSENT when flip evidence is 'unavailable' (nobody computed it) or
+   * 'unresolved' (probes timed out / errored / were never evaluated) — an
+   * unfinished probe attests nothing, so no claim is made.
+   *
+   * `status` is DERIVED via `classifyFlipThresholdsStatus` (the single source
+   * of truth for the classification vocabulary) — never re-derived here.
+   *
+   * Two named claims with named scopes: claim 1 speaks about aggregate
+   * perturbation stability, claim 2 about single-factor flips. They cannot
+   * contradict each other because neither claims the other's scope
+   * (ROADMAP 2.1247; trap-21 — two questions must not share one name).
+   */
+  flip_evidence?: {
+    status: 'computed' | 'all_no_effect' | 'partial_no_effect';
+    /** provisional_doctrine_v0 wording — claim-safe, no numbers. */
+    text: string;
+  };
   doctrine: 'provisional_doctrine_v0';
 }
 
