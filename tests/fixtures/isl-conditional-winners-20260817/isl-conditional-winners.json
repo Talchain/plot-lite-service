@@ -1,0 +1,64 @@
+[
+  {
+    "factor_id": "factor-demand",
+    "factor_label": "Customer demand",
+    "split_value": 0.42,
+    "split_unit": "units/quarter",
+    "low_bucket": {
+      "n_samples": 2500,
+      "winner_id": "opt-a",
+      "winner_label": "Option A",
+      "winner_probability": 0.71,
+      "runner_up_id": "opt-b",
+      "runner_up_probability": 0.29
+    },
+    "high_bucket": {
+      "n_samples": 2500,
+      "winner_id": "opt-b",
+      "winner_label": "Option B",
+      "winner_probability": 0.63,
+      "runner_up_id": "opt-a",
+      "runner_up_probability": 0.37
+    },
+    "winner_flips": true
+  },
+  {
+    "factor_id": "factor-churn",
+    "factor_label": "Churn rate",
+    "split_value": -0.017,
+    "low_bucket": {
+      "n_samples": 1200,
+      "winner_id": "opt-b",
+      "winner_label": "Option B",
+      "winner_probability": 0.55
+    },
+    "high_bucket": {
+      "n_samples": 1300,
+      "winner_id": "opt-c",
+      "winner_label": "Option C",
+      "winner_probability": 0.48
+    },
+    "winner_flips": true
+  },
+  {
+    "factor_id": "factor-price",
+    "factor_label": "Unit price",
+    "split_value": 12.5,
+    "split_unit": "GBP",
+    "low_bucket": {
+      "n_samples": 900,
+      "winner_id": "opt-a",
+      "winner_label": "Option A",
+      "winner_probability": 1.0,
+      "runner_up_id": "opt-b",
+      "runner_up_probability": 0.0
+    },
+    "high_bucket": {
+      "n_samples": 900,
+      "winner_id": "opt-b",
+      "winner_label": "Option B",
+      "winner_probability": 0.0
+    },
+    "winner_flips": true
+  }
+]

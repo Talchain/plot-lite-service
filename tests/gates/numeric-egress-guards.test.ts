@@ -70,10 +70,16 @@ describe('numeric-egress transforms · drop/omit invalid ISL numbers', () => {
   });
 
   it('transformConditionalWinners drops bad split_value / out-of-[0,1] win_probability; omits non-finite mean_outcome', () => {
+    // ⚠ 17 Aug 2026: the INPUT key is ISL's `winner_probability`, not PLoT's
+    // outbound `win_probability` — this builder carried PLoT's name (copied from
+    // the `ISLConditionalBucket` type, which claimed a name ISL never emitted), so
+    // this gate passed while every real row was being dropped on live traffic.
+    // Names derived at ISL `28fe0c95` (`src/models/response_v2.py:1222-1232`);
+    // a wire-derived fixture lives at tests/fixtures/isl-conditional-winners-20260817/.
     const mk = (factor_id: string, split: number, lowP: number, highP: number, lowMean?: number) => ({
       factor_id, split_value: split,
-      low_bucket: { winner_id: 'o1', win_probability: lowP, ...(lowMean !== undefined && { mean_outcome: lowMean }) },
-      high_bucket: { winner_id: 'o2', win_probability: highP },
+      low_bucket: { winner_id: 'o1', winner_probability: lowP, ...(lowMean !== undefined && { mean_outcome: lowMean }) },
+      high_bucket: { winner_id: 'o2', winner_probability: highP },
       winner_flips: true,
     });
     const out = transformConditionalWinners([
