@@ -1009,9 +1009,9 @@
       }
     ],
     "executive_summary": {
-      "summary": "Hire One Tech Lead currently leads, but the outcome is highly uncertain. However, the 59% recommendation stability indicates the decision could shift with new information. Define tie-breaker criteria or gather additional evidence.",
+      "summary": "Hire One Tech Lead currently leads, but the outcome is highly uncertain. However, the outcome is within model uncertainty, so the ranking could shift with new information. Define tie-breaker criteria or gather additional evidence.",
       "decision_statement": "Hire One Tech Lead currently leads, but the outcome is highly uncertain.",
-      "key_qualifier": "However, the 59% recommendation stability indicates the decision could shift with new information.",
+      "key_qualifier": "However, the outcome is within model uncertainty, so the ranking could shift with new information.",
       "action_implication": "Define tie-breaker criteria or gather additional evidence."
     },
     "readiness_tone": "caution",
@@ -1215,7 +1215,7 @@
     "graph_hash": "0745a6e63dc5d0d0",
     "seed": 2034401427,
     "created_at": "__VOLATILE__",
-    "headline": "Hire One Tech Lead currently leads, but the outcome is highly uncertain. However, the 59% recommendation stability indicates the decision could shift with new information. Define tie-breaker criteria or gather additional evidence.",
+    "headline": "Hire One Tech Lead currently leads, but the outcome is highly uncertain. However, the outcome is within model uncertainty, so the ranking could shift with new information. Define tie-breaker criteria or gather additional evidence.",
     "options": [
       {
         "option_id": "opt_tech_lead",
@@ -1616,7 +1616,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:b5462664775055c7"
+    "response_content_hash": "rch_v2:5876bbda16001f63"
   },
   "meta": {
     "seed_used": "2034401427",

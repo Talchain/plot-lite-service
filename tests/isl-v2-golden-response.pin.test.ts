@@ -463,6 +463,32 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //                                    probability changed; the
     //                                    canonicalisation changed, the
     //                                    computation did not.)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:b5462664775055c7');
+    //  prose-  rch_v2:5876bbda16001f63 (the WITHHELD `recommendation_stability`
+    //  leak                             figure stopped being published as
+    //                                   coaching PROSE. PLoT already omits the
+    //                                   FIELD (run.ts:3411-3422) because ISL
+    //                                   derives it as option_wins[winner]/
+    //                                   n_samples — the leader's win_probability
+    //                                   relabelled — yet three builders printed
+    //                                   it as "N% recommendation stability", so a
+    //                                   user read a figure with no field to check
+    //                                   it against. The golden diff is EXACTLY
+    //                                   three prose lines on THIS fixture
+    //                                   (executive_summary.summary,
+    //                                   .key_qualifier, decision_brief.headline,
+    //                                   all "the 59% recommendation stability
+    //                                   indicates…" → "the outcome is within
+    //                                   model uncertainty, so the ranking could
+    //                                   shift with new information") plus this
+    //                                   derived hash. `response_hash` is UNMOVED
+    //                                   (the REQUEST did not change). No option
+    //                                   row, factor entry, probability or
+    //                                   readiness classification moved — the
+    //                                   qualitative claims and their weights are
+    //                                   untouched; only the figure is gone. This
+    //                                   fixture's 0.59025 sits mid-band, so it
+    //                                   carries no readiness_signals stability
+    //                                   entry to change.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:5876bbda16001f63');
   });
 });

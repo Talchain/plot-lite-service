@@ -249,7 +249,14 @@ describe('Scenario C — Staging-derived near-tie (PR #174 + driver direction pr
     const summary = generateExecutiveSummary(nearTieInputs, 'close_call', 'close_call', nearTieKeyDrivers, nearTieGaps);
     expectNoBannedPhrasing(summary.summary);
     expect(summary.summary).toContain('Hire One Tech Lead edges ahead');
-    expect(summary.summary).toContain('recommendation stability');
+    // Was `toContain('recommendation stability')`, which pinned a leak: the
+    // summary carried the WITHHELD figure ("the 59% recommendation stability
+    // indicates…"). The quantity is not published as a field, so it may not be
+    // published as prose either — see the `recommendationStability` doc in
+    // src/coaching/types.ts. What must survive is the CAUTION this test is
+    // actually about, so assert that instead of the figure.
+    expect(summary.summary).toMatch(/within model uncertainty|could shift with new information/i);
+    expect(summary.summary).not.toMatch(/\d+\s*%[^.!?]{0,60}recommendation stability/i);
     expect(summary.action_implication.toLowerCase()).not.toMatch(/^proceed with/);
     expect(summary.summary.toLowerCase()).not.toContain('robust and ready');
   });

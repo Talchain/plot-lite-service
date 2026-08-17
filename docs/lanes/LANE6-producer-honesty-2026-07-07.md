@@ -261,3 +261,67 @@ Known pre-existing CI reds (unrelated, per repo CLAUDE.md): `audit`
    tolerance here); when ISL ships it, the honour-path is already tested.
 4. Prod flip of `ISL_FACTOR_EVPI_INTERNAL` is a Paul-gated decision (P-5 full
    ratification) — staging/test ON only in this change.
+
+---
+
+## ⚠ CORRECTION APPENDED 2026-08-17 — one claim in this document was FALSE
+
+**This document is a dated record and its original text above is left exactly as
+written.** One sentence in it was wrong when written, and it went unchallenged for
+six weeks because the repo's own record asserted the thing nobody then re-measured.
+
+### The false claim
+
+Under *"Residual (recorded, NOT changed)"*, this document states:
+
+> Internal verdict derivations (`src/coaching/normalise-inputs.ts`,
+> `src/assembly/decision-brief.ts`) still read ISL's value to derive
+> robust/fragile verdict classes — **they do not emit the number**; unchanged.
+
+**The second half is false, and it named the right file.**
+`normalise-inputs.ts:166` reads `islResult.robustness.recommendation_stability`
+into the coaching layer as `recommendationStability` — and three coaching builders
+downstream of it interpolated that value into user-facing prose as
+`"N% recommendation stability"`:
+
+- `src/coaching/executive-summary.ts:122, 133`
+- `src/coaching/next-actions.ts:117, 137, 148-149`
+- `src/coaching/readiness-signals.ts:177, 184`
+
+All three are on the live `POST /v2/run` path (`run.ts:152` import →
+`run.ts:8260` `generateM1Coaching(processedIslResult)` → `m1-coaching.ts:159/196/203`
+→ published at `run.ts:3799` / `run.ts:4062` as `m1_coaching`), and the leak was
+wire-witnessed in this repo's own checked-in golden for the 2026-07-07 capture:
+
+> `"key_qualifier": "However, the 59% recommendation stability indicates the
+> decision could shift with new information."`
+
+`0.59025` is the exact value item B's own rationale certifies as byte-identical to
+the leader's `win_probability`. So the withhold removed the FIELD while the prose
+kept publishing the QUANTITY — and, being prose, it published it with no field a
+user or the UI could check it against. Item B's stated goal ("omission is honest
+absence") was therefore not met on the surface a user actually reads.
+
+### What the distinction should have been
+
+The correct split is not *"verdict derivations vs emitters"* but **"thresholding
+the value vs printing it"**. Two consumers genuinely only threshold it and were
+correctly characterised — `readiness-tone.ts:63-65` (emits the reason code
+`LOW_STABILITY`) and `headlines.ts:198, 203` (classifies headline type). The three
+above printed it. A sweep that had asked *"does this value reach a template
+string?"* rather than *"is this module a verdict deriver?"* would have separated
+them.
+
+### Fixed
+
+Fixed 2026-08-17 (branch `fix/withheld-number-prose-leak-2026-08-17`) by removing
+the figure and keeping the qualitative claim, on the reading that item B's
+rationale is about the QUANTITY ("zero independent information", "a fabricated
+second statistic") and not about contract shape. Pinned by
+`tests/coaching/withheld-stability-prose-egress.test.ts`, which sweeps EVERY string
+in the built `m1_coaching` payload rather than checking a list of known sites — so
+the next emission site fails a test instead of needing someone to remember this
+document. Follow-up 1 below (the M2 decision-review request, which still sends
+`recommendation_stability ?? 0` to CEE and whose review LLM this document already
+warned "could still quote '59% stability' in prose") remains OPEN and is unchanged
+by that fix.

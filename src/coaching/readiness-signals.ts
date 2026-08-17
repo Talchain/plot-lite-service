@@ -167,21 +167,28 @@ function computeModelRobustness(
 ): number {
   let score = 1.0;
 
-  // Penalty for low stability
+  // Penalty for low stability.
+  //
+  // The stability value THRESHOLDS the signal but is never printed in it: the
+  // quantity is withheld from the wire, so publishing it as prose is the same
+  // fabrication the withhold exists to prevent (see the `recommendationStability`
+  // doc in ./types.ts). The signal keeps its full discriminating power — low
+  // still scores -0.4 and reads negative, high still reads positive — because
+  // the classification, not the figure, is what a reader can act on.
   const stability = inputs.robustness.recommendationStability;
   if (stability !== undefined) {
     if (stability < 0.5) {
       score -= 0.4;
       signals.push({
         dimension: 'robustness',
-        signal: `Low recommendation stability (${Math.round(stability * 100)}%)`,
+        signal: 'Low recommendation stability',
         impact: 'negative',
         weight: 0.4,
       });
     } else if (stability >= 0.75) {
       signals.push({
         dimension: 'robustness',
-        signal: `High recommendation stability (${Math.round(stability * 100)}%)`,
+        signal: 'High recommendation stability',
         impact: 'positive',
         weight: 0.2,
       });

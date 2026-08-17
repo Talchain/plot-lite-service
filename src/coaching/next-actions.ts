@@ -114,7 +114,12 @@ export function generateNextActions(
   if (readiness === 'ready' && actions.length < 3) {
     const leadingLabel = context.winner?.label ?? 'the leading option';
     const delta = context.winner ? Math.round((context.winner.winProbability - (inputs.options[1]?.winProbability ?? 0)) * 100) : 0;
-    const stabilityDisplay = context.stability !== undefined ? Math.round(context.stability * 100) : 0;
+    // No stabilityDisplay: the withheld quantity may not be published as prose
+    // (see the `recommendationStability` doc in ./types.ts). The rationales below
+    // therefore no longer branch on whether ISL supplied it — they state the lead
+    // and the tone-derived caveat, both of which the user can act on. The removed
+    // `: 0` fallback would additionally have printed "0% recommendation
+    // stability" from an ABSENT value had any caller reached it.
     const keyDrivers = computeKeyDrivers(inputs);
     // Reuse the orchestrator-precomputed tone when threaded in so the structured
     // m1_coaching.readiness_tone and this prose share one classification.
@@ -133,9 +138,7 @@ export function generateNextActions(
     let rationale: string;
     if (tone === 'confident') {
       action = `Move forward with ${leadingLabel} while validating the key assumptions`;
-      rationale = context.stability !== undefined
-        ? `${leadingLabel} has a strong current lead by ${delta} points with ${stabilityDisplay}% recommendation stability`
-        : `${leadingLabel} has a strong current lead by ${delta} points`;
+      rationale = `${leadingLabel} has a strong current lead by ${delta} points`;
     } else if (tone === 'caution') {
       action = `Validate the fragile assumptions before treating ${leadingLabel} as a decision`;
       rationale = reasonSummary
@@ -143,13 +146,9 @@ export function generateNextActions(
         : `${leadingLabel} currently leads by ${delta} points, but the model is not yet strong enough for an unqualified decision`;
     } else {
       action = `Validate the key assumptions before acting on ${leadingLabel}`;
-      rationale = context.stability !== undefined
-        ? (reasonSummary
-            ? `${leadingLabel} currently leads by ${delta} points with ${stabilityDisplay}% recommendation stability, but ${reasonSummary}`
-            : `${leadingLabel} currently leads by ${delta} points with ${stabilityDisplay}% recommendation stability`)
-        : (reasonSummary
-            ? `${leadingLabel} currently leads by ${delta} points, but ${reasonSummary}`
-            : `${leadingLabel} currently leads by ${delta} points`);
+      rationale = reasonSummary
+        ? `${leadingLabel} currently leads by ${delta} points, but ${reasonSummary}`
+        : `${leadingLabel} currently leads by ${delta} points`;
     }
 
     actions.push({

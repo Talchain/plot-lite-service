@@ -111,16 +111,21 @@ function generateKeyQualifier(
   evidenceGaps: EvidenceGap[],
   tone: ReadinessTone,
 ): string {
-  const stability = inputs.robustness.recommendationStability;
+  // NB: recommendationStability is deliberately NOT read here any more. It still
+  // grounds this wording — via the D2-tone classifier in readiness-tone.ts, which
+  // thresholds it — but the qualifier no longer needs the raw value now that it
+  // publishes no figure. See the `recommendationStability` doc in ./types.ts.
   const topDriver = keyDrivers[0];
   const topGap = evidenceGaps[0];
 
   switch (readiness) {
     case 'ready':
       if (tone === 'confident') {
-        if (stability !== undefined) {
-          return `The current model favours this option on the strongest combination of signals (${Math.round(stability * 100)}% recommendation stability).`;
-        }
+        // No stability FIGURE here (or below): the quantity is withheld from the
+        // wire, so publishing it as prose is the same fabrication — see the
+        // `recommendationStability` doc in ./types.ts. The claim is qualitative
+        // and the tone gate above is what grounds it, so the sentence is now the
+        // same whether or not ISL supplied the number.
         return 'The current model favours this option on the strongest combination of signals.';
       }
       if (tone === 'caution') {
@@ -129,10 +134,12 @@ function generateKeyQualifier(
       return 'This option leads on the current model, with important caveats.';
 
     case 'close_call':
-      if (stability !== undefined) {
-        return `However, the ${Math.round(stability * 100)}% recommendation stability indicates the decision could shift with new information.`;
-      }
-      return 'However, the outcome is within model uncertainty.';
+      // Keeps BOTH halves of what the figure-bearing sentence conveyed — that
+      // the outcome sits inside model uncertainty, and the actionable
+      // consequence that the ranking can still move — while publishing no
+      // withheld figure. Grounded in the `close_call` readiness classification
+      // itself, not in the suppressed number.
+      return 'However, the outcome is within model uncertainty, so the ranking could shift with new information.';
 
     case 'needs_evidence':
       if (topGap) {
