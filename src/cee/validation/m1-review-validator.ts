@@ -890,7 +890,7 @@ export function buildValidationContext(
       option_comparison: Array<{ option_id: string; option_label: string; win_probability: number }>;
       factor_sensitivity: Array<{ factor_id: string; elasticity: number; confidence: number }>;
       fragile_edges: Array<{ edge_id: string; switch_probability?: number; marginal_switch_probability?: number }>;
-      robustness: { recommendation_stability: number };
+      robustness: { recommendation_stability?: number };
     };
     deterministic_coaching: {
       readiness: string;
@@ -908,8 +908,12 @@ export function buildValidationContext(
     allowedNumbers.push(opt.win_probability);
   }
 
-  // Recommendation stability
-  allowedNumbers.push(request.isl_results.robustness.recommendation_stability);
+  // Recommendation stability. 2.1248: only a MEASURED stability is grounded —
+  // the old required field forced a fabricated 0 into this allowlist, which
+  // let the review cite "0" as a grounded figure for a run ISL never assessed.
+  if (typeof request.isl_results.robustness.recommendation_stability === 'number') {
+    allowedNumbers.push(request.isl_results.robustness.recommendation_stability);
+  }
 
   // Elasticity and confidence values
   for (const f of request.isl_results.factor_sensitivity) {

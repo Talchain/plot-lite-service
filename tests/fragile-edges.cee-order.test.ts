@@ -64,7 +64,15 @@ const options = [
 const islResult = {
   robustness: { fragile_edges: ISL_FRAGILE_EDGES, robust_edges: [] },
   factor_sensitivity: [],
-  option_comparison: [],
+  // 2.1248: the builder no longer fabricates a winner when ISL returned no
+  // analysed options — it returns null. This fixture's subject is fragile-edge
+  // ORDER, so it now carries the minimal analysed options a constructible
+  // request requires (previously it carried none, and the fabricated
+  // `{id:'', win_probability: 0}` winner rode along unnoticed).
+  options: [
+    { option_id: 'optA', option_label: 'A', win_probability: 0.55 },
+    { option_id: 'optB', option_label: 'B', win_probability: 0.45 },
+  ],
 } as any;
 
 /** Minimal but complete M1 coaching input — buildDeterministicCoaching maps
@@ -127,8 +135,16 @@ describe('buildRobustnessDataForCee — CEE-facing fragile edge order', () => {
 });
 
 describe('buildDecisionReviewRequest — CEE-facing fragile edge order', () => {
+  // 2.1248: non-null asserted via the fixture's analysed options — a request
+  // is only constructible when a real winner exists.
   const build = () =>
-    buildDecisionReviewRequest('a brief', graph, options, islResult, m1Coaching);
+    buildDecisionReviewRequest('a brief', graph, options, islResult, m1Coaching)!;
+
+  it('is constructible: the fixture carries analysed options, so a real winner exists', () => {
+    const request = buildDecisionReviewRequest('a brief', graph, options, islResult, m1Coaching);
+    expect(request).not.toBeNull();
+    expect(request!.winner.id).toBe('optA');
+  });
 
   it('emits fragile edges most-fragile-first', () => {
     const edges = build().isl_results.fragile_edges;

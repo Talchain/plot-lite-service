@@ -317,11 +317,26 @@ export interface FragileEdgeData {
 
 /**
  * Robustness summary from ISL.
+ *
+ * ROADMAP 2.1248: every field OPTIONAL — absent when ISL did not measure it.
+ *
+ * Previously all three were required, which forced `extractRobustness` to
+ * fabricate `recommendation_stability ?? 0`, `is_robust ?? false` and
+ * `flip_risk_category ?? 'unknown'` for runs ISL never assessed. CEE
+ * serialises this object VERBATIM into the reviewing model's prompt
+ * (`buildDecisionReviewUserMessage` → `<ISL_RESULTS>` JSON block), so an
+ * unassessed run reached the model as a measured "not robust, 0% stability"
+ * — and the fabricated 0 was then allowlisted by the Tier-4 grounding
+ * validator as a citable figure. CEE's `DecisionReviewInputSchema` admits
+ * absence (`robustness: z.record(z.unknown()).optional()`, verified at CEE
+ * staging tip c5e24307), so absence is representable and never has to be
+ * fabricated into a claim — the same correction FragileEdgeData's
+ * `switch_probability` received above.
  */
 export interface RobustnessData {
-  recommendation_stability: number;
-  flip_risk_category: string;
-  is_robust: boolean;
+  recommendation_stability?: number;
+  flip_risk_category?: string;
+  is_robust?: boolean;
 }
 
 /**

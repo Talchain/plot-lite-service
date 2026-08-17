@@ -321,6 +321,9 @@ describe('assembleBrief — robustness mapping', () => {
 
   it.each([
     ['high', 'robust'],
+    // ISL V2 wire vocabulary is 'medium'; 'moderate' tolerated — the SAME
+    // normalisation deriveVerdict applies (robustness-display-verdict.ts).
+    ['medium', 'moderate'],
     ['moderate', 'moderate'],
     ['low', 'fragile'],
     ['very_low', 'fragile'],
@@ -332,12 +335,24 @@ describe('assembleBrief — robustness mapping', () => {
     expect(result?.robustness).toBe(expected);
   });
 
-  it('defaults to "moderate" when robustness level is undefined', () => {
+  // ROADMAP 2.1248: an ABSENT level used to default to 'moderate' — a
+  // fabricated middle value presented as a measured one. Absence now
+  // propagates as the honest 'not_assessed' (the same token the sibling
+  // robustness.display_verdict already ships for exactly these runs).
+  it('HONESTY: absent robustness level → "not_assessed", never a fabricated "moderate"', () => {
     const result = assembleBrief({
       ...base,
       robustness: { fragile_edges: [], robust_edges: [] } as any,
     });
-    expect(result?.robustness).toBe('moderate');
+    expect(result?.robustness).toBe('not_assessed');
+  });
+
+  it('HONESTY: unrecognised robustness level → "not_assessed", never a fabricated "moderate"', () => {
+    const result = assembleBrief({
+      ...base,
+      robustness: { level: 'some_future_level', fragile_edges: [], robust_edges: [] } as any,
+    });
+    expect(result?.robustness).toBe('not_assessed');
   });
 
   it('returns null when robustness is not provided', () => {

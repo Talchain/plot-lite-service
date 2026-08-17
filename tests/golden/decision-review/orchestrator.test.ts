@@ -209,6 +209,33 @@ describe('Decision Review Orchestrator', () => {
     });
   });
 
+  describe('No Analysed Options (ROADMAP 2.1248)', () => {
+    // The request builder used to fabricate winner {id:'', label:'',
+    // win_probability: 0} when ISL returned no analysed options, and the
+    // fabricated winner reached the reviewing model as a measured figure.
+    // CEE's DecisionReviewInputSchema requires a non-null winner, so the
+    // honest behaviour is to SKIP with a named reason — visible absence,
+    // never a plausible fabrication.
+    it('skips with NO_ANALYSED_OPTIONS instead of sending a fabricated empty winner to CEE', async () => {
+      vi.spyOn(FLAGS, 'DECISION_REVIEW_ENABLE', 'get').mockReturnValue(true);
+
+      const input = buildTestInput({
+        islResult: { options: [], factor_sensitivity: [] } as any,
+      });
+      const config = { baseUrl: 'https://cee.test', apiKey: 'test-key' };
+
+      const mockCall = vi.spyOn(ceeClient, 'callDecisionReview');
+
+      const result = await orchestrateDecisionReview(input, config);
+
+      expect(result.review_status).toBe('skipped');
+      expect(result.review_skip_reason).toBe('NO_ANALYSED_OPTIONS');
+      expect(result.m1_review).toBeNull();
+      // The fabricated request must never reach CEE at all.
+      expect(mockCall).not.toHaveBeenCalled();
+    });
+  });
+
   describe('Validation Failure', () => {
     it('returns failed status when validation fails', async () => {
       vi.spyOn(FLAGS, 'DECISION_REVIEW_ENABLE', 'get').mockReturnValue(true);

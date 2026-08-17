@@ -15,7 +15,7 @@
  * top_drivers:       factor_sensitivity[] top 5 by abs(elasticity)
  * key_assumptions:   m1_coaching.evidence_gaps[].factor_label → []
  * what_would_change: robustness.fragile_edges[].from_label/to_label → factor_sensitivity[].factor_label (sorted by |elasticity|)
- * robustness:        robustness.level → 'moderate' (default)
+ * robustness:        robustness.level → 'not_assessed' when absent/unrecognised (2.1248 — never a fabricated 'moderate')
  * warnings:          critiques (severity>=warning) + m1_coaching.model_critiques → []
  * lineage.response_hash: meta.response_hash (computed before brief assembly)
  * lineage.config_version: SHA-256 hash of n_samples_default + review/facts flags + brief_assembly_version
@@ -43,6 +43,10 @@ import { NEAR_TIE_THRESHOLD } from '../trust/result-coherence.js';
 // A1b: intervention-controlled levers are not independently tunable; exclude them
 // from the |elasticity|-ranked tunability surfaces (top_drivers, what_would_change).
 import { filterInterventionOverrides, interventionOverrideFactorIds, filterLeverSourcedFragileEdges } from '../lib/intervention-override.js';
+// ROADMAP 2.1247: the single source of truth for flip-threshold classification
+// — the caveat's flip claim derives its status here, never re-reads
+// flip_reason strings (the hand-maintained-mirror defect class).
+import { classifyFlipThresholdsStatus } from '../lib/flip-threshold-status.js';
 
 // =============================================================================
 // Constants
@@ -140,6 +144,16 @@ export type BriefAssemblyInput = Pick<RunResponseV3, 'analysis_status' | 'critiq
    * (DEFAULT-coded disclosures). Absent → both surfaces treat as none.
    */
   inference_warnings?: RunResponseV3['inference_warnings'];
+  /**
+   * ROADMAP 2.1247 (additive, optional): the SAME denormalised flip-threshold
+   * array the response publishes at `flip_thresholds` — run.ts passes the one
+   * variable both read, so the caveat and the evidence it cites can never come
+   * from two different runs (the same-run doctrine as `display_verdict_reason`,
+   * ROADMAP 2.278). Feeds `robustness_caveat.flip_evidence` (claim 2) and the
+   * attested-no-flip rewording of claim 1. Absent → classified 'unavailable'
+   * → caveat byte-identical to its pre-2.1247 shape.
+   */
+  flip_thresholds?: RunResponseV3['flip_thresholds'];
   response_hash?: string;
   meta: {
     seed_used: string;
@@ -166,18 +180,27 @@ export type BriefAssemblyInput = Pick<RunResponseV3, 'analysis_status' | 'critiq
  *   - low driver confidence and near-tie status → tone gate `headline`.
  *
  * The semantic mapping is "graph perturbation stability under ISL's
- * robustness analysis" — `high → 'robust'`, `moderate → 'moderate'`,
+ * robustness analysis" — `high → 'robust'`, `medium | moderate → 'moderate'`
+ * (ISL V2 wire vocabulary is 'medium'; 'moderate' tolerated — the same
+ * normalisation `deriveVerdict` applies in robustness-display-verdict.ts),
  * `low | very_low → 'fragile'`. See `src/types/decision-brief.ts` jsdoc
  * for the consumer-facing contract and the readiness-widening follow-up
  * for the longer-term action-readiness surface.
+ *
+ * ROADMAP 2.1248: an ABSENT or unrecognised level maps to `'not_assessed'`
+ * — never to a fabricated `'moderate'`. Before this fix the `default` branch
+ * did double duty: it correctly normalised 'medium' AND silently converted
+ * "nobody measured this" into a confident middle value. 'medium' is now an
+ * explicit case, so the default only ever sees genuinely unassessable input.
  */
-function mapRobustnessLevel(level: string | undefined): 'robust' | 'moderate' | 'fragile' {
+function mapRobustnessLevel(level: string | undefined): 'robust' | 'moderate' | 'fragile' | 'not_assessed' {
   switch (level) {
     case 'high': return 'robust';
+    case 'medium':
     case 'moderate': return 'moderate';
     case 'low':
     case 'very_low': return 'fragile';
-    default: return 'moderate';
+    default: return 'not_assessed';
   }
 }
 
@@ -687,10 +710,51 @@ function buildDefaultedAssumptions(input: BriefAssemblyInput): BriefDefaultedAss
 }
 
 /**
- * Honest robustness caveat (provisional_doctrine_v0). Wording is derived
- * strictly from upstream signals; when neither is_robust nor level is
- * present the caveat SAYS robustness was not assessed instead of implying
- * stability.
+ * ROADMAP 2.1247 — claim-2 wording per attest-bearing flip status
+ * (provisional_doctrine_v0; claim-safe, no numbers; scope is the PROBED SET,
+ * per the 2.292 scoping ruling — "the factors we could test", never a
+ * universal over the whole graph).
+ *
+ * 'unavailable' and 'unresolved' are intentionally absent: an uncomputed or
+ * unfinished probe attests nothing, so no claim is made (mirrors the
+ * deliberate per-status handling in deriveRobustnessDisplayVerdict).
+ */
+const FLIP_EVIDENCE_CLAIMS: Record<
+  'computed' | 'all_no_effect' | 'partial_no_effect',
+  string
+> = {
+  all_no_effect:
+    'None of the factors we could test changed which option leads on its own.',
+  computed:
+    'Changing at least one tested factor on its own could change which option leads.',
+  partial_no_effect:
+    'Changing at least one tested factor on its own could change which option leads; the other factors we could test could not.',
+};
+
+/**
+ * Honest robustness caveat (provisional_doctrine_v0), composed as TWO NAMED
+ * CLAIMS with named scopes (ROADMAP 2.1247; trap-21 — two questions must
+ * never share one name):
+ *
+ *   claim 1 (`text`)          — aggregate stability under the perturbations
+ *                               tested, derived strictly from the robustness
+ *                               MARGINALS (is_robust / level). When neither
+ *                               is present it SAYS robustness was not
+ *                               assessed instead of implying stability.
+ *   claim 2 (`flip_evidence`) — what the SAME run's per-factor flip probes
+ *                               attest, classified by the shared
+ *                               `classifyFlipThresholdsStatus` (single source
+ *                               of truth — never re-derived here; the
+ *                               hand-maintained-mirror defect is exactly what
+ *                               that classifier exists to prevent).
+ *
+ * The caveat was previously composed from marginals ALONE, so a payload whose
+ * flip evidence attested "no tested factor can flip the leader" could carry a
+ * caveat claiming "small changes … could change which option leads" — the
+ * self-contradiction the display verdict's reason fixed in ROADMAP 2.278.
+ * The fix here is the same shape: on an ATTESTED no-flip, claim 1 keeps its
+ * marginal verdict but drops the flip language its own payload refutes; the
+ * flip statement lives only in claim 2, scoped to the probed set.
  */
 function buildRobustnessCaveat(input: BriefAssemblyInput): BriefRobustnessCaveat {
   const robustness = input.robustness;
@@ -700,25 +764,46 @@ function buildRobustnessCaveat(input: BriefAssemblyInput): BriefRobustnessCaveat
   const basis: BriefRobustnessCaveat['basis'] =
     isRobust !== undefined ? 'is_robust' : level !== undefined ? 'level' : 'absent';
 
-  // provisional_doctrine_v0 wording matrix
+  // Claim 2's classification — derived by the single source of truth.
+  const flipStatus = classifyFlipThresholdsStatus(input.flip_thresholds).status;
+  const attestedNoFlip = flipStatus === 'all_no_effect';
+
+  // provisional_doctrine_v0 wording matrix for claim 1. The two branches that
+  // used to assert "small changes to assumptions could change which option
+  // leads" switch to flip-free stability wording when this run's own evidence
+  // attests no tested factor can flip the leader. The verdict itself ("did
+  // not pass" / "fragile") is a marginal claim and NEVER moves on flip
+  // evidence (same invariant as the display verdict).
   let text: string;
   if (basis === 'absent') {
     text = 'Robustness was not assessed for this run — treat the ranking as unverified against perturbations.';
   } else if (isRobust === true || (isRobust === undefined && level === 'high')) {
     text = 'This ranking held up under the perturbations tested. That is not a guarantee — defaulted or uncertain inputs can still change the result.';
   } else if (isRobust === false && level === undefined) {
-    text = 'This ranking did not pass the robustness checks — small changes to assumptions could change which option leads.';
+    text = attestedNoFlip
+      ? 'This ranking did not pass the robustness checks — it scored low on the stability measures tested.'
+      : 'This ranking did not pass the robustness checks — small changes to assumptions could change which option leads.';
   } else if (level === 'medium' || level === 'moderate') {
     text = 'This ranking was only moderately stable under the perturbations tested — treat the lead as provisional.';
   } else if (level === 'low' || level === 'very_low') {
-    text = 'This ranking was fragile under the perturbations tested — small changes to assumptions could change which option leads.';
+    text = attestedNoFlip
+      ? 'This ranking was fragile under the perturbations tested — it scored low on the stability measures tested.'
+      : 'This ranking was fragile under the perturbations tested — small changes to assumptions could change which option leads.';
   } else {
     // is_robust === false with a level that is not low/very_low, or an
     // unrecognised level value — state the weaker of the two signals.
-    text = 'This ranking did not pass the robustness checks — small changes to assumptions could change which option leads.';
+    text = attestedNoFlip
+      ? 'This ranking did not pass the robustness checks — it scored low on the stability measures tested.'
+      : 'This ranking did not pass the robustness checks — small changes to assumptions could change which option leads.';
   }
 
-  return { text, basis, doctrine: 'provisional_doctrine_v0' };
+  // Claim 2 — present ONLY when the probes support a claim.
+  const flipEvidence =
+    flipStatus === 'computed' || flipStatus === 'all_no_effect' || flipStatus === 'partial_no_effect'
+      ? { flip_evidence: { status: flipStatus, text: FLIP_EVIDENCE_CLAIMS[flipStatus] } }
+      : {};
+
+  return { text, basis, ...flipEvidence, doctrine: 'provisional_doctrine_v0' };
 }
 
 /**
