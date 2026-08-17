@@ -13,6 +13,7 @@ import {
 import { renderHistograms } from '../metrics/registry.js';
 import { renderValidationMetrics } from '../observability/validationMetrics.js';
 import { renderPrincipalSecretFallback } from '../observability/principalSecretMetrics.js';
+import { renderAuthTokenMatch } from '../observability/authTokenMetrics.js';
 import { renderStreamMetrics } from '../observability/streamMetrics.js';
 import { renderIdempotencyMetrics } from '../observability/idempotencyMetrics.js';
 import { renderRouteCallerMetrics } from '../observability/routeCallerTelemetry.js';
@@ -77,6 +78,13 @@ export async function registerPrometheusMetrics(app: FastifyInstance) {
     const secretFallback = renderPrincipalSecretFallback();
     if (secretFallback) {
       metrics.push(secretFallback);
+    }
+
+    // Bearer rotation: WHICH configured token matched. This is the signal that
+    // permits deleting the old secret — without it, removal is a guess.
+    const authTokenMatch = renderAuthTokenMatch();
+    if (authTokenMatch) {
+      metrics.push(authTokenMatch);
     }
 
     // D-PLoT evidence (arch step 1): full route × caller-class breakdown.

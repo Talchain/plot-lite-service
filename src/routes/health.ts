@@ -11,6 +11,7 @@ import {
   snapshot,
   replaySnapshot,
 } from '../metrics.js';
+import { getExpectedAuthToken, getStagedAuthToken } from '../config/auth-token.js';
 import { getCeeCircuitBreakerStats } from '../cee/circuit-breaker.js';
 import { getIslCircuitBreakerStats } from '../integrations/isl-circuit-breaker.js';
 import { getRouteCallerSnapshot } from '../observability/routeCallerTelemetry.js';
@@ -60,6 +61,14 @@ export async function registerHealthRoutes(app: FastifyInstance, opts: HealthRou
         idempotency_current: opts.idemCacheSize(),
       },
       rate_limit: rateLimitState(),
+      // Bearer rotation state. PRESENCE BOOLEANS ONLY — never a value, never a
+      // length, never a prefix. `staged: true` means a rotation is in progress;
+      // the authoritative "is it safe to delete ACTIVE yet" signal is the
+      // plot_engine_auth_token_match_total counter on /metrics, not this.
+      auth_secrets: {
+        active: Boolean(getExpectedAuthToken()),
+        staged: Boolean(getStagedAuthToken()),
+      },
       cee_circuit_breaker: getCeeCircuitBreakerStats(),
       // ROADMAP 1.209: the ISL breaker's state was surfaced NOWHERE, while the
       // CEE breaker beside it was published — so a reader would reasonably infer
