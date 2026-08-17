@@ -63,6 +63,35 @@ export interface NormalisedOption {
 
 export interface NormalisedRobustness {
   level: 'high' | 'moderate' | 'low' | 'very_low' | undefined;
+  /**
+   * ISL's `robustness.recommendation_stability`.
+   *
+   * ⛔ THIS NUMBER MAY BE USED TO DECIDE, NEVER TO SAY. Do not interpolate it —
+   * or any percentage derived from it — into user-facing prose.
+   *
+   * PLoT DELIBERATELY WITHHOLDS this quantity from the wire (the omission at
+   * src/routes/v2/run.ts:3411-3422 and the DROPPED entry at
+   * src/contracts/isl-to-ui.contract.ts:60-78). The rationale is about the
+   * QUANTITY, not the field's contract shape, verbatim: ISL derives it as
+   * `option_wins[winner]/n_samples`, making it "the leader's win_probability
+   * relabelled, zero independent information" (verified byte-identical live at
+   * 0.59025 and 0.8541875), and "The UI printed it as 'N% stability' — a
+   * fabricated second statistic."
+   *
+   * Prose is a publication. Printing the figure in a coaching sentence is the
+   * SAME fabrication the withhold exists to prevent, and strictly worse than
+   * the field would have been: the withhold removed the only surface a user or
+   * the UI could have checked the figure against, so a reader gets a precise
+   * statistic with no way to verify it and no disclosure that it is a rename of
+   * a number they are already being shown.
+   *
+   * Deriving a QUALITATIVE claim from it is fine and is what the coaching layer
+   * does — threshold it, classify tone/readiness, warn that the ranking could
+   * move (see readiness-tone.ts, headlines.ts, readiness-signals.ts). Pinned by
+   * tests/coaching/withheld-stability-prose-egress.test.ts, which sweeps every
+   * string in the built m1_coaching payload, so a new emission site fails
+   * without anyone maintaining a list of them.
+   */
   recommendationStability: number | undefined;
   isRobust: boolean | undefined;
 }
