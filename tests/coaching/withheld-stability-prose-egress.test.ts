@@ -328,6 +328,64 @@ describe('withheld recommendation_stability — never published as prose (/v2/ru
     expect(prose.map((p) => p.text).join(' ')).toMatch(/strongest combination of signals/i);
   });
 
+  // ─── READY / TEMPERED branch ───
+  // The third tone. Also measured necessity: mutant M6 republished the figure in
+  // the tempered next-action rationale and SURVIVED both the route sweep (which
+  // is close_call) and the confident case above. Reached with a decisive, robust
+  // run whose top driver has low confidence — one SOFT reason, so tone falls to
+  // 'tempered' while readiness stays 'ready'.
+  it('READY/TEMPERED: next_actions rationale publishes NO stability figure', async () => {
+    const { generateNextActions } = await import('../../src/coaching/next-actions.js');
+    const { deriveReadinessTone } = await import('../../src/coaching/readiness-tone.js');
+    const { computeKeyDrivers } = await import('../../src/coaching/key-drivers.js');
+    const { getThresholds } = await import('../../src/coaching/thresholds.js');
+
+    const inputs: any = {
+      graph: {
+        nodes: [
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+          { id: 'f1', kind: 'factor', label: 'Cost' },
+        ],
+        edges: [{ from: 'f1', to: 'goal', strength: { mean: 0.5, std: 0.1 } }],
+      },
+      options: [
+        { id: 'opt1', label: 'Option A', winProbability: 0.9, outcomeMean: 100, outcomeP10: 95, outcomeP90: 105 },
+        { id: 'opt2', label: 'Option B', winProbability: 0.1, outcomeMean: 70, outcomeP10: 65, outcomeP90: 75 },
+      ],
+      // Low top-driver confidence is the ONLY blemish: one soft reason.
+      factorSensitivity: [{
+        node_id: 'f1', label: 'Cost', importance_rank: 1, elasticity: 0.5,
+        influence_score: 0.5, confidence: 0.4, direction: 'positive', zero_reason: undefined,
+      }],
+      fragileEdges: [],
+      robustness: { level: 'high', recommendationStability: 0.92, isRobust: true },
+    };
+
+    const thresholds = getThresholds();
+    const keyDrivers = computeKeyDrivers(inputs);
+    const toneResult = deriveReadinessTone(inputs, 'ready', 'clear_winner', keyDrivers, [], thresholds);
+
+    // PRECONDITION PIN: this must be the TEMPERED branch, distinct from the
+    // confident case above — a probe whose expected answer DIFFERS from its
+    // neighbour's is what proves the two cases are not silently the same one.
+    expect(toneResult.tone, 'must exercise the TEMPERED tone branch').toBe('tempered');
+
+    const actions = generateNextActions(inputs, 'clear_winner', [], [], toneResult);
+    const prose = collectProse(actions, 'next_actions');
+    expect(prose.length).toBeGreaterThan(2);
+
+    const leadRationale = prose.find((p) => /currently leads by/.test(p.text));
+    expect(leadRationale, 'must exercise the ready/tempered next_actions rationale').toBeDefined();
+
+    expect(
+      figureLeaks(prose).map((l) => `${l.path}: ${l.text}`),
+      'a withheld quantity may not be published as prose',
+    ).toEqual([]);
+
+    // The caveat still lands: the user is told WHY to temper the lead.
+    expect(leadRationale!.text).toMatch(/but /i);
+  });
+
   // The qualitative claim must remain NON-VACUOUS: the close-call sentence has
   // to still tell the user the ranking could move.
   it('TWIN: the close-call qualifier still tells the user the ranking could shift', async () => {
