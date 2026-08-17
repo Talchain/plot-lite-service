@@ -261,6 +261,73 @@ describe('withheld recommendation_stability — never published as prose (/v2/ru
     expect(STABILITY_FIGURE.test(highSignal.signal)).toBe(false);
   }, 60_000);
 
+  // ─── READY / CONFIDENT branch ───
+  // Measured necessity, not thoroughness: the live capture yields `close_call`,
+  // so the route-level sweep above NEVER EXECUTES the three emission sites that
+  // sit behind `readiness === 'ready'` (+ confident tone) — proven by mutants
+  // M2/M5/M6, which republished the figure at those sites and SURVIVED the
+  // route-level sweep. A sweep cannot see a site it does not reach, however
+  // derived it is. These call the builders directly with a clean strong case,
+  // and PIN THE BRANCH so the coverage cannot lapse silently.
+  it('READY/CONFIDENT: executive summary + next actions publish NO stability figure', async () => {
+    const { generateExecutiveSummary } = await import('../../src/coaching/executive-summary.js');
+    const { generateNextActions } = await import('../../src/coaching/next-actions.js');
+    const { deriveReadinessTone } = await import('../../src/coaching/readiness-tone.js');
+    const { computeKeyDrivers } = await import('../../src/coaching/key-drivers.js');
+    const { getThresholds } = await import('../../src/coaching/thresholds.js');
+
+    // A decisive, robust run: clear win-prob gap, no fragile edges, high-confidence
+    // driver, high stability. Entirely inside ISL's output domain — this is the
+    // ordinary happy case, not a contrived payload.
+    const inputs: any = {
+      graph: {
+        nodes: [
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+          { id: 'f1', kind: 'factor', label: 'Cost' },
+        ],
+        edges: [{ from: 'f1', to: 'goal', strength: { mean: 0.5, std: 0.1 } }],
+      },
+      options: [
+        { id: 'opt1', label: 'Option A', winProbability: 0.9, outcomeMean: 100, outcomeP10: 95, outcomeP90: 105 },
+        { id: 'opt2', label: 'Option B', winProbability: 0.1, outcomeMean: 70, outcomeP10: 65, outcomeP90: 75 },
+      ],
+      factorSensitivity: [{
+        node_id: 'f1', label: 'Cost', importance_rank: 1, elasticity: 0.5,
+        influence_score: 0.5, confidence: 0.9, direction: 'positive', zero_reason: undefined,
+      }],
+      fragileEdges: [],
+      robustness: { level: 'high', recommendationStability: 0.92, isRobust: true },
+    };
+
+    const thresholds = getThresholds();
+    const keyDrivers = computeKeyDrivers(inputs);
+    const toneResult = deriveReadinessTone(inputs, 'ready', 'clear_winner', keyDrivers, [], thresholds);
+
+    // PRECONDITION PIN: assert the branch under test is the one being exercised.
+    // Without this, a threshold change would quietly route these inputs down a
+    // different branch and the assertions below would pass by testing nothing
+    // (trap 13b / 12b — a control pinned to something that can move).
+    expect(toneResult.tone, 'must exercise the CONFIDENT tone branch').toBe('confident');
+
+    const summary = generateExecutiveSummary(inputs, 'ready', 'clear_winner', keyDrivers, [], toneResult);
+    const actions = generateNextActions(inputs, 'clear_winner', [], [], toneResult);
+
+    const prose = [...collectProse(summary, 'executive_summary'), ...collectProse(actions, 'next_actions')];
+    expect(prose.length).toBeGreaterThan(3);
+
+    // Second precondition pin: the ready/confident NEXT-ACTION site is reached.
+    const leadRationale = prose.find((p) => /has a strong current lead by/.test(p.text));
+    expect(leadRationale, 'must exercise the ready/confident next_actions rationale').toBeDefined();
+
+    expect(
+      figureLeaks(prose).map((l) => `${l.path}: ${l.text}`),
+      'a withheld quantity may not be published as prose',
+    ).toEqual([]);
+
+    // ...and the confident sentence still says something: it names the lead.
+    expect(prose.map((p) => p.text).join(' ')).toMatch(/strongest combination of signals/i);
+  });
+
   // The qualitative claim must remain NON-VACUOUS: the close-call sentence has
   // to still tell the user the ranking could move.
   it('TWIN: the close-call qualifier still tells the user the ranking could shift', async () => {
