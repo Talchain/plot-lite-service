@@ -699,6 +699,10 @@ export interface ISLEdgeEValue {
  * Shows how the winning option changes conditional on factor value buckets.
  */
 export interface ISLConditionalWinner {
+  // NOTE: this describes UNVALIDATED wire JSON (`as`-cast, no runtime check).
+  // `parseIslConditionalWinners` (src/routes/v2/run.ts) is what establishes the
+  // guarantees these annotations only claim — see ISLConditionalBucket below for
+  // what it cost to trust an annotation on this seam.
   /** Factor node ID */
   factor_id: string;
   /** Factor label */
@@ -717,15 +721,47 @@ export interface ISLConditionalWinner {
 
 /**
  * A bucket in the conditional winner analysis.
+ *
+ * ⚠ FIELD NAMES ARE ISL'S, DERIVED AT ISL'S BYTES — NOT PLoT's outbound names.
+ * This interface previously declared `win_probability: number`. ISL has never
+ * emitted that name: its own models call it **`winner_probability`**
+ * (`BucketResultV2`, ISL `src/models/response_v2.py:1222-1232` @ `28fe0c95`;
+ * `BucketResult`, `src/models/robustness_v2.py:1819-1831`; corroborated by the
+ * pinned OpenAPI in this repo, `tests/fixtures/isl-pinned/isl-openapi.json`
+ * @ ISL `686fcb7f`, which lists `winner_probability` as REQUIRED). Because the
+ * wire is `as`-cast with no runtime validation
+ * (`JSON.parse(text) as T`, src/integrations/isl/client.ts), the wrong name read
+ * `undefined` forever and the numeric-egress guard dropped EVERY row —
+ * `conditional_winners: []` on 1,270 consecutive live runs from 14 Jun 2026.
+ * Renaming the outbound field would be the wrong repair: PLoT's public
+ * `ConditionalBucket` name `win_probability` is what the shared contract and the
+ * UI consumer read. The MAPPING is what was missing.
+ *
+ * Every member is optional here on purpose: this describes untrusted wire JSON,
+ * and `parseIslConditionalWinners` (src/routes/v2/run.ts) is what turns it into
+ * something PLoT may rely on. A required member on an unvalidated cast is the
+ * defect class that produced this bug.
  */
 export interface ISLConditionalBucket {
+  /** MC samples in this bucket (ISL `n_samples`). Not forwarded — count, not science. */
+  n_samples?: number;
   /** Winning option ID in this bucket */
-  winner_id: string;
+  winner_id?: string;
+  /** ISL's own label for the winner. PLoT resolves labels from its option map instead. */
+  winner_label?: string;
   /** Runner-up option ID in this bucket */
   runner_up_id?: string;
-  /** Win probability of the winner in this bucket */
-  win_probability: number;
-  /** Mean outcome for the winner in this bucket */
+  /** ISL's name for the bucket winner's win probability (ISL: required, [0,1]). */
+  winner_probability?: number;
+  /** ISL's name for the runner-up's win probability (ISL: optional, [0,1]). */
+  runner_up_probability?: number;
+  /**
+   * ⚠ NOT EMITTED BY ISL at the pinned sha — zero occurrences of `mean_outcome`
+   * anywhere in ISL `src/` @ `28fe0c95`, and absent from both `BucketResult` and
+   * `BucketResultV2` in the pinned OpenAPI. Kept because the outbound contract
+   * has an optional `mean_outcome` and the denormalisation path is already
+   * guarded; it is forward-compatibility, not a field in flight today.
+   */
   mean_outcome?: number;
 }
 

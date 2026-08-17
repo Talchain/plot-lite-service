@@ -125,11 +125,25 @@ const WINNER_BASE = {
   winner_flips: true,
 };
 
+/**
+ * ⚠ 17 Aug 2026 — THE BUCKET PROBABILITY KEY IS `winner_probability`, ISL'S OWN
+ * NAME. It read `win_probability` here, copied from PLoT's `ISLConditionalBucket`
+ * type, which claimed a name ISL has never emitted. Every fixture in this repo
+ * inherited that claim, so the suite and the defect agreed and the whole chain was
+ * dark on live traffic while these tests stayed green. Derived at ISL's bytes:
+ * `BucketResultV2`, ISL `src/models/response_v2.py:1222-1232` @ `28fe0c95`; also
+ * the pinned OpenAPI, `tests/fixtures/isl-pinned/isl-openapi.json` @ `686fcb7f`.
+ * A wire-derived fixture lives at `tests/fixtures/isl-conditional-winners-20260817/`.
+ *
+ * `mean_outcome` is retained below even though ISL does NOT emit it at that sha —
+ * these cases pin the null-fabrication guard on a forward-compatible optional, and
+ * a guard that only runs when the field arrives is still the guard we want written.
+ */
 function makeWinner(lowMean: unknown, highMean: unknown) {
   return {
     ...WINNER_BASE,
-    low_bucket: { winner_id: 'opt1', win_probability: 0.7, mean_outcome: lowMean },
-    high_bucket: { winner_id: 'opt2', win_probability: 0.8, mean_outcome: highMean },
+    low_bucket: { winner_id: 'opt1', winner_probability: 0.7, mean_outcome: lowMean },
+    high_bucket: { winner_id: 'opt2', winner_probability: 0.8, mean_outcome: highMean },
   };
 }
 

@@ -51,6 +51,7 @@ import type {
   ConstraintMargin,
   EnrichedEdgeEValue,
   ConditionalWinner,
+  ConditionalBucket,
   ConditionalProbability,
   ConstraintFeatureStatus,
   ThresholdsStatus,
@@ -103,7 +104,7 @@ import {
 } from '../../integrations/isl/adapters/robustness-analysis.js';
 import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js';
 import type { RobustnessDataForCee } from '../../integrations/isl/types/plot-types.js';
-import type { ISLConstraintResult, ISLEdgeEValue, ISLConditionalWinner } from '../../integrations/isl/types/isl-types.js';
+import type { ISLConstraintResult, ISLEdgeEValue } from '../../integrations/isl/types/isl-types.js';
 import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures } from '../../integrations/isl/v2-envelope.js';
 import { V2_RUN_ALLOWED_KEYS, islEnrichmentPassthrough } from './run-contract-keys.js';
 import { assessIslWireGeneration, logIslWireGenerationUnverified } from '../../integrations/isl/wire-generation.js';
@@ -686,16 +687,144 @@ export function transformEdgeEValues(
  * type is what makes that drop compiler-enforced rather than remembered: the
  * unfiltered value is not assignable to `ConditionalWinner`.
  */
-type ConditionalWinnerDraft = Omit<ConditionalWinner, 'split_value'> & { split_value: number | undefined };
+type ConditionalBucketDraft = Omit<ConditionalBucket, 'win_probability'> & { win_probability: number | undefined };
+type ConditionalWinnerDraft = Omit<ConditionalWinner, 'split_value' | 'low_bucket' | 'high_bucket'> & {
+  split_value: number | undefined;
+  low_bucket: ConditionalBucketDraft;
+  high_bucket: ConditionalBucketDraft;
+};
+
+/**
+ * ISL's conditional-winner bucket AFTER validation. Every member here is a
+ * guarantee `parseIslConditionalWinners` establishes by checking, not an
+ * annotation over an `as`-cast.
+ *
+ * `winner_probability` present ⇒ it was a JSON `number`. Whether that number is a
+ * legal probability is the EGRESS guard's question (`prob01`), deliberately kept
+ * in one place: this parse enforces TYPE, the egress filter enforces DOMAIN.
+ */
+interface ParsedIslConditionalBucket {
+  winner_id: string;
+  runner_up_id?: string;
+  winner_probability?: number;
+  mean_outcome?: number;
+}
+
+interface ParsedIslConditionalWinner {
+  factor_id: string;
+  factor_label?: string;
+  /** Finite by construction. Still re-checked at egress: denormalisation can overflow. */
+  split_value: number;
+  split_unit?: string;
+  low_bucket: ParsedIslConditionalBucket;
+  high_bucket: ParsedIslConditionalBucket;
+  winner_flips: boolean;
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+const optString = (v: unknown): string | undefined => (typeof v === 'string' ? v : undefined);
+const optNumber = (v: unknown): number | undefined => (typeof v === 'number' ? v : undefined);
+
+function parseIslConditionalBucket(raw: unknown): ParsedIslConditionalBucket | undefined {
+  if (!isRecord(raw)) return undefined;
+  const winnerId = optString(raw.winner_id);
+  // A bucket with no winning option identifies nothing: the outbound
+  // `ConditionalBucket.winner_id` is required and PLoT derives the display label
+  // from it, so there is no honest row to emit without it.
+  if (winnerId === undefined || winnerId === '') return undefined;
+  const runnerUpId = optString(raw.runner_up_id);
+  const winnerProbability = optNumber(raw.winner_probability);
+  const meanOutcome = optNumber(raw.mean_outcome);
+  return {
+    winner_id: winnerId,
+    ...(runnerUpId !== undefined && { runner_up_id: runnerUpId }),
+    ...(winnerProbability !== undefined && { winner_probability: winnerProbability }),
+    ...(meanOutcome !== undefined && { mean_outcome: meanOutcome }),
+  };
+}
+
+/**
+ * Validate ISL's `conditional_winners` array instead of casting it.
+ *
+ * WHY THIS FUNCTION EXISTS. The ISL client returns `JSON.parse(text) as T`
+ * (src/integrations/isl/client.ts) — a compile-time fiction over untrusted bytes.
+ * PLoT's `ISLConditionalBucket` declared `win_probability` while ISL emits
+ * `winner_probability`, so the read was `undefined` on every real response, the
+ * numeric-egress filter dropped every row, and the whole chain went dark for two
+ * months with no error anywhere. A cast cannot notice a renamed field; a parse can.
+ *
+ * It drops rows it cannot read rather than repairing them, and NAMES THE KEYS IT
+ * SAW when a bucket carries no recognised probability — the one diagnostic that
+ * would have made this defect visible on its first live run (same pattern as
+ * `[FACTOR_SENSITIVITY_MISSING_NUMERIC]` in mapIslFactorEntry). Dropped-row COUNTS
+ * are already logged by the caller as `conditional_winners_dropped_invalid`.
+ *
+ * ⚠ NO ALIAS CHAIN. It reads ISL's declared name only — no
+ * `winner_probability ?? win_probability` fallback. ISL has never emitted the
+ * latter (zero occurrences in ISL `src/` @ `28fe0c95`; the pinned OpenAPI @
+ * `686fcb7f` agrees), so a fallback would be dead code whose only live effect
+ * would be to swallow the NEXT rename in silence.
+ */
+export function parseIslConditionalWinners(raw: unknown): ParsedIslConditionalWinner[] {
+  if (!Array.isArray(raw)) return [];
+  const parsed: ParsedIslConditionalWinner[] = [];
+  const bucketsMissingProbability: string[][] = [];
+
+  for (const entry of raw) {
+    if (!isRecord(entry)) continue;
+    const factorId = optString(entry.factor_id);
+    if (factorId === undefined || factorId === '') continue;
+    const splitValue = optNumber(entry.split_value);
+    if (splitValue === undefined || !Number.isFinite(splitValue)) continue;
+    if (typeof entry.winner_flips !== 'boolean') continue; // the producer's attestation, not ours to infer
+    const low = parseIslConditionalBucket(entry.low_bucket);
+    const high = parseIslConditionalBucket(entry.high_bucket);
+    if (!low || !high) continue;
+
+    for (const [side, bucket] of [['low_bucket', entry.low_bucket], ['high_bucket', entry.high_bucket]] as const) {
+      const parsedSide = side === 'low_bucket' ? low : high;
+      if (parsedSide.winner_probability === undefined && isRecord(bucket)) {
+        bucketsMissingProbability.push(Object.keys(bucket));
+      }
+    }
+
+    const factorLabel = optString(entry.factor_label);
+    const splitUnit = optString(entry.split_unit);
+    parsed.push({
+      factor_id: factorId,
+      ...(factorLabel !== undefined && { factor_label: factorLabel }),
+      split_value: splitValue,
+      ...(splitUnit !== undefined && { split_unit: splitUnit }),
+      low_bucket: low,
+      high_bucket: high,
+      winner_flips: entry.winner_flips,
+    });
+  }
+
+  if (bucketsMissingProbability.length > 0) {
+    // One aggregated line per call, not one per bucket. Key names only — the
+    // values are the payload and do not belong in a log.
+    console.warn('[CONDITIONAL_WINNERS_MISSING_PROBABILITY]', JSON.stringify({
+      expected_key: 'winner_probability',
+      buckets_affected: bucketsMissingProbability.length,
+      observed_keys: Array.from(new Set(bucketsMissingProbability.flat())).sort(),
+      message: 'ISL bucket carried no `winner_probability` — the entry will be dropped at the numeric-egress guard',
+    }));
+  }
+  return parsed;
+}
 
 /** @internal Exported for numeric-egress-guard unit tests. */
 export function transformConditionalWinners(
-  islConditionalWinners: ISLConditionalWinner[] | undefined,
+  islConditionalWinnersRaw: unknown,
   nodeLabelMap?: Map<string, string>,
   optionLabelMap?: Map<string, string>,
   normContext?: NormalisationContext,
 ): ConditionalWinner[] {
-  if (!islConditionalWinners || islConditionalWinners.length === 0) return [];
+  // Parse, never cast: the argument is wire JSON, whatever its call site's type says.
+  const islConditionalWinners = parseIslConditionalWinners(islConditionalWinnersRaw);
+  if (islConditionalWinners.length === 0) return [];
   const goalRange = normContext?.goal_context?.range;
 
   const resolveOptionLabel = (id: string): string => optionLabelMap?.get(id) ?? id;
@@ -769,7 +898,10 @@ export function transformConditionalWinners(
           runner_up_id: cw.low_bucket.runner_up_id,
           runner_up_label: resolveOptionLabel(cw.low_bucket.runner_up_id!),
         }),
-        win_probability: cw.low_bucket.win_probability,
+        // ISL's name in, PLoT's contract name out. THIS LINE IS THE FIX: it read
+        // `cw.low_bucket.win_probability` — a name ISL has never emitted — so the
+        // egress guard below dropped every row for two months.
+        win_probability: cw.low_bucket.winner_probability,
         ...(lowMeanOutcome !== undefined && { mean_outcome: lowMeanOutcome }),
       },
       high_bucket: {
@@ -779,7 +911,7 @@ export function transformConditionalWinners(
           runner_up_id: cw.high_bucket.runner_up_id,
           runner_up_label: resolveOptionLabel(cw.high_bucket.runner_up_id!),
         }),
-        win_probability: cw.high_bucket.win_probability,
+        win_probability: cw.high_bucket.winner_probability,
         ...(highMeanOutcome !== undefined && { mean_outcome: highMeanOutcome }),
       },
       winner_flips: cw.winner_flips,
@@ -790,6 +922,19 @@ export function transformConditionalWinners(
     // bucket win_probability is a required [0,1] probability; drop the whole
     // conditional-winner entry when any is non-finite / out-of-range rather than emit
     // a fabricated null or an impossible probability.
+    //
+    // ⚠ DELIBERATELY NOT RELAXED BY THE 17 Aug FIELD-NAME FIX, and the reason is a
+    // contract derivation, not caution. It was proposed that a row with an absent or
+    // corrupt probability now be CARRIED with the field omitted, since the UI
+    // consumer renders absent-probability rows honestly (UI #745). The shared
+    // contract refuses it: `EnrichmentConditionalBucketSchema` (olumi-schemas,
+    // `src/boundary/enrichment.ts`) declares `win_probability: z.number()` —
+    // REQUIRED — with an explicit ruling that it stays required even on a turn whose
+    // verdict withholds the leading-option claim ("it names no option once the
+    // identity members are gone"). A bucket without it is unparseable at the
+    // consumer, so omitting the field would trade a dark row for an invalid one.
+    // `prob01` is also STRICTER than `z.number()` (it rejects an impossible 1.7 the
+    // contract would accept), which is the honest direction to err.
   }).filter((cw): cw is ConditionalWinner =>
     finiteNum(cw.split_value) !== undefined &&
     prob01(cw.low_bucket.win_probability) !== undefined &&
