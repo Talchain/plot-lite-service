@@ -691,12 +691,19 @@ describe('debug bundle fixtures', () => {
 // ---------------------------------------------------------------------------
 
 describe('fallback for unknown codes', () => {
-  it('uses fallback template for FUTURE_CODE_XYZ', () => {
+  it('uses fallback template for FUTURE_CODE_XYZ, and never echoes the code', () => {
     const msg = humaniseCritique(
       makeCritique({ code: 'FUTURE_CODE_XYZ' }),
       mockGraph,
     );
-    expect(msg).toBe('An issue was detected in your model (FUTURE_CODE_XYZ). Check the advanced details for more information.');
+    // The fallback must not put raw internal vocabulary on a user surface.
+    // The code itself keeps flowing on the `code` field, which a user does
+    // not read — see fallbackMessage() in critique-humaniser.ts.
+    expect(msg).not.toContain('FUTURE_CODE_XYZ');
+    expect(msg).not.toMatch(/\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/);
+    // ...and it must not be a dead end: it routes the user onward.
+    expect(msg).toContain('advanced details');
+    expect(msg).toContain('re-run the analysis');
   });
 
   it('uses fallback template for empty code', () => {
@@ -704,7 +711,8 @@ describe('fallback for unknown codes', () => {
       makeCritique({ code: '' }),
       mockGraph,
     );
-    expect(msg).toContain('An issue was detected');
+    expect(msg).toContain('We found something worth checking in your model');
+    expect(msg).toContain('advanced details');
   });
 });
 

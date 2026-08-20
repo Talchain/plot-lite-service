@@ -524,6 +524,124 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
   MARGINAL_SWITCH_TRUNCATED:
     'Tipping-point detail was computed for the most sensitive fragile connections only; ' +
     'the least sensitive were skipped to keep the analysis fast. All values shown are unaffected.',
+
+  // =========================================================================
+  // ISL critique vocabulary
+  //
+  // ISL emits its own set of codes, which reach this map verbatim via
+  // `mapISLCritiquesToV2` (routes/v2/run.ts) on both the success path and the
+  // ISL-error path. It is a SEPARATE namespace from PLoT's own validator codes
+  // above, and only 8 of its 34 codes happened to collide with a PLoT name —
+  // so 26 of them fell through to `fallbackMessage` and printed a bare machine
+  // code at the user. That is what this section closes.
+  //
+  // ⚠ Several ISL codes are NEAR-TWINS of PLoT codes already in this map and
+  // are NOT the same key — do not "tidy" them together:
+  //   ISL EDGE_STRENGTH_OUT_OF_RANGE ≠ PLoT STRENGTH_OUT_OF_RANGE
+  //   ISL EDGE_STD_INVALID           ≠ PLoT INVALID_STRENGTH_STD
+  //   ISL EDGE_ENDPOINT_MISSING      ≠ PLoT INVALID_EDGE_ENDPOINT
+  //   ISL DUPLICATE_NODE_ID          ≠ PLoT DUPLICATE_NODE_IDS  (plural)
+  //   ISL INVALID_NODE_ID            ≠ PLoT INVALID_NODE_ID_PATTERN
+  //   ISL INTERVENTION_VALUE_INVALID ≠ PLoT INVALID_INTERVENTION_VALUE
+  //   ISL NO_EFFECTIVE_PATH_TO_GOAL  ≠ PLoT NO_PATH_TO_GOAL
+  //   ISL INFERENCE_TIMEOUT          ≠ PLoT ISL_TIMEOUT
+  //   ISL INTERNAL_ERROR             ≠ PLoT PLOT_INTERNAL_ERROR
+  //
+  // Copy rule for this section: ISL's own `message` interpolates raw node ids
+  // and internal counters, so it is a debug string and is never echoed here.
+  // These templates are label-free and structural by design — identity for any
+  // UI lookup rides on `affected_node_ids` / `affected_option_ids`.
+  // =========================================================================
+
+  // --- Structure (blockers) ---
+
+  GRAPH_EMPTY:
+    'Your model is empty. Add the factors and options you want to compare, then run the analysis again.',
+
+  DUPLICATE_NODE_ID:
+    'Two or more factors share the same identifier, so the analysis cannot tell them apart. Give each factor its own identifier and re-run.',
+
+  DUPLICATE_OPTION_ID:
+    'Two or more options share the same identifier, so the analysis cannot tell them apart. Give each option its own identifier and re-run.',
+
+  INVALID_NODE_ID:
+    'A factor has an invalid identifier. Identifiers may use only lowercase letters, numbers, underscores, colons and hyphens — rename it and re-run.',
+
+  EDGE_ENDPOINT_MISSING:
+    'A connection points at a factor that is no longer in your model. Reconnect it to an existing factor, or remove the connection, then re-run.',
+
+  EDGE_STD_INVALID:
+    'A connection has an invalid uncertainty value. Uncertainty must be greater than zero — set a positive value and re-run.',
+
+  // --- Options (blockers) ---
+
+  INSUFFICIENT_OPTIONS:
+    'The analysis needs at least two options to compare. Add another option and re-run.',
+
+  NO_EFFECTIVE_PATH_TO_GOAL:
+    'One of your options changes nothing that reaches the goal, so it cannot be compared. Connect what it changes through to the goal, or point it at a factor that already leads there.',
+
+  INTERVENTION_VALUE_INVALID:
+    'An option sets an effect value the analysis cannot use — it must be a real number of a realistic size. Correct the value and re-run.',
+
+  // --- Engine (blockers) ---
+
+  INFERENCE_TIMEOUT:
+    'The analysis ran out of time before it finished. This is usually temporary — try again, and if it persists, simplify the model by removing less important factors or connections.',
+
+  MONTE_CARLO_FAILED:
+    'The simulation could not complete on this model, usually because of extreme values on a connection. Check your connection strengths for outliers and re-run.',
+
+  INTERNAL_ERROR:
+    'Something went wrong on our side while running the analysis. Your model is unaffected — try running it again.',
+
+  // --- Results quality (warnings) ---
+
+  DEGENERATE_OUTCOMES:
+    'Every option produced almost the same outcome, so there is no meaningful winner to report. Check that your options really do set different values, and that what they change is connected to the goal.',
+
+  DEGENERATE_OPTION_ZERO_VARIANCE:
+    'One option produced no variation at all, which usually means what it changes never reaches the goal. Check that its changes connect through to the goal, then re-run.',
+
+  HIGH_TIE_RATE:
+    'Options tied with each other in a large share of the simulations, so the win probabilities are not a reliable ranking. Treat them as close, and consider strengthening the connections between your options and the goal.',
+
+  BASELINE_NEAR_ZERO:
+    'The starting point for this analysis sits very close to zero, which makes the sensitivity figures unstable. Read them as directional only, and consider setting a more representative baseline.',
+
+  NUMERICAL_INSTABILITY:
+    'Some simulation runs produced unusable numbers, so the results rest on fewer samples than intended. Check the model for extreme values on connections, then re-run.',
+
+  LOW_EFFECTIVE_SAMPLES:
+    'Only a small share of simulation runs produced usable numbers, so these results may not be reliable. Simplifying the model usually fixes this — try removing less important factors or connections and re-run.',
+
+  // --- Data gaps (warnings) ---
+
+  GOAL_ANCESTOR_DATA_GAP:
+    'Some of the factors feeding your goal carry no data, so the analysis substituted zero for them. The honest reading of goal-fit here is "not enough data" rather than a firm probability — add values for those factors to get a calibrated answer.',
+
+  CONSTRAINT_NODE_DEFAULT_BASE:
+    'A factor used by one of your constraints carries no starting value, so the analysis substituted zero. The constraint probability may be unreliable — add a value for that factor and re-run.',
+
+  GRAPH_DISCONNECTED:
+    'Part of your model is not connected to the rest, so it cannot influence the goal. Connect it through, or remove it if it is no longer needed.',
+
+  SEED_INVALID:
+    'The reproducibility seed you supplied could not be read, so the analysis used its default. Results are still valid; supply a whole number as the seed if you need this run to be exactly repeatable.',
+
+  // --- Coverage limits and notes (warnings / info) ---
+
+  STRUCTURAL_INFLUENCE_TRUNCATED:
+    'This model has too many pathways to rank factors by influence exactly, so we are withholding the influence ranking rather than showing one we cannot stand behind. Every other result is unaffected. Reducing the number of connections will let the ranking compute.',
+
+  NEGLIGIBLE_EDGE_STRENGTH:
+    'One connection is so weak it has no practical effect on the outcome. You can leave it, or remove it to simplify the model.',
+
+  OPTION_NO_INTERVENTIONS:
+    'One option changes nothing, so it is being compared as your "do nothing" baseline. That is often deliberate — no action needed if it was.',
+
+  EDGE_STRENGTH_OUT_OF_RANGE:
+    'A connection has an unusually strong effect, beyond the range this analysis expects. Check that it is realistic, since it will dominate the results.',
 };
 
 // ---------------------------------------------------------------------------
@@ -541,9 +659,29 @@ export const BANNED_PATTERN =
 // Public API
 // ---------------------------------------------------------------------------
 
-/** Fallback template for unrecognised codes. */
-function fallbackMessage(code: string): string {
-  return `An issue was detected in your model (${code}). Check the advanced details for more information.`;
+/**
+ * Fallback copy for unrecognised codes, and for the banned-pattern safety net.
+ *
+ * ⚠ THE CODE IS DELIBERATELY NOT INTERPOLATED HERE. This function used to
+ * return "An issue was detected in your model (${code})...", which put a bare
+ * SCREAMING_SNAKE machine code on a user surface — raw internal vocabulary, and
+ * a dead end: it named nothing the user could act on and offered no route
+ * onward. The diagnostic is NOT lost: `code` remains its own field on every
+ * wire critique, and the producer's technical string remains in `message` —
+ * both channels a user never reads, and both are what the advanced details and
+ * our own logs consume.
+ *
+ * The signature keeps taking `code` so call sites stay honest about which
+ * critique they are describing, and so a future variant can route on it; it
+ * must never reach the returned string.
+ */
+function fallbackMessage(_code: string): string {
+  return (
+    'We found something worth checking in your model, but we do not yet have a ' +
+    'plain-English explanation for this one. Open the advanced details for the ' +
+    'technical note, then re-run the analysis — if it keeps happening, send us ' +
+    'that note and we will look into it.'
+  );
 }
 
 /**
