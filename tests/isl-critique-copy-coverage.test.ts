@@ -17,12 +17,13 @@
  *   therefore STRUCTURALLY BLIND to the ISL namespace, which is a separate set
  *   of codes that reaches `addUserMessages` verbatim via `mapISLCritiquesToV2`
  *   (src/routes/v2/run.ts:4458, merged on the success path at :7677 and on the
- *   ISL-error path at :7575). 26 of ISL's 34 codes had no template and fell
- *   through to a fallback that PRINTED THE RAW CODE at the user.
+ *   ISL-error path at :7575). 27 of ISL's 35 critique-channel codes had no
+ *   template — plus PYDANTIC_VALIDATION_ERROR, which PLoT mints itself — and
+ *   all 28 fell through to a fallback that PRINTED THE RAW CODE at the user.
  *
- *   ISL_CRITIQUE_CODES below is a pinned mirror of ISL's critique registry,
+ *   ISL_CRITIQUE_CODES below is a pinned mirror of ISL's critique channel,
  *   derived from Talchain/Inference-Service-Layer `staging`
- *   @ 28fe0c950f6ca5737f4555c863353d37b734dddf, src/models/critique.py.
+ *   @ 28fe0c950f6ca5737f4555c863353d37b734dddf.
  *   It is a MIRROR and mirrors drift — which is exactly why the runtime
  *   fallback is ALSO made safe (test 3): drift can then only cost specificity,
  *   never leak a machine code onto a user surface.
@@ -37,8 +38,20 @@ import {
 import type { CritiqueV3 } from '../src/types/engine-v3.js';
 
 /**
- * Every code ISL can put on the wire, derived from its CritiqueDefinition
- * declarations (`code="..."`) in src/models/critique.py at the SHA above.
+ * Every code ISL can put on the CRITIQUE channel.
+ *
+ * 34 come from the CritiqueDefinition declarations (`code="..."`) in
+ * src/models/critique.py. The 35th, VALIDATION_ERROR, does NOT — it is minted
+ * directly by ISL's FastAPI request-validation handler (src/api/main.py:645)
+ * and is invisible to anyone enumerating the registry alone. It was missed by
+ * this lane's first sweep and added after widening to every CritiqueV2
+ * construction site in the repo.
+ *
+ * NOT included, deliberately: ISL's `InferenceWarning` channel (14 further
+ * codes, e.g. ROOT_NODE_DEFAULT_VALUE, FACTOR_EVPPI_UNAVAILABLE). Those ride
+ * `inference_warnings`, which PLoT forwards as-is (routes/v2/run.ts:3744) and
+ * which never passes through this humaniser. Whether that channel puts a bare
+ * code on a user surface is a separate question with a separate owner.
  */
 const ISL_CRITIQUE_CODES: readonly string[] = [
   'BASELINE_NEAR_ZERO',
@@ -75,7 +88,11 @@ const ISL_CRITIQUE_CODES: readonly string[] = [
   'OPTION_NO_INTERVENTIONS',
   'SEED_INVALID',
   'STRUCTURAL_INFLUENCE_TRUNCATED',
+  'VALIDATION_ERROR',
 ];
+
+/** Codes PLoT itself mints for ISL failures, which land in the same map. */
+const PLOT_MINTED_ISL_CODES: readonly string[] = ['PYDANTIC_VALIDATION_ERROR'];
 
 /**
  * A bare machine code: SCREAMING_SNAKE with at least one underscore.
@@ -117,12 +134,14 @@ function makeCritique(code: string): CritiqueV3 {
 describe('ISL critique copy coverage (never render a bare machine code)', () => {
   it('sanity: the pinned ISL vocabulary is non-empty and plausible', () => {
     // Guards against a vacuous suite if the constant is ever emptied.
-    expect(ISL_CRITIQUE_CODES.length).toBe(34);
+    expect(ISL_CRITIQUE_CODES.length).toBe(35);
   });
 
   it('RED 1 — every ISL critique code has an explicit template (no fallback)', () => {
     const known = new Set(getKnownCodes());
-    const missing = ISL_CRITIQUE_CODES.filter((c) => !known.has(c));
+    const missing = [...ISL_CRITIQUE_CODES, ...PLOT_MINTED_ISL_CODES].filter(
+      (c) => !known.has(c),
+    );
     expect(missing).toEqual([]);
   });
 

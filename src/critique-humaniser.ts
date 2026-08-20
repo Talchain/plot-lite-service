@@ -642,6 +642,26 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
 
   EDGE_STRENGTH_OUT_OF_RANGE:
     'A connection has an unusually strong effect, beyond the range this analysis expects. Check that it is realistic, since it will dominate the results.',
+
+  // --- Request-validation codes ---
+  //
+  // These two do NOT come from ISL's critique registry and are easy to miss
+  // when enumerating from `critique.py` alone:
+  //   VALIDATION_ERROR         — minted by ISL's FastAPI request-validation
+  //                              handler (src/api/main.py), not by a
+  //                              CritiqueDefinition.
+  //   PYDANTIC_VALIDATION_ERROR — minted by PLoT itself when unpacking ISL's
+  //                              Pydantic `detail[]` (integrations/isl/errors.ts).
+  // Both reach this map through the 422 path and both previously fell through
+  // to the fallback. Their `message` carries a raw field path
+  // (e.g. "graph.nodes.0.id: field required"), so it stays on the debug
+  // channel and is never echoed here.
+
+  VALIDATION_ERROR:
+    'The analysis service could not read part of your model. This is usually a temporary mismatch — re-run the analysis, and if it keeps happening, open the advanced details and send us the technical note.',
+
+  PYDANTIC_VALIDATION_ERROR:
+    'The analysis service rejected part of your model as malformed. Re-run the analysis, and if it keeps happening, open the advanced details and send us the technical note.',
 };
 
 // ---------------------------------------------------------------------------
