@@ -84,6 +84,25 @@ const ISL_CRITIQUE_CODES: readonly string[] = [
  */
 const BARE_MACHINE_CODE = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/;
 
+/**
+ * The generic fallback text, DERIVED by asking the humaniser for a code that
+ * cannot have a template — never hand-copied.
+ *
+ * A hand-copied constant here would decay the moment the fallback copy is
+ * reworded: the assertion "this code does not produce the fallback" would
+ * silently start passing for every code, including ones with no template at
+ * all. (That is exactly what happened to an earlier draft of this file, caught
+ * by a mutant that deleted a template and bit nothing.)
+ */
+const FALLBACK_TEXT = humaniseCritique({
+  id: 'probe',
+  code: '__NO_SUCH_CODE_CAN_EXIST__',
+  severity: 'warning',
+  message: '',
+  source: 'isl',
+  blocks_analysis: false,
+} as CritiqueV3);
+
 function makeCritique(code: string): CritiqueV3 {
   return {
     id: 'test-id',
@@ -114,6 +133,16 @@ describe('ISL critique copy coverage (never render a bare machine code)', () => 
     expect(leaking).toEqual([]);
   });
 
+  it('RED 2b — every ISL code gets SPECIFIC copy, not the generic fallback', () => {
+    // The property RED 2 cannot see: once the fallback is itself code-free,
+    // a MISSING template is invisible to a bare-code scan. This binds the
+    // stronger claim — each code has copy of its own.
+    const generic = ISL_CRITIQUE_CODES.filter(
+      (code) => humaniseCritique(makeCritique(code)) === FALLBACK_TEXT,
+    );
+    expect(generic).toEqual([]);
+  });
+
   it('RED 3 — an UNKNOWN code still never leaks the code, and still routes the user onward', () => {
     // The durable half: this must hold for codes that do not exist yet, so
     // vocabulary drift can never reintroduce the leak.
@@ -135,7 +164,11 @@ describe('ISL critique copy coverage (never render a bare machine code)', () => 
   it('RED 5 — DEGENERATE_OUTCOMES, the captured instance, gets real copy', () => {
     const msg = humaniseCritique(makeCritique('DEGENERATE_OUTCOMES'));
     expect(msg).not.toContain('DEGENERATE_OUTCOMES');
-    expect(msg).not.toContain('An issue was detected in your model');
-    expect(msg.length).toBeGreaterThan(40);
+    // Bound to the DERIVED fallback, not to a hand-copied sentence — so this
+    // still bites if the fallback wording changes.
+    expect(msg).not.toBe(FALLBACK_TEXT);
+    // Bound by IDENTITY to this code's own copy, so deleting a DIFFERENT
+    // template cannot make this test red (proved by the M1/M3 mutant pair).
+    expect(msg).toContain('Every option produced almost the same outcome');
   });
 });
