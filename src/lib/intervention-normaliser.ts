@@ -1581,8 +1581,38 @@ export function normaliseGoalConstraints(
       Math.abs(normalised - nodeGoalThreshold) <= GOAL_THRESHOLD_CORRESPONDENCE_TOLERANCE
     ) {
       normalised = nodeGoalThreshold;
-      clamped = false;
       usedNodeGoalThreshold = true;
+      // ⚠ `clamped` IS DELIBERATELY NOT CLEARED HERE, and the line that cleared
+      // it was a false-certification seam. `clamped` is the ONLY input that
+      // keeps a pinned threshold out of `decision_grade`
+      // (`buildConstraintScaleProvenance` requires `thresholdClamp ===
+      // undefined`), so clearing it here CERTIFIED the very case it should
+      // have disqualified.
+      //
+      // WHY THE CORRESPONDENCE TEST CANNOT SEE THIS. It compares the stamp
+      // against the POST-CLAMP `normalised`. At a boundary stamp (0 or 1) a
+      // producer that ALSO clamped emits exactly that boundary, so the two
+      // numbers agree BECAUSE BOTH HIT THE SAME WALL — not because they
+      // describe the same target. The test's discrimination is destroyed at
+      // precisely the values where the clamp fired. Measured: a stated
+      // `50000` against a `goal_threshold_cap` of `20000` clamps to `1.0`;
+      // with a `goal_threshold: 1.0` stamp it used to report
+      // `decision_grade: true` and omit `threshold_clamped` altogether — a
+      // compliance claim over a number the user never stated. Sign-symmetric:
+      // `-15000` against a `[0,100000]` cap pins to `0` and a `0` stamp
+      // certified it the same way.
+      //
+      // THE ADOPTED VALUE IS UNCHANGED. Inside this branch the stamp is within
+      // 1e-3 of the clamped value, so preferring it still removes
+      // re-derivation drift exactly as intended — this only stops the
+      // preference from also laundering the clamp. Nothing that reaches ISL
+      // moves; only the honesty flag does.
+      //
+      // A NON-CLAMPED correspondence is untouched: `clamped` was already
+      // `false`, so an in-range stamp adoption keeps its decision grade (a
+      // value landing EXACTLY on the ceiling has `raw === 1`, which is not a
+      // clamp, and stays decision-grade). Pinned both ways —
+      // tests/gates/constraint-clamp-erasure.test.ts.
     }
 
     // ROADMAP 2.878 — FRAME FIDELITY. A constraint attested `delta` reaches ISL
