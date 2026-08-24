@@ -3998,10 +3998,29 @@ function buildResponse(
       directionSuspectNodeIds,
       // DERIVED from the records the route already assembled — never a second
       // hand-plumbed count that can drift from them. `_meta.filtered_constraints`
-      // is precisely "constraints that did not reach the engine, and why", from
-      // EVERY producer, so a new withholding mechanism is counted the moment it
-      // files its record — and one that files none is a silent drop, which is
-      // the defect this branch exists to make impossible.
+      // is "constraints that did not reach the engine, and why", so ANY PRODUCER
+      // THAT FILES A RECORD is counted the moment it files one, without this
+      // call site being taught about it.
+      //
+      // ⚠ SCOPE, stated exactly — an earlier draft of this comment claimed the
+      // branch made silent drops "impossible", and an independent review
+      // DISPROVED that by probe (positive + contrast controls in the same run).
+      // The compiler's four `skipped.push` sites in `constraint-compiler.ts`
+      // (no incoming edge / ambiguous target / bad threshold / missing operator)
+      // file NO `filtered_constraints` record, so a graph constraint node
+      // skipped at compilation still empties the list SILENTLY. Measured: the
+      // only trace is a `severity: info` repair and a generic
+      // NORMALIZATION_WARNING that also fires for constraint nodes that
+      // succeed.
+      //
+      // It does not bite today only because `kind: 'constraint'` graph nodes
+      // have NO LIVE PRODUCER — CEE's sole constructor has zero non-test
+      // callers and its V3 projection rewrites `constraint -> risk` before the
+      // payload reaches PLoT, and the UI has no constraint renderer or palette
+      // entry. If that ever changes, this branch will NOT cover it.
+      //
+      // The honest predicate is therefore "did a producer THAT FILES A RECORD
+      // remove them?", not "did constraints arrive and none reach the engine?".
       (meta.filteredConstraints ?? []).length,
     ),
 
