@@ -1336,11 +1336,77 @@ export interface ConstraintNormalisationResult {
  * must be added HERE and every consumer's exhaustiveness check moves with it,
  * rather than a bare string that can accrete meanings silently.
  */
-export type ConstraintRefusalReason = 'delta_frame_value_altered_by_normalisation';
+/**
+ * The reasons PLoT declines to forward a constraint it received.
+ *
+ * THE LIST IS THE SOURCE OF TRUTH AND THE TYPE IS DERIVED FROM IT, deliberately:
+ * a new reason must be added HERE, and every consumer's exhaustiveness check
+ * moves with it — rather than a bare string that can accrete meanings silently,
+ * or a hand-listed union beside a hand-listed runtime array (this repo's
+ * dominant defect class).
+ */
+export const CONSTRAINT_REFUSAL_REASON_LIST = [
+  'delta_frame_value_altered_by_normalisation',
+  'scale_evidence_absent_value_rescaled',
+] as const;
+
+export type ConstraintRefusalReason = (typeof CONSTRAINT_REFUSAL_REASON_LIST)[number];
 
 /** ROADMAP 2.878 — see {@link ConstraintRefusalReason}. */
-export const DELTA_FRAME_VALUE_ALTERED: ConstraintRefusalReason =
-  'delta_frame_value_altered_by_normalisation';
+export const DELTA_FRAME_VALUE_ALTERED = 'delta_frame_value_altered_by_normalisation' satisfies ConstraintRefusalReason;
+
+/**
+ * THE FAIL-OPEN CLAMP, closed. See {@link ConstraintRefusalReason}.
+ *
+ * `deriveRange`'s priority-4 `default [0,1]` is NOT a derived range — it is the
+ * fallback taken when NO scale could be established for the target node: no
+ * `observed_state.cap`, no `state_space.range`, no baseline, no non-zero
+ * observed value, no producer `%`/`goal_threshold_cap` declaration, and no
+ * measured intervention spread. (The identity intervention scale carried for a
+ * Phase-4a-skipped node is minted with `source: 'default'` at the route for the
+ * same reason — it is an assumption, not a measurement.)
+ *
+ * Normalising a stated value against that fallback does not express the user's
+ * quantity on ISL's axis. When the value ALSO falls outside it — `clamped` —
+ * the number PLoT would send is the axis ENDPOINT, which is degenerate by
+ * construction: on `<=` the ceiling is satisfied by essentially every sample
+ * ("your £50,000 cap? every option complies"), on `>=` the floor is satisfied
+ * by none. This is the same degeneracy `routes/v2/run.ts` already refuses for a
+ * goal threshold (`goal_threshold_degenerate_refused`, ROADMAP 2.239-G), and it
+ * is refused here for the same reason: an honest gap beats a fabricated
+ * certainty.
+ *
+ * MEASURED, deployed build `7e5d8a7`, on CEE's own minted constraint:
+ * `{"field":"constraint.value.gc-…","from_value":50000,"to_value":1,`
+ * `"reason":"normalised range=[0,1] source=default (clamped)","severity":"info"}`.
+ *
+ * ⚠ AND IT DISARMS ISL'S OWN FAIL-CLOSED GUARD. Derived at ISL `28fe0c9`
+ * (`src/services/robustness_analyzer_v2.py:3827`, `:4016-4038`):
+ * `NORMALISED_DOMAIN_LIMIT = 1.5`, and a `level`-framed threshold above it is
+ * refused with `CONSTRAINT_NOT_CONVERTIBLE /
+ * constraint_values_outside_normalised_domain`. A raw `50000` trips that guard
+ * and is honestly refused — but PLoT clamps it to `1` first, which is INSIDE
+ * the domain, so the one instrument built to catch this never fires. PLoT's
+ * fail-OPEN transform defeats ISL's fail-CLOSED one.
+ *
+ * ⚠⚠ SCOPE — THIS IS A PINNED BOUNDARY, NOT A CLOSURE OF THE WHOLE CLASS.
+ * A clamp against a range PLoT genuinely DERIVED from node data
+ * (`inferred_value`, `inferred_baseline`, `extracted`, `explicit_cap`, …) is
+ * NOT refused here, and it is NOT inert: measured at this tip, `<= 50000` on a
+ * node with `observed_state.value: 100` resolves `inferred_value [0,200]`,
+ * clamps to `1`, and the run returns `constraints_status: 'computed'` with a
+ * real `prob_satisfied` — a delivered verdict on a threshold the user never
+ * stated, disclosed only by `scale_provenance.threshold_clamped` +
+ * `decision_grade: false`. That is a LARGER fail-open than this one, and
+ * closing it would make a constraint-side `threshold_clamped` unreachable and
+ * so reaches into the ratified F2a trust-marker / margin-precision design
+ * (`src/trust/margin-precision.ts`). It is deliberately left OPEN and is
+ * returned as a decision, not taken silently.
+ * `tests/constraint-scale-evidence-refusal.route.test.ts` T3 pins exactly this
+ * boundary, so the suite REDs if the refusal either GROWS past it or SHRINKS
+ * below the no-evidence case.
+ */
+export const SCALE_EVIDENCE_ABSENT_VALUE_RESCALED = 'scale_evidence_absent_value_rescaled' satisfies ConstraintRefusalReason;
 
 /**
  * ROADMAP 2.878 — a constraint that PLoT declined to send to ISL, with the
@@ -1797,6 +1863,53 @@ export function normaliseGoalConstraints(
           `changing the quantity it attests (range=[${range.min},${range.max}] ` +
           `source=${range.source} would have sent ${normalised} in place of ${value}). ` +
           `Forwarding it would ask ISL a different question than the user asked.`,
+      });
+      continue;
+    }
+
+    // THE FAIL-OPEN CLAMP, closed. See SCALE_EVIDENCE_ABSENT_VALUE_RESCALED for
+    // the full derivation, the measured wire evidence, and the scope boundary.
+    //
+    // ⚠ ORDER IS LOAD-BEARING, and it is the reason this sits HERE rather than
+    // immediately after `normaliseValue`. Both delta branches above must run
+    // FIRST:
+    //   · the 2.1023 auto-synthesis branch UNSTAMPS and `continue`s, because
+    //     refusing the synthesised constraint would also withdraw the user's
+    //     goal TARGET (`goal_threshold` is bound to it by the 2.239 carry).
+    //     Placing this guard earlier would refuse it and reintroduce exactly
+    //     that harm. Pinned by T8 below and by
+    //     tests/auto-constraint-value-frame.route.test.ts.
+    //   · the 2.878 delta refusal already owns the whole delta class; a delta
+    //     reaching here would be double-counted under the wrong reason.
+    // So what arrives here is a LEVEL or an UNSTAMPED constraint, which is the
+    // only class this reason is true of.
+    //
+    // The predicate is written against the SPEC (`source: 'default'` means "no
+    // scale was established" — `deriveRange` priority 4), never against the
+    // magnitude that produced the witness: a currency test would be a
+    // hand-maintained mirror of the unit vocabulary, and `£` is not the only
+    // way to arrive off-axis.
+    if (range.source === 'default' && clamped) {
+      refused.push({
+        constraint_id,
+        node_id,
+        reason: SCALE_EVIDENCE_ABSENT_VALUE_RESCALED,
+        stated_value: value,
+        would_have_sent: normalised,
+        range,
+      });
+      repairs.push({
+        field: `constraint.value.${constraint_id}`,
+        action: 'removed',
+        from_value: value,
+        to_value: 'refused',
+        reason:
+          `refused: no scale could be established for target node '${node_id}' ` +
+          `(no observed value, cap, range or measured spread), so the stated value ` +
+          `${value} could only be placed on the analysis scale by pinning it to that ` +
+          `scale's endpoint (would have sent ${normalised}). An endpoint threshold is ` +
+          `satisfied by essentially every option or by none, so forwarding it would ` +
+          `answer a different question than the user asked.`,
       });
       continue;
     }

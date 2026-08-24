@@ -414,6 +414,27 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
     return `The constraint on ${label} cannot be range-checked. The constraint value will be used as-is.`;
   },
 
+  /**
+   * A stated hard limit PLoT could not place on the analysis scale, because the
+   * factor it targets carries no value, range or cap to place it against.
+   *
+   * The copy says three things, in the order the doctrine requires: compliance
+   * was NOT established · WHICH limit and factor · what would make it
+   * checkable. It never says the limit was met or breached — that is precisely
+   * what could not be determined.
+   */
+  CONSTRAINT_REFUSED_NO_SCALE_EVIDENCE: (c, g) => {
+    const label = resolveNodeLabel(c.affected_node_ids?.[0], g);
+    const count = c.affected_node_ids?.length ?? 0;
+    const subject = count > 1 ? `${count} of your limits` : 'One of your limits';
+    return (
+      `${subject} could not be checked: ${label} has no current value, range or cap, ` +
+      `so the amount you set could not be compared with anything this analysis measures. ` +
+      `It was left out rather than compared against a rescaled number. ` +
+      `Give ${label} a current value or a range and the limit can be checked.`
+    );
+  },
+
   CONSTRAINT_FILTERED_TEMPORAL: (c) => {
     // Derive count from affected_node_ids length or extract from message prefix
     const count = c.affected_node_ids?.length ||

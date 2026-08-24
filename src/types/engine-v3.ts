@@ -869,6 +869,7 @@ export const INLINE_CRITIQUE_CODES = [
   'ISL_NOT_ENABLED',
   'CONSTRAINT_OUT_OF_DOMAIN',
   'CONSTRAINT_FILTERED_TEMPORAL',
+  'CONSTRAINT_REFUSED_NO_SCALE_EVIDENCE', // a stated limit whose target node has no derivable scale — refused rather than rescaled onto the [0,1] axis
   'ISL_REQUEST_INVALID',
   'ISL_CALL_FAILED',
   'ISL_EMPTY_RESULTS',

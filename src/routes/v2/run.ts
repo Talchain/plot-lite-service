@@ -205,6 +205,9 @@ import {
   type GoalThresholdNodeMeta,
   type ConstraintUnitMismatch,
   type RefusedConstraintRecord,
+  type ConstraintRefusalReason,
+  DELTA_FRAME_VALUE_ALTERED,
+  SCALE_EVIDENCE_ABSENT_VALUE_RESCALED,
 } from '../../lib/intervention-normaliser.js';
 import { assembleBrief } from '../../assembly/decision-brief.js';
 import { buildEvidencePriorityCard, type FactorInput } from '../../review-pass/evidence-priority.js';
@@ -5667,9 +5670,19 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           if (frame !== undefined) goalThresholdFrameByNodeId.set(rawNode.id, frame);
         }
         const constraintUnitsByConstraintId = new Map<string, string>();
+        // The user's own words for each constraint, captured in the SAME pass as
+        // the units and from the SAME list — a refusal disclosure has to name the
+        // thing the user stated ("Board-mandated year one budget cap"), not an
+        // opaque id, and the label is deliberately absent from
+        // `RefusedConstraintRecord` (which is logged, and carries quantities the
+        // log boundary must not see).
+        const constraintLabelsByConstraintId = new Map<string, string>();
         for (const c of constraintCompilation.constraints as RawGoalConstraint[]) {
           if (typeof c.unit === 'string' && c.unit.length > 0) {
             constraintUnitsByConstraintId.set(c.constraint_id, c.unit);
+          }
+          if (typeof c.label === 'string' && c.label.trim().length > 0) {
+            constraintLabelsByConstraintId.set(c.constraint_id, c.label.trim());
           }
         }
 
@@ -6998,21 +7011,69 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // run did NOT answer, and the only honest thing is to say so. It does
         // not block the analysis — every other constraint and every option
         // result still delivers.
-        if (refusedConstraintRecords.length > 0) {
-          const refusedIds = refusedConstraintRecords.map(r => r.constraint_id).join(', ');
-          preflight.warnings.push({
-            id: randomUUID(),
-            code: 'CONSTRAINT_REFUSED_FRAME_FIDELITY',
-            severity: 'warning',
-            message:
-              `${refusedConstraintRecords.length} constraint(s) were not evaluated: [${refusedIds}]. ` +
-              `Each states a CHANGE (a 'delta'), and the scale this graph resolves for its target ` +
-              `node cannot carry that change without altering the amount stated. Rather than ask ` +
-              `the engine a different question, the constraint was left out of the analysis.`,
-            source: 'validation',
-            affected_node_ids: refusedConstraintRecords.map(r => r.node_id),
-            blocks_analysis: false,
-          });
+        // ⚠ PARTITIONED BY REASON, NOT APPENDED TO. The frame-fidelity notice
+        // asserts "Each states a CHANGE (a 'delta')" — TRUE of the 2.878 class
+        // and FALSE of every other. Widening the refusal union while leaving one
+        // notice to describe all of it would overwrite an honest label with a
+        // false one for the new class. The partition is EXHAUSTIVE over
+        // `ConstraintRefusalReason`; the `never` branch fails the BUILD if a
+        // third reason is minted without copy, rather than letting it fall
+        // silently into neither arm.
+        {
+          const byReason = new Map<ConstraintRefusalReason, RefusedConstraintRecord[]>();
+          for (const r of refusedConstraintRecords) {
+            const bucket = byReason.get(r.reason);
+            if (bucket) bucket.push(r);
+            else byReason.set(r.reason, [r]);
+          }
+
+          for (const [reason, records] of byReason) {
+            const ids = records.map(r => r.constraint_id).join(', ');
+            // Name what the user called it wherever they gave it a name; fall
+            // back to the id rather than to nothing.
+            const named = records
+              .map(r => `"${constraintLabelsByConstraintId.get(r.constraint_id) ?? r.constraint_id}" (on "${r.node_id}")`)
+              .join(', ');
+
+            let code: string;
+            let message: string;
+            switch (reason) {
+              case DELTA_FRAME_VALUE_ALTERED:
+                code = 'CONSTRAINT_REFUSED_FRAME_FIDELITY';
+                message =
+                  `${records.length} constraint(s) were not evaluated: [${ids}]. ` +
+                  `Each states a CHANGE (a 'delta'), and the scale this graph resolves for its target ` +
+                  `node cannot carry that change without altering the amount stated. Rather than ask ` +
+                  `the engine a different question, the constraint was left out of the analysis.`;
+                break;
+              case SCALE_EVIDENCE_ABSENT_VALUE_RESCALED:
+                code = 'CONSTRAINT_REFUSED_NO_SCALE_EVIDENCE';
+                // The eligibility doctrine's third clause: say compliance could
+                // not be established, NAME what is missing, say what would fix it.
+                message =
+                  `${records.length} limit(s) could not be checked: ${named}. ` +
+                  `The analysis has no scale for the factor each one targets — no current value, ` +
+                  `no range and no cap — so the amount you stated could not be placed on the scale ` +
+                  `this analysis measures on. It was left out rather than compared against a ` +
+                  `rescaled number that would have made every option look compliant. ` +
+                  `Give that factor its current value, or a range, and the limit can be checked.`;
+                break;
+              default: {
+                const never: never = reason;
+                throw new Error(`unhandled constraint refusal reason: ${String(never)}`);
+              }
+            }
+
+            preflight.warnings.push({
+              id: randomUUID(),
+              code,
+              severity: 'warning',
+              message,
+              source: 'validation',
+              affected_node_ids: records.map(r => r.node_id),
+              blocks_analysis: false,
+            });
+          }
         }
 
         // Range discipline: warn when inbound |strength.mean| sum > 1.0
