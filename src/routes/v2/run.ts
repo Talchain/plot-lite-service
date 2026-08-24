@@ -2366,7 +2366,15 @@ function buildConstraintFields(
   // must withhold on the SAME suspicion; otherwise it re-emits the near-0
   // prob_satisfied the per-option gate suppressed, under a fabricated
   // 'computed'. Symmetric with suppressedConstraintTargets.
-  directionSuspectNodeIds?: ReadonlySet<string>
+  directionSuspectNodeIds?: ReadonlySet<string>,
+  /**
+   * How many constraints reached PLoT and did NOT reach ISL on this run —
+   * temporal drops and PLoT's own refusals alike. The one fact that
+   * distinguishes "the user stated no constraints" from "the user stated
+   * constraints and none of them could be carried" — see the honesty branch
+   * below.
+   */
+  withheldConstraintCount?: number
 ): {
   constraints_status?: ConstraintFeatureStatus;
   constraint_results?: ConstraintResult[];
@@ -2375,6 +2383,47 @@ function buildConstraintFields(
 } {
   // No constraints sent → omit all constraint fields
   if (!goalConstraints || goalConstraints.length === 0) {
+    // ⚠ …UNLESS THE LIST IS EMPTY BECAUSE PLoT EMPTIED IT.
+    //
+    // Two producers empty it, and both were silent before this branch:
+    //
+    //   · THE TEMPORAL FILTER (`normalisation/constraint-filter.ts`) drops any
+    //     constraint carrying `deadline_metadata`, or a temporal unit on a
+    //     probability-domain node — time is not a modelled dimension. When
+    //     EVERY constraint is temporal, `constraintCompilation.constraints` is
+    //     empty, the `length > 0` guard upstream never assigns
+    //     `activeGoalConstraints`, and this function is reached with nothing.
+    //     A user who says "we must ship by March" gets TOTAL SILENCE.
+    //
+    //   · A REFUSAL (ROADMAP 2.878) must remove the constraint from the active
+    //     list — the one-to-one guard below counts ISL's results against that
+    //     list, and leaving a non-forwarded constraint in it collapses every
+    //     SIBLING's verdict to zero results (2.878 F1, proven by execution).
+    //     When the refused constraint is the ONLY one, that same removal leaves
+    //     the list empty. Measured at `7e5d8a7`: a run whose sole constraint is
+    //     a refused delta returns `constraints_status: undefined`.
+    //
+    // AN OMITTED `constraints_status` IS BYTE-IDENTICAL TO "THIS DECISION
+    // STATES NO CONSTRAINTS". The user stated one. PLoT wrote the reason into
+    // `_meta.filtered_constraints` and raised a typed critique — and then
+    // reported the run as though no constraint had ever existed. A consumer
+    // reading ABSENCE has nothing to disclose and no reason to go looking for
+    // the reason already sitting in the payload. This is the ratified
+    // eligibility doctrine's third clause, breached by omission: *if compliance
+    // cannot be evaluated, say so and name what is missing.*
+    //
+    // The honest status is `unavailable` — "constraints exist; this run has no
+    // verdict on them" — with the named reason travelling beside it in
+    // `_meta.filtered_constraints` and in the per-class critique
+    // (`CONSTRAINT_FILTERED_TEMPORAL` / `CONSTRAINT_REFUSED_FRAME_FIDELITY`).
+    //
+    // ONE PREDICATE, ONE QUESTION (trap 21). The branch asks *"did constraints
+    // arrive and none reach the engine?"* — not *"which producer removed
+    // them?"*. Splitting it per producer would be two guards under one name,
+    // and the second producer would be the one nobody remembers to add.
+    if (withheldConstraintCount !== undefined && withheldConstraintCount > 0) {
+      return { constraints_status: 'unavailable' };
+    }
     return {};
   }
 
@@ -3947,6 +3996,32 @@ function buildResponse(
       // A3 adjacent-hunt FIX #1: populated by the per-option direction-suspect
       // gate above; withholds the top-level block on the SAME suspicion.
       directionSuspectNodeIds,
+      // DERIVED from the records the route already assembled — never a second
+      // hand-plumbed count that can drift from them. `_meta.filtered_constraints`
+      // is "constraints that did not reach the engine, and why", so ANY PRODUCER
+      // THAT FILES A RECORD is counted the moment it files one, without this
+      // call site being taught about it.
+      //
+      // ⚠ SCOPE, stated exactly — an earlier draft of this comment claimed the
+      // branch made silent drops "impossible", and an independent review
+      // DISPROVED that by probe (positive + contrast controls in the same run).
+      // The compiler's four `skipped.push` sites in `constraint-compiler.ts`
+      // (no incoming edge / ambiguous target / bad threshold / missing operator)
+      // file NO `filtered_constraints` record, so a graph constraint node
+      // skipped at compilation still empties the list SILENTLY. Measured: the
+      // only trace is a `severity: info` repair and a generic
+      // NORMALIZATION_WARNING that also fires for constraint nodes that
+      // succeed.
+      //
+      // It does not bite today only because `kind: 'constraint'` graph nodes
+      // have NO LIVE PRODUCER — CEE's sole constructor has zero non-test
+      // callers and its V3 projection rewrites `constraint -> risk` before the
+      // payload reaches PLoT, and the UI has no constraint renderer or palette
+      // entry. If that ever changes, this branch will NOT cover it.
+      //
+      // The honest predicate is therefore "did a producer THAT FILES A RECORD
+      // remove them?", not "did constraints arrive and none reach the engine?".
+      (meta.filteredConstraints ?? []).length,
     ),
 
     // Auto-noise disclosure (audit B3, P0). `auto_noise_applied` echoes
