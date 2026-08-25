@@ -89,6 +89,13 @@ const WRONG_SAME_LENGTH = 'wrongX-token-aaaaaaaaaaaa';
  * length collides often — so the shape is wrong regardless of which length is
  * chosen.
  *
+ * ⚠ THE SUBSTRING FORM HAD TWO INDEPENDENT FUSES, not one. The calendar was
+ * the live one. The same payload also carries `build` (a short commit SHA from
+ * `getBuildId()`), so ANY SHA containing the length's digits trips the identical
+ * assertion on any day of any month. That fuse is latent rather than live —
+ * measured: the SHA this landed on, `22dcfe3`, does NOT contain `25` — but it
+ * is a second reason the shape, not the calendar, was the defect.
+ *
  * This scans VALUES, not text, and reports the offending PATH so the next
  * failure names its own cause:
  *
@@ -104,9 +111,30 @@ const WRONG_SAME_LENGTH = 'wrongX-token-aaaaaaaaaaaa';
  * The plausible carrier is closed EXHAUSTIVELY and separately by the
  * `toEqual({ active: true, staged: true })` assertion below: that is a deep
  * equality, so ANY extra key or non-boolean value under `auth_secrets` fails
- * it regardless of name. Residual, stated rather than hidden: a length
- * disclosed as a NUMBER under a non-auth-named key outside `auth_secrets`
- * would not be caught here.
+ * it regardless of name.
+ *
+ * ⭐ TWO RESIDUALS, BOTH STATED RATHER THAN HIDDEN. Leaving a disclosure short
+ * is this estate's dominant defect class, and a docblock is the one artefact
+ * every future reader inherits.
+ *
+ *  R1. A length disclosed as a NUMBER under a NON-auth-named key outside
+ *      `auth_secrets` is not caught. Do NOT assume auth-adjacent naming is
+ *      reliable here: `bearer_len` — the most natural name in this very domain
+ *      — falls outside `AUTH_ADJACENT` and would slip through.
+ *
+ *  R2. A length EMBEDDED in a longer string is not caught — e.g.
+ *      `"active bearer is 25 chars"`. The string branch is
+ *      `node === String(length)`, EXACT equality, so "flagged anywhere" is a
+ *      claim about POSITION, not about FORM. Verified by execution: that
+ *      mutant survives the suite 19/19 GREEN.
+ *
+ * ⚠⚠ R2 IS ACCEPTED, NOT AN OVERSIGHT, AND IT IS NOT CLOSABLE HERE. The
+ * obvious strengthening — substring matching over all STRING values — was run
+ * against the real captured clean `/health` payload and flags
+ * `$.route_callers.since` (`"2026-08-25T01:01:04.393Z"`), i.e. it RE-ARMS THE
+ * IDENTICAL CALENDAR BOMB this function exists to remove. Measured, not
+ * reasoned. Closing R2 by that route would trade a disclosed gap for a
+ * guaranteed monthly outage, so the gap stays and is written down instead.
  */
 function findLengthDisclosures(value: unknown, length: number, path = '$'): string[] {
   const hits: string[] = [];
