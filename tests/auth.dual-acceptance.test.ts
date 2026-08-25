@@ -68,6 +68,75 @@ const DIFFERENT_LENGTH_STAGED = 'staged-token-bbbbbbbbbbbbbbbbbbbbbbbbbbbb';
 /** Same length as ACTIVE, for the "wrong bytes" arm. */
 const WRONG_SAME_LENGTH = 'wrongX-token-aaaaaaaaaaaa';
 
+/**
+ * Collect every JSON path whose VALUE discloses `length`.
+ *
+ * ⚠ WHY THIS EXISTS, AND WHY THE OBVIOUS VERSION IS WRONG. This replaced
+ * `expect(body).not.toContain(String(ACTIVE_TOKEN.length))` — a bare substring
+ * search for `'25'` over the whole serialised `/health` document. That payload
+ * embeds an ISO timestamp (`"since":"2026-08-25T00:29:35.020Z"`), so the check
+ * collided with THE DAY OF THE MONTH: it passed on the 24th, failed on the
+ * 25th, and would fail on the 25th of every month thereafter. It blocked
+ * `scripts/pre-push-validate.sh` — and therefore every push to this repo — for
+ * hours, and NOTHING about the cause was visible until somebody read the
+ * assertion instead of the failure message, which only ever said
+ * "expected … not to contain '25'".
+ *
+ * The INTENT was right and is kept: a bare count narrows a brute-force search,
+ * so the token's length must never appear. The INSTRUMENT was wrong. A
+ * substring search over a document full of dates, byte counts and latencies
+ * will collide with an unrelated number sooner or later, and any 2-digit
+ * length collides often — so the shape is wrong regardless of which length is
+ * chosen.
+ *
+ * This scans VALUES, not text, and reports the offending PATH so the next
+ * failure names its own cause:
+ *
+ *  · STRING values are flagged ANYWHERE. A bare `"25"` string is not ordinary
+ *    telemetry, and a length rendered into a field is the likelier leak shape.
+ *  · NUMBER values are flagged only on an AUTH-ADJACENT path. Ordinary
+ *    operational integers (`uptime_s`, `rss_mb`, `heap_used_mb`,
+ *    `eventloop_delay_ms`) can legitimately equal a small length on some run —
+ *    flagging those would rebuild the very time-bomb this replaces, just
+ *    rarer, and a rare bomb is worse because it detonates when nobody
+ *    remembers why.
+ *
+ * The plausible carrier is closed EXHAUSTIVELY and separately by the
+ * `toEqual({ active: true, staged: true })` assertion below: that is a deep
+ * equality, so ANY extra key or non-boolean value under `auth_secrets` fails
+ * it regardless of name. Residual, stated rather than hidden: a length
+ * disclosed as a NUMBER under a non-auth-named key outside `auth_secrets`
+ * would not be caught here.
+ */
+function findLengthDisclosures(value: unknown, length: number, path = '$'): string[] {
+  const hits: string[] = [];
+  /** A leak of a COUNT is only meaningful where the count is about the secret. */
+  const AUTH_ADJACENT = /auth|secret|token|credential|key/i;
+
+  const walk = (node: unknown, at: string): void => {
+    if (typeof node === 'string') {
+      if (node === String(length)) hits.push(`${at} (string "${node}")`);
+      return;
+    }
+    if (typeof node === 'number') {
+      if (node === length && AUTH_ADJACENT.test(at)) {
+        hits.push(`${at} (number ${node})`);
+      }
+      return;
+    }
+    if (Array.isArray(node)) {
+      node.forEach((v, i) => walk(v, `${at}[${i}]`));
+      return;
+    }
+    if (node !== null && typeof node === 'object') {
+      for (const [k, v] of Object.entries(node)) walk(v, `${at}.${k}`);
+    }
+  };
+
+  walk(value, path);
+  return hits;
+}
+
 let app: FastifyInstance;
 let port = 0;
 const prev = {
@@ -215,8 +284,52 @@ describe('⭐ ACCEPTANCE CRITERION: the metric proves which token is still in us
     expect(parsed.auth_secrets).toEqual({ active: true, staged: true });
     expect(body).not.toContain(ACTIVE_TOKEN);
     expect(body).not.toContain(DIFFERENT_LENGTH_STAGED);
-    // No length disclosure either — a bare count would narrow a brute-force search.
-    expect(body).not.toContain(String(ACTIVE_TOKEN.length));
+    // No length disclosure either — a bare count would narrow a brute-force
+    // search. Asserted over VALUES with their paths, never as a substring of
+    // the serialised blob; see `findLengthDisclosures` for the calendar
+    // collision that formulation caused.
+    expect(findLengthDisclosures(parsed, ACTIVE_TOKEN.length)).toEqual([]);
+  });
+
+  // -------------------------------------------------------------------
+  // THE DISCRIMINATING PAIR. Neither half proves anything alone: the first
+  // shows the property is still guarded, the second shows the collision is
+  // actually closed. Run against synthetic bodies so both are deterministic
+  // and neither depends on today's date.
+  // -------------------------------------------------------------------
+  it('POSITIVE CONTROL — a body that genuinely discloses the token length is CAUGHT', () => {
+    const len = ACTIVE_TOKEN.length;
+    // Three shapes a real disclosure could take.
+    const asNumberUnderAuthKey = { auth_secrets: { active: true, active_token_length: len } };
+    const asStringAnywhere = { runtime: { some_field: String(len) } };
+    const nestedInArray = { callers: [{ token_len: len }] };
+
+    expect(findLengthDisclosures(asNumberUnderAuthKey, len)).not.toEqual([]);
+    expect(findLengthDisclosures(asStringAnywhere, len)).not.toEqual([]);
+    expect(findLengthDisclosures(nestedInArray, len)).not.toEqual([]);
+    // The path is reported, so a future failure names its own cause rather
+    // than saying only "does not contain '25'".
+    expect(findLengthDisclosures(asNumberUnderAuthKey, len)[0])
+      .toContain('auth_secrets.active_token_length');
+  });
+
+  it('COLLISION CONTROL — a body whose DATE contains the length is NOT caught', () => {
+    const len = ACTIVE_TOKEN.length;
+    // The exact payload fragment that broke the gate: the day-of-month is 25.
+    const withCollidingDate = {
+      status: 'ok',
+      auth_secrets: { active: true, staged: true },
+      route_callers: { since: '2026-08-25T00:29:35.020Z' },
+      // and the other collision classes the old substring search would trip on
+      runtime: { uptime_s: 25, rss_mb: 125, heap_used_mb: 254 },
+      rate_limit: { cooldownMs: 25000 },
+    };
+    expect(findLengthDisclosures(withCollidingDate, len)).toEqual([]);
+
+    // PIN THE PRECONDITION: this fixture really does contain the digits, so
+    // the assertion above passes because the SCAN discriminates, not because
+    // the fixture happens to be clean. The old assertion fails on it.
+    expect(JSON.stringify(withCollidingDate)).toContain(String(len));
   });
 });
 
