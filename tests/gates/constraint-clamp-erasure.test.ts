@@ -34,11 +34,22 @@ import { describe, it, expect } from 'vitest';
 import {
   normaliseGoalConstraints,
   deriveClampDirection,
+  GOAL_THRESHOLD_CORRESPONDENCE_TOLERANCE,
 } from '../../src/lib/intervention-normaliser.js';
 import { buildConstraintScaleProvenance } from '../../src/routes/v2/run.js';
 import type { GoalConstraint, EngineNodeV3 } from '../../src/types/engine-v3.js';
 
 const NODE = [{ id: 'cost', kind: 'factor', label: 'Cost' }] as unknown as EngineNodeV3[];
+
+/**
+ * Stamps deliberately INSIDE the correspondence window but NOT on the boundary
+ * — the ledge beside the wall. Literals, not derived from the tolerance: a
+ * stamp computed from the constant would follow it downwards and keep passing,
+ * which is the vacuity this pair exists to prevent. The preconditions assert
+ * the relationship against the PRODUCTION constant instead.
+ */
+const NEAR_CEILING_STAMP = 0.9995;
+const NEAR_FLOOR_STAMP = 0.0005;
 
 function constraint(value: number, operator: '<=' | '>=' = '<='): GoalConstraint {
   return { constraint_id: 'c_cap', node_id: 'cost', operator, value };
@@ -236,7 +247,7 @@ describe('clamp erasure via goal-threshold correspondence', () => {
     const c = constraint(50000);
     const { diag, provenance } = chain(
       c,
-      extras({ goal_threshold_cap: 20000, goal_threshold: 0.9995 }),
+      extras({ goal_threshold_cap: 20000, goal_threshold: NEAR_CEILING_STAMP }),
     );
 
     expect(diag.constraint_id).toBe('c_cap');
@@ -245,7 +256,15 @@ describe('clamp erasure via goal-threshold correspondence', () => {
     // the stamp really is inside the correspondence tolerance of the clamped
     // value — so this exercises the adoption branch, not some other path.
     expect(diag.clamped).toBe(true);
-    expect(Math.abs(1.0 - 0.9995)).toBeLessThanOrEqual(1e-3);
+    // ⭐ BOUND TO THE PRODUCTION CONSTANT, never a copied `1e-3`. As a tautology
+    // over literals this asserted nothing about the code, and the pin's whole
+    // discriminating power rested on a constant no test referenced: measured,
+    // shrinking the tolerance to 1e-6 AND removing the `!clamped` guard left the
+    // suite GREEN. Bound this way a shrink REDs the precondition — the test
+    // announces that it has stopped exercising the adoption branch instead of
+    // passing vacuously.
+    expect(Math.abs(1.0 - NEAR_CEILING_STAMP))
+      .toBeLessThanOrEqual(GOAL_THRESHOLD_CORRESPONDENCE_TOLERANCE);
 
     // THE PIN: a clamped threshold discloses its direction and is never graded.
     expect(provenance.threshold_clamped).toBe('high');
@@ -256,9 +275,11 @@ describe('clamp erasure via goal-threshold correspondence', () => {
     const c = constraint(-15000, '>=');
     const { diag, provenance } = chain(
       c,
-      extras({ goal_threshold_cap: 100000, goal_threshold: 0.0005 }),
+      extras({ goal_threshold_cap: 100000, goal_threshold: NEAR_FLOOR_STAMP }),
     );
     expect(diag.clamped).toBe(true);
+    expect(Math.abs(0 - NEAR_FLOOR_STAMP))
+      .toBeLessThanOrEqual(GOAL_THRESHOLD_CORRESPONDENCE_TOLERANCE);
     expect(provenance.threshold_clamped).toBe('low');
     expect(provenance.decision_grade).toBe(false);
   });

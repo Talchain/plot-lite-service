@@ -185,8 +185,25 @@ export interface NormalisationDiagnostic {
  * what stops a test certifying a cell it does not exercise.
  *
  * Order of the two comparisons is immaterial: a value cannot be both `<= 0`
- * and `>= 1`. A non-finite value satisfies neither and therefore returns
- * `undefined` — fail-closed, no claim.
+ * and `>= 1` — mutually exclusive for every IEEE-754 double, with `NaN`, `-0`
+ * and `±Infinity` all agreeing. A non-finite value satisfies neither and
+ * therefore returns `undefined` — fail-closed, no claim.
+ *
+ * ⚠⚠ THE `undefined` BRANCH IS UNREACHABLE ONLY *CONTINGENTLY*, AND THE
+ * CONTINGENCY IS RECENT. Every `deriveRange` return site is width-guarded by
+ * `isFiniteRange` (F14: "a finite positive width at every source"), and the
+ * remaining ladder rungs construct `[0, positive]`, so no range source can
+ * deliver a zero-width range and no clamped CONSTRAINT value can land strictly
+ * inside (0,1) today. But that is true only because the goal-threshold stamp
+ * preference is now gated on `!clamped`. Proven by a discriminating pair:
+ * remove that guard alone and both near-boundary pins RED; remove it AND
+ * collapse this branch to `'high'`, and the CEILING case goes GREEN again while
+ * the floor stays RED — i.e. before that guard existed this branch was
+ * demonstrably LIVE at the constraint call site, and collapsing it MASKED the
+ * ceiling defect.
+ *
+ * So: keep the branch. If the `!clamped` guard is ever relaxed, this goes live
+ * again and NOTHING currently pins it.
  *
  * @param normalisedValue the POST-clamp value recorded on the diagnostic
  */
@@ -1298,7 +1315,15 @@ export function resolveScaleUnit(
  * enough that a genuinely changed target (e.g. 25% vs a stale 0.2 stamp) is
  * NOT silently overridden by the stale stamp.
  */
-const GOAL_THRESHOLD_CORRESPONDENCE_TOLERANCE = 1e-3;
+/**
+ * ⭐ EXPORTED so a test can BIND to it rather than hand-copy `1e-3`. The
+ * near-boundary pins in `tests/gates/constraint-clamp-erasure.test.ts`
+ * choose a stamp that must fall INSIDE this window; a copied literal made
+ * their precondition a tautology over literals, so shrinking this constant
+ * silently hollowed them out instead of turning them red. Measured: at
+ * `1e-6` with the `!clamped` guard removed, the suite went GREEN.
+ */
+export const GOAL_THRESHOLD_CORRESPONDENCE_TOLERANCE = 1e-3;
 
 /**
  * Result of constraint normalisation.
@@ -1318,9 +1343,9 @@ export interface ConstraintNormalisationResult {
     used_heuristic: boolean;
     /**
      * True when the raw threshold fell OUTSIDE the normalisation range and was
-     * clamped onto [0,1] (Codex F2a). The clamp DIRECTION is read from
-     * normalised_value at egress (0 ⇒ clamped at the range floor, 1 ⇒ at the
-     * ceiling). A clamped threshold makes the emitted failure_margin a strict
+     * clamped onto [0,1] (Codex F2a). The clamp DIRECTION is derived by
+     * `deriveClampDirection` — the single owner of that rule; do not restate it
+     * here or at a call site. A clamped threshold makes the emitted failure_margin a strict
      * bound, not an exact distance — the margin egress consults this so it never
      * labels an understated margin 'exact'.
      */
@@ -1964,9 +1989,14 @@ export function normaliseGoalConstraints(
         normalised_value: normalised,
         range,
         used_heuristic: usedHeuristic,
-        // F2a: carry whether the threshold clamped. When the CEE goal_threshold
-        // stamp was preferred, `clamped` was reset to false above (the stamp is
-        // an exact in-[0,1] value, no clamp), so this is correct in that branch too.
+        // F2a: carry whether the threshold clamped.
+        //
+        // ⚠ THIS COMMENT USED TO DESCRIBE A RESET THAT NO LONGER EXISTS — it read
+        // "when the CEE goal_threshold stamp was preferred, `clamped` was reset to
+        // false above". That reset WAS the false-certification seam, and removing
+        // it is this change. The stamp preference is now gated on `!clamped`, so
+        // the two states are disjoint by construction: a clamped threshold never
+        // reaches the preference, and a preferred stamp was never clamped.
         clamped,
         // A3 R1: the scale-unity decision, recorded for the trust marker to project.
         range_unified: rangeUnified,
