@@ -1181,6 +1181,8 @@
     "confidence_basis": "unknown_legacy",
     "recommended_option_id": "opt_tech_lead",
     "recommended_option_label": "Hire One Tech Lead",
+    "recommended_option_compliance": "not_applicable",
+    "recommended_option_compliance_reason": "no limits were set for this decision",
     "near_tie": {
       "is_tie": false,
       "top_option_id": "opt_tech_lead",
@@ -1616,7 +1618,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:5876bbda16001f63"
+    "response_content_hash": "rch_v2:742449aa4074527d"
   },
   "meta": {
     "seed_used": "2034401427",
