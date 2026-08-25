@@ -3587,6 +3587,12 @@ function buildResponse(
         (o: { option_id: string }) => o.option_id === recommendedOption.recommended_option_id,
       )
     : undefined;
+  // DERIVED from the records the route already assembled — the SAME expression
+  // `buildConstraintFields` consumes below, not a second count that can drift
+  // from it. `_meta.filtered_constraints` is "constraints that did not reach
+  // the engine, and why", so any producer that files a record is counted the
+  // moment it files one.
+  const withheldConstraintCount = (meta.filteredConstraints ?? []).length;
   const crownCompliance = classifyCrownCompliance(
     crownedEntry === undefined
       ? undefined
@@ -3595,15 +3601,31 @@ function buildResponse(
           constraint_probabilities: crownedEntry.constraint_probabilities,
           constraints_decision_grade: crownedEntry.constraints_decision_grade,
         },
-    (goalConstraints?.length ?? 0) > 0,
+    goalConstraints?.length ?? 0,
+    withheldConstraintCount,
     anyCrownableCandidate,
   );
   robustness.recommended_option_compliance = crownCompliance;
   robustness.recommended_option_compliance_reason = CROWN_COMPLIANCE_REASONS[crownCompliance];
 
   // Compute near-tie detection (after optionComparison is built)
+  //
+  // ⚠ WITHHELD ON `no_eligible_option`, AND ONLY THERE. `near_tie` answers a
+  // different question from the crown — *are the top two close on
+  // win_probability?* — and it keeps consuming the ISL-status predicate alone,
+  // exactly as `isCrownableCandidate`'s contract requires. But it carries
+  // `top_option_id`, a SECOND leader-ish identifier, and a UI could render it
+  // as precisely the badge the crown has just refused to award. Shipping
+  // `is_tie: true, top_option_id: opt_over` beside "no option met the limits
+  // you set" is the same payload asserting and denying a leader.
+  //
+  // Withheld rather than recomputed over the eligible set: when NO option is
+  // eligible there is no set to compute a tie over, so absence is the honest
+  // answer and not a suppression of something we know. Every other state —
+  // including `unverified` and `uncertain`, where the crown stands — keeps
+  // near-tie unchanged.
   const nearTie = computeNearTie(optionComparison);
-  if (nearTie) {
+  if (nearTie && crownCompliance !== 'no_eligible_option') {
     robustness.near_tie = nearTie;
   }
 
@@ -4095,7 +4117,7 @@ function buildResponse(
       //
       // The honest predicate is therefore "did a producer THAT FILES A RECORD
       // remove them?", not "did constraints arrive and none reach the engine?".
-      (meta.filteredConstraints ?? []).length,
+      withheldConstraintCount,
     ),
 
     // Auto-noise disclosure (audit B3, P0). `auto_noise_applied` echoes

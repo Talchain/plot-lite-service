@@ -39,6 +39,8 @@ function evalConstraint(sample: number, threshold: number, operator: string): { 
  * band where Olumi must NOT binarise.
  */
 const PROB_OVERRIDE = new Map<string, number>();
+/** Per-option ISL status, so the "no crownable candidate" cell is reachable. */
+const STATUS_OVERRIDE = new Map<string, string>();
 
 function buildSurrogateOptions(body: any) {
   const constraints: any[] = body.goal_constraints ?? [];
@@ -52,7 +54,8 @@ function buildSurrogateOptions(body: any) {
               return { node_id: c.node_id, operator: c.operator, value: c.value, prob_satisfied: 1 };
             }
             const { sat, margin } = evalConstraint(sample, c.value, c.operator);
-            const override = PROB_OVERRIDE.get(opt.id);
+            const override =
+              PROB_OVERRIDE.get(`${opt.id}::${c.constraint_id}`) ?? PROB_OVERRIDE.get(opt.id);
             const p = override !== undefined ? override : (sat ? 1 : 0);
             return {
               node_id: c.node_id,
@@ -81,7 +84,7 @@ function buildSurrogateOptions(body: any) {
       id: opt.id,
       outcome: { mean: 0.7 - idx * 0.05, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 },
       win_probability: 0.5 - idx * 0.1,
-      status: 'computed',
+      status: STATUS_OVERRIDE.get(opt.id) ?? 'computed',
       ...(analysis !== undefined && { constraint_analysis: analysis }),
     });
   });
@@ -168,8 +171,15 @@ function topLevelConstraint(body: any, cid: string): any {
 const CAP_NODES = [
   { id: 'goal', kind: 'goal', label: 'Programme value', observed_state: { value: 0.4 } },
   { id: 'cost', kind: 'factor', label: 'First-year cost', observed_state: { value: 60000 } },
+  // A SECOND target, so a multi-constraint case has two DISTINCT nodes. Two
+  // `<=` constraints on one node resolve to the same (node_id, operator) pair
+  // and collapse, which would make a mixed fixture silently single-constraint.
+  { id: 'headcount', kind: 'factor', label: 'Headcount', observed_state: { value: 40 } },
 ];
-const CAP_EDGES = [{ from: 'cost', to: 'goal', strength: { mean: -0.5, std: 0.1 } }];
+const CAP_EDGES = [
+  { from: 'cost', to: 'goal', strength: { mean: -0.5, std: 0.1 } },
+  { from: 'headcount', to: 'goal', strength: { mean: 0.3, std: 0.1 } },
+];
 const CAP_CONSTRAINT = [{ constraint_id: 'c_cap', node_id: 'cost', operator: '<=', value: 50000 }];
 
 // The surrogate gives index 0 the HIGHEST win_probability, so listing the
@@ -179,8 +189,8 @@ const OVER_FIRST = [
   { id: 'opt_under', label: 'Cheap', interventions: { cost: 30000 } },
 ];
 const UNDER_FIRST = [
-  { id: 'opt_under', label: 'Cheap', interventions: { cost: 30000 } },
-  { id: 'opt_over', label: 'Expensive', interventions: { cost: 90000 } },
+  { id: 'opt_under', label: 'Cheap', interventions: { cost: 30000, headcount: 45 } },
+  { id: 'opt_over', label: 'Expensive', interventions: { cost: 90000, headcount: 55 } },
 ];
 const BOTH_OVER = [
   { id: 'opt_over_a', label: 'Expensive A', interventions: { cost: 90000 } },
@@ -201,7 +211,7 @@ describe('crown eligibility consumes the constraint verdict', () => {
     baseUrl = `http://127.0.0.1:${port}`;
   }, 30000);
   afterAll(async () => { await app?.close(); });
-  beforeEach(() => { capturedISLRequest = null; PROB_OVERRIDE.clear(); });
+  beforeEach(() => { capturedISLRequest = null; PROB_OVERRIDE.clear(); STATUS_OVERRIDE.clear(); });
 
   async function run(payload: object): Promise<any> {
     const res = await fetch(`${baseUrl}/v2/run`, {
@@ -339,6 +349,113 @@ describe('crown eligibility consumes the constraint verdict', () => {
 
     expect(body.robustness.recommended_option_id).toBe('opt_over');
     expect(body.robustness.recommended_option_compliance).toBe('uncertain');
+  });
+
+  // -------------------------------------------------------------------
+  // THE BLOCKER. `goal_constraints` is the POST-FILTER list: PLoT empties it
+  // when every constraint was dropped before reaching ISL. Reading only that
+  // list made the product tell a user who said "we must ship by March" that
+  // they had set no limits — in the SAME payload that recorded dropping it.
+  // -------------------------------------------------------------------
+  it('a TEMPORAL-only constraint is withheld, not absent — the run must never say "no limits were set"', async () => {
+    const body = await run({
+      graph: { nodes: CAP_NODES, edges: CAP_EDGES },
+      options: OVER_FIRST, goal_node_id: 'goal', seed: '42',
+      goal_constraints: [{
+        constraint_id: 'c_deadline', node_id: 'cost', operator: '<=', value: 6,
+        unit: 'months', deadline_metadata: { horizon_months: 6 },
+      }],
+    });
+
+    // PRECONDITION PINNED IN-TEST: PLoT really did withhold it, and really did
+    // file a record — so this exercises the withheld path, not an empty run.
+    const filtered = body._meta?.filtered_constraints ?? [];
+    expect(filtered.map((f: any) => f.constraint_id)).toContain('c_deadline');
+
+    // THE PIN: the falsehood is gone.
+    expect(body.robustness.recommended_option_compliance).not.toBe('not_applicable');
+    expect(body.robustness.recommended_option_compliance).toBe('not_assessed');
+    expect(body.robustness.recommended_option_compliance_reason)
+      .toBe(CROWN_COMPLIANCE_REASONS.not_assessed);
+    // Not a dead end: a leader is still offered, with the caveat beside it.
+    expect(body.robustness.recommended_option_id).toBe('opt_over');
+  });
+
+  // -------------------------------------------------------------------
+  // THE QUANTIFIER on the most load-bearing user-facing claim in this PR.
+  // `compliant` says "met EVERY limit"; a corpus with only single-constraint
+  // cases cannot tell `every` from `some`.
+  // -------------------------------------------------------------------
+  it('MIXED constraints: one satisfied in every draw, one partial ⇒ uncertain, never compliant', async () => {
+    PROB_OVERRIDE.set('opt_under::c_cap', 1);
+    PROB_OVERRIDE.set('opt_under::c_cap2', 0.4);
+    const body = await run({
+      graph: { nodes: CAP_NODES, edges: CAP_EDGES },
+      options: UNDER_FIRST, goal_node_id: 'goal', seed: '42',
+      goal_constraints: [
+        { constraint_id: 'c_cap', node_id: 'cost', operator: '<=', value: 50000 },
+        // Inside the measured headcount spread [45,55] so the scale is
+        // decision-grade — the point of this case is the QUANTIFIER, not trust.
+        { constraint_id: 'c_cap2', node_id: 'headcount', operator: '<=', value: 50 },
+      ],
+    });
+    const under = optionEntry(body, 'opt_under');
+    // PRECONDITION: the two constraints really do disagree on this option, and
+    // the scale is trusted — so `every` vs `some` is genuinely discriminated.
+    expect(under.constraints_decision_grade).toBe(true);
+    expect(under.constraint_probabilities.c_cap).toBe(1);
+    expect(under.constraint_probabilities.c_cap2).toBeCloseTo(0.4, 10);
+
+    expect(body.robustness.recommended_option_id).toBe('opt_under');
+    expect(body.robustness.recommended_option_compliance).toBe('uncertain');
+  });
+
+  // -------------------------------------------------------------------
+  // "ISL COMPUTED NOTHING" vs "EVERY OPTION BREACHED" — two very different
+  // things to tell a user, and both end with no crown.
+  // -------------------------------------------------------------------
+  it('no crown AND no crownable candidate ⇒ not_assessed, NOT no_eligible_option', async () => {
+    STATUS_OVERRIDE.set('opt_over', 'failed');
+    STATUS_OVERRIDE.set('opt_under', 'failed');
+    const body = await run({
+      graph: { nodes: CAP_NODES, edges: CAP_EDGES },
+      options: OVER_FIRST, goal_node_id: 'goal', seed: '42',
+      goal_constraints: CAP_CONSTRAINT,
+    });
+    // PRECONDITION: nothing was crownable on ISL-status grounds.
+    for (const id of ['opt_over', 'opt_under']) {
+      expect(optionEntry(body, id).status, id).toBe('failed');
+    }
+    expect(body.robustness.recommended_option_id).toBeUndefined();
+    expect(body.robustness.recommended_option_compliance).toBe('not_assessed');
+  });
+
+  // -------------------------------------------------------------------
+  // A withheld crown must not ship a SECOND leader-ish identifier a UI could
+  // render as exactly the badge it just refused.
+  // -------------------------------------------------------------------
+  it('near_tie is WITHHELD when no option is eligible, and kept in every other state', async () => {
+    PROB_OVERRIDE.set('opt_under', 0);
+    PROB_OVERRIDE.set('opt_over', 0);
+    const none = await run({
+      graph: { nodes: CAP_NODES, edges: CAP_EDGES },
+      options: OVER_FIRST, goal_node_id: 'goal', seed: '42',
+      goal_constraints: CAP_CONSTRAINT,
+    });
+    expect(none.robustness.recommended_option_compliance).toBe('no_eligible_option');
+    expect(none.robustness.near_tie).toBeUndefined();
+
+    // CONTRAST CONTROL, same fixture minus the breach: near_tie is untouched,
+    // so the assertion above passes because of the GATE, not because this
+    // payload never had a near_tie to begin with.
+    PROB_OVERRIDE.clear();
+    const ok = await run({
+      graph: { nodes: CAP_NODES, edges: CAP_EDGES },
+      options: UNDER_FIRST, goal_node_id: 'goal', seed: '42',
+      goal_constraints: CAP_CONSTRAINT,
+    });
+    expect(ok.robustness.recommended_option_compliance).toBe('compliant');
+    expect(ok.robustness.near_tie).toBeDefined();
   });
 
   // -------------------------------------------------------------------
