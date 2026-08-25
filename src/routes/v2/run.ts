@@ -198,6 +198,7 @@ import {
   constraintsNeedNormalisation,
   constraintsHavePercentPointValue,
   isIdentityRange,
+  deriveClampDirection,
   type NormalisationContext,
   type NormalisationDiagnostic,
   type NormalisationRange,
@@ -6901,11 +6902,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             //    (run.ts ~1885, ~2269) denormalise on the correct (intervention)
             //    width automatically.
             //  - constraintThresholdClampByConstraintId (Codex F2a): the THRESHOLD
-            //    clamp direction, from the recorded post-clamp normalised_value
-            //    (0 ⇒ range floor 'low', 1 ⇒ ceiling 'high'). Only clamped
-            //    thresholds get an entry; an interior value under a degenerate
-            //    (zero-width) range is indeterminate and recorded as neither (the
-            //    margin egress then makes no precision claim).
+            //    clamp direction, via `deriveClampDirection` — the single owner
+            //    of that rule. Only clamped thresholds get an entry, and an
+            //    indeterminate direction is recorded as neither (the margin
+            //    egress then makes no precision claim). ⚠ Do not restate the
+            //    0/1 mapping here: two prose copies of one rule is how the two
+            //    inline ternaries this replaced drifted into opposite operand
+            //    order in the first place.
             constraintNormalisationRanges = new Map<string, NormalisationRange>();
             constraintThresholdClampByConstraintId = new Map<string, 'low' | 'high'>();
             //  - constraintRangeUnifiedByCid (A3 R1): the range-unity decision the
@@ -6926,7 +6929,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 constraintUnitMismatchByCid.set(d.constraint_id, d.unit_mismatch);
               }
               if (!d.clamped) continue;
-              const direction = d.normalised_value <= 0 ? 'low' : d.normalised_value >= 1 ? 'high' : undefined;
+              const direction = deriveClampDirection(d.normalised_value);
               if (direction === undefined) continue;
               constraintThresholdClampByConstraintId.set(d.constraint_id, direction);
             }
@@ -8892,8 +8895,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Sub-item 1d + Codex F1 (a): derive the per-option clamp DIRECTION
         // map from the RECORDED normalisation diagnostics
         // (Map<optionId, Map<factorId, 'high'|'low'>>, entry present ONLY when
-        // clamped; direction from the recorded post-clamp normalised_value:
-        // >= 1 → 'high', <= 0 → 'low'). Reading the recorded diagnostics is
+        // clamped; direction via `deriveClampDirection`, the single owner of
+        // that rule — do not restate the mapping here). Reading the recorded diagnostics is
         // authoritative — recomputing from the per-option interventions
         // reaching buildResponse would read the already normalised [0,1]
         // values and always report "not clamped". The companion
@@ -8910,7 +8913,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             optionDiagnosedFactors.set(d.option_id, diagnosed);
           }
           if (d.clamped) {
-            const direction = d.normalised_value >= 1 ? 'high' : d.normalised_value <= 0 ? 'low' : undefined;
+            const direction = deriveClampDirection(d.normalised_value);
             if (direction === undefined) {
               // Degenerate clamp (zero-width range path) with an interior
               // normalised value: direction is indeterminate. Record NEITHER a
