@@ -34,6 +34,8 @@ import type { GoalThresholdFrameType } from '@talchain/schemas';
 
 // Import CEE types for factor enrichments
 import type { FactorEnrichment } from '../cee/types.js';
+// Type-only: `crown-eligibility.ts` imports nothing, so no cycle is created.
+import type { CrownCompliance } from '../routes/v2/crown-eligibility.js';
 import type { RangeSource } from '../lib/intervention-normaliser.js';
 import type { M1Coaching } from '../coaching/types.js';
 import type { M1Review } from '../cee/validation/m1-review-types.js';
@@ -2877,8 +2879,12 @@ export interface RobustnessAssessmentV3 {
   /** Normalization errors if any (for observability) */
   normalization_errors?: Array<{ edge_type: string; error: string; raw_value?: unknown }>;
   /**
-   * Recommended option ID derived from argmax(win_probability).
+   * Recommended option ID derived from argmax(win_probability) over the options
+   * ELIGIBLE to be crowned — ISL-status candidates that are additionally
+   * permitted by the user's stated constraints (see `crown-eligibility.ts`).
    * Tie-breaker: lexicographic sort on option_id when win_probability within epsilon (1e-9).
+   * ABSENT when no option is eligible; `recommended_option_compliance` then
+   * carries `no_eligible_option` and says why.
    */
   recommended_option_id?: string;
   /**
@@ -2886,6 +2892,19 @@ export interface RobustnessAssessmentV3 {
    * Fallback chain: graph node label → option_comparison label → option_id.
    */
   recommended_option_label?: string;
+  /**
+   * Producer-owned compliance verdict for the crown, against the user's stated
+   * limits. Emitted on every run that reaches a response — including when the
+   * crown is WITHHELD, which is the case it exists for. Never binarises an
+   * interior probability: ISL publishes no satisfied/breached threshold, so
+   * anything strictly between 0 and 1 reports `uncertain`.
+   */
+  recommended_option_compliance?: CrownCompliance;
+  /**
+   * Claim-safe producer phrase for `recommended_option_compliance` — one short
+   * sentence, no numbers, nothing a consumer could re-derive a statistic from.
+   */
+  recommended_option_compliance_reason?: string;
   /**
    * Near-tie detection when top options are statistically equivalent.
    * Present when option_comparison is computed with valid win_probability values.

@@ -402,6 +402,8 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "recommendation_confidence",
   "recommendation_stability",
   "recommendations",
+  "recommended_option_compliance",
+  "recommended_option_compliance_reason",
   "recommended_option_id",
   "recommended_option_label",
   "refusal",
