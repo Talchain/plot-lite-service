@@ -87,7 +87,9 @@ export interface CrownCandidateFacts {
  *  - `compliant`          every participating constraint satisfied in every draw
  *  - `uncertain`          satisfaction is partial — reported, never binarised
  *  - `unverified`         the scale is not decision-grade; no claim either way
- *  - `not_assessed`       constraints were stated but carry no evaluated probability
+ *  - `not_assessed`       limits were stated but not fully evaluated — either
+ *                         none carry a probability, or PLoT WITHHELD one before
+ *                         it reached the engine (a temporal drop, a refusal)
  *  - `no_eligible_option` every option breaches; the crown is withheld
  */
 export type CrownCompliance =
@@ -108,7 +110,7 @@ export const CROWN_COMPLIANCE_REASONS: Record<CrownCompliance, string> = {
   compliant: 'this option met every limit you set, in all the scenarios we tested',
   uncertain: 'this option met your limits in some scenarios but not others',
   unverified: 'we could not check this option against your limits on a reliable scale',
-  not_assessed: 'your limits were not evaluated on this run',
+  not_assessed: 'your limits were not fully evaluated on this run',
   no_eligible_option: 'no option met the limits you set, so none is being recommended',
 };
 
@@ -158,9 +160,26 @@ export function isCrownPermittedByConstraints(facts: CrownCandidateFacts): boole
  */
 export function classifyCrownCompliance(
   facts: CrownCandidateFacts | undefined,
-  constraintsStated: boolean,
+  activeConstraintCount: number,
+  withheldConstraintCount: number,
   anyCandidate: boolean,
 ): CrownCompliance {
+  // ⭐ "WERE LIMITS STATED?" IS ANSWERED HERE, ONCE, AND FROM BOTH HALVES.
+  //
+  // The active list is POST-FILTER: PLoT empties it when every constraint was
+  // temporal-dropped or refused before reaching ISL. Reading only that list
+  // made a run where the user said "we must ship by March" report
+  // `not_applicable` — "no limits were set for this decision" — in the SAME
+  // payload that recorded dropping it in `_meta.filtered_constraints`, while
+  // crowning a leader with no caveat. That is materially false output about
+  // the user's own stated constraints.
+  //
+  // `buildConstraintFields` had already solved this 1,100 lines up with
+  // `withheldConstraintCount`, quoting the same doctrine clause this module's
+  // header quotes. Two predicates answering one question is trap 21; this
+  // consumes the existing one rather than minting a rival.
+  const constraintsStated = activeConstraintCount > 0 || withheldConstraintCount > 0;
+
   // 1. No limits were set ⇒ nothing to say, and the common case must not regress.
   if (!constraintsStated) return 'not_applicable';
 
@@ -169,13 +188,10 @@ export function classifyCrownCompliance(
     return anyCandidate ? 'no_eligible_option' : 'not_assessed';
   }
 
-  // 3. Untrustworthy scale ⇒ no claim in EITHER direction (unknown stays unknown).
-  //    Ordered ABOVE the probability rungs deliberately: a probability computed
-  //    against a scale we do not trust is not evidence of compliance, however
-  //    clean it looks.
-  if (facts.constraints_decision_grade !== true) return 'unverified';
-
-  // 4. Limits stated but nothing evaluated ⇒ absence, never zero.
+  // 3. Limits stated but nothing evaluated ⇒ absence, never zero. Ordered
+  //    ABOVE the trust rung: "we did not evaluate your limits" is more precise
+  //    than "we could not evaluate them on a reliable scale" when there is no
+  //    evaluation at all.
   const probs = facts.constraint_probabilities;
   if (probs === undefined) return 'not_assessed';
   const values = Object.values(probs).filter(
@@ -183,10 +199,21 @@ export function classifyCrownCompliance(
   );
   if (values.length === 0) return 'not_assessed';
 
-  // 5. Satisfied in every draw, on a trusted scale.
+  // 4. A limit was stated and WITHHELD before it reached the engine. Whatever
+  //    the surviving constraints say, `compliant` — "met EVERY limit you set" —
+  //    would be false, because one of them was never checked. Downgraded rather
+  //    than suppressed: the run still crowns and still says why.
+  if (withheldConstraintCount > 0) return 'not_assessed';
+
+  // 5. Untrustworthy scale ⇒ no claim in EITHER direction (unknown stays
+  //    unknown). A probability computed against a scale we do not trust is not
+  //    evidence of compliance, however clean it looks.
+  if (facts.constraints_decision_grade !== true) return 'unverified';
+
+  // 6. Satisfied in every draw, on a trusted scale, with nothing withheld.
   if (values.every((p) => p === 1)) return 'compliant';
 
-  // 6. Anything else is partial. NOT binarised — ISL publishes no threshold and
+  // 7. Anything else is partial. NOT binarised — ISL publishes no threshold and
   //    this module refuses to mint one.
   return 'uncertain';
 }
