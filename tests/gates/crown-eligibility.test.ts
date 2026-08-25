@@ -382,6 +382,89 @@ describe('crown eligibility consumes the constraint verdict', () => {
   });
 
   // -------------------------------------------------------------------
+  // RUNG 4 — the line that implements this PR's headline decision, and which
+  // was completely unpinned. Deleting it left both gate files 19/19 GREEN.
+  //
+  // The BLOCKER test above cannot see it: that run withholds the ONLY
+  // constraint, so it reaches `not_assessed` via rung 3 (no probabilities at
+  // all) and never touches rung 4. This case keeps ONE constraint alive and
+  // SATISFIED while a second is dropped — the only shape that reaches rung 4.
+  // Measured with rung 4 deleted: `compliant`, reason "this option met every
+  // limit you set, in all the scenarios we tested", while a limit lay dropped
+  // in `_meta.filtered_constraints`. The identical falsehood class this PR
+  // exists to close, one rung down.
+  // -------------------------------------------------------------------
+  it('a SURVIVING satisfied limit alongside a DROPPED one is never "compliant" (rung 4)', async () => {
+    const body = await run({
+      graph: { nodes: CAP_NODES, edges: CAP_EDGES },
+      options: UNDER_FIRST, goal_node_id: 'goal', seed: '42',
+      goal_constraints: [
+        { constraint_id: 'c_cap', node_id: 'cost', operator: '<=', value: 50000 },
+        {
+          // On the GOAL node — 'achieve the goal within 6 months'. A deadline on
+          // 'cost' would share the (node_id, operator) pair with c_cap and the
+          // two would resolve to one another, silently making this a
+          // single-constraint fixture.
+          constraint_id: 'c_deadline', node_id: 'goal', operator: '<=', value: 6,
+          unit: 'months', deadline_metadata: { horizon_months: 6 },
+        },
+      ],
+    });
+
+    // PRECONDITIONS PINNED IN-TEST — this must reach rung 4, not rung 3 or 5.
+    // One constraint was DROPPED …
+    const filtered = (body._meta?.filtered_constraints ?? []).map((f: any) => f.constraint_id);
+    expect(filtered).toContain('c_deadline');
+    // … and the OTHER survived, was evaluated, is SATISFIED, and is trusted —
+    // so without rung 4 this run would satisfy every condition for `compliant`.
+    const under = optionEntry(body, 'opt_under');
+    expect(under.constraints_decision_grade).toBe(true);
+    expect(under.constraint_probabilities.c_cap).toBe(1);
+    expect(Object.keys(under.constraint_probabilities)).not.toContain('c_deadline');
+
+    // THE PIN.
+    expect(body.robustness.recommended_option_compliance).toBe('not_assessed');
+    expect(body.robustness.recommended_option_compliance)
+      .not.toBe('compliant');
+    expect(body.robustness.recommended_option_compliance_reason)
+      .toBe(CROWN_COMPLIANCE_REASONS.not_assessed);
+    // Not a dead end: the crown still stands, with the caveat beside it.
+    expect(body.robustness.recommended_option_id).toBe('opt_under');
+  });
+
+  // -------------------------------------------------------------------
+  // RUNG 4's BREADTH, pinned as DECIDED rather than left to drift. It
+  // deliberately outranks the disclosure rungs, so a dropped limit leads even
+  // when a surviving limit is only PARTLY satisfied.
+  // -------------------------------------------------------------------
+  it('a DROPPED limit outranks a PARTIAL one — the caveat leads (rung 4 above rung 7)', async () => {
+    PROB_OVERRIDE.set('opt_under::c_cap', 0.4);
+    const body = await run({
+      graph: { nodes: CAP_NODES, edges: CAP_EDGES },
+      options: UNDER_FIRST, goal_node_id: 'goal', seed: '42',
+      goal_constraints: [
+        { constraint_id: 'c_cap', node_id: 'cost', operator: '<=', value: 50000 },
+        {
+          // On the GOAL node — 'achieve the goal within 6 months'. A deadline on
+          // 'cost' would share the (node_id, operator) pair with c_cap and the
+          // two would resolve to one another, silently making this a
+          // single-constraint fixture.
+          constraint_id: 'c_deadline', node_id: 'goal', operator: '<=', value: 6,
+          unit: 'months', deadline_metadata: { horizon_months: 6 },
+        },
+      ],
+    });
+    // PRECONDITION: the surviving constraint really is PARTIAL, so this run
+    // would otherwise be `uncertain` — the cell that discriminates the ordering.
+    const under = optionEntry(body, 'opt_under');
+    expect(under.constraint_probabilities.c_cap).toBeCloseTo(0.4, 10);
+    expect((body._meta?.filtered_constraints ?? []).map((f: any) => f.constraint_id))
+      .toContain('c_deadline');
+
+    expect(body.robustness.recommended_option_compliance).toBe('not_assessed');
+  });
+
+  // -------------------------------------------------------------------
   // THE QUANTIFIER on the most load-bearing user-facing claim in this PR.
   // `compliant` says "met EVERY limit"; a corpus with only single-constraint
   // cases cannot tell `every` from `some`.
