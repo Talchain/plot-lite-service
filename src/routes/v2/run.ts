@@ -185,6 +185,7 @@ import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import {
   isCrownPermittedByConstraints,
   classifyCrownCompliance,
+  isUserStatedLimit,
   CROWN_COMPLIANCE_REASONS,
 } from './crown-eligibility.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
@@ -3601,7 +3602,13 @@ function buildResponse(
           constraint_probabilities: crownedEntry.constraint_probabilities,
           constraints_decision_grade: crownedEntry.constraints_decision_grade,
         },
-    goalConstraints?.length ?? 0,
+    // ⚠ NOT `goalConstraints.length`. That list includes the constraint PLoT
+    // SYNTHESISES for itself when the user supplied none, and every compliance
+    // reason except `not_applicable` speaks of "your limits". Counting the
+    // synthesised target made the product claim things about limits nobody set.
+    // `isUserStatedLimit` owns that distinction; see its docblock for why the
+    // `_internal.source` test is exact rather than heuristic.
+    (goalConstraints ?? []).filter(isUserStatedLimit).length,
     withheldConstraintCount,
     anyCrownableCandidate,
   );

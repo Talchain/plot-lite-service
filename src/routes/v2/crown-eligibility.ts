@@ -71,6 +71,58 @@
  * reason phrases carrying no numbers, and a fail-closed default.
  */
 
+/**
+ * The `_internal.source` value PLoT stamps on the constraint it SYNTHESISES for
+ * itself when the user supplied none (`routes/v2/run.ts` — the `'Goal target'`
+ * constraint derived from `goal_threshold`).
+ *
+ * ⭐ THIS IS AN EXACT DISCRIMINATOR, not a heuristic. Client-supplied
+ * constraints have `_internal` DELETED at ingress — the namespace is
+ * server-private specifically to stop a client spoofing provenance — and this
+ * is the ONLY write of `_internal.source` anywhere in `src/` (swept with
+ * positive and negative controls). So presence means synthesised and absence
+ * means user-stated, which is exactly what `_meta.constraint_sources` already
+ * publishes: "per-ENTRY absence remains the 'not auto-generated' signal".
+ */
+export const AUTO_SYNTHESISED_CONSTRAINT_SOURCE = 'auto_from_goal_threshold';
+
+/**
+ * ⚠ TWO QUESTIONS, KEPT APART (trap 21, and this is its third instance on this
+ * chain).
+ *
+ *   *"Are there constraints to EVALUATE?"* — answered by the constraint list
+ *   itself, and it keeps counting the synthesised target: PLoT really does send
+ *   it to ISL, really does get a probability back, and everything downstream of
+ *   the engine is right to treat it as a constraint.
+ *
+ *   *"Did the USER state a limit?"* — answered HERE, and only here. It is the
+ *   question the COPY depends on, because every reason except `not_applicable`
+ *   speaks of "your limits" or "every limit you set".
+ *
+ * Conflating them let a run where the user set NOTHING report
+ * `unverified` — *"we could not check this option against your limits on a
+ * reliable scale"* — about a limit the product invented for itself. Measured at
+ * the route; and it is the DEFAULT outcome of a synthesised-only run rather
+ * than an edge case, because the synthesised threshold is already in [0,1], so
+ * it forwards raw with range source `default`, which is deliberately outside
+ * DECISION_GRADE_SOURCES.
+ *
+ * This is the SAME predicate defect as the withheld-constraint blocker one
+ * layer along: there `constraintsStated` read a post-filter list and the
+ * product told a user they had set no limits in the very payload recording that
+ * one was dropped. Same shape, opposite direction.
+ */
+export function isUserStatedLimit(constraint: unknown): boolean {
+  // `unknown`, and read defensively, ON PURPOSE. `_internal` is NOT declared on
+  // the public `GoalConstraint` type — it is a server-private namespace, and
+  // that is deliberate (declaring it would invite a client to send one). So the
+  // honest signature is one that does not pretend the field is part of the
+  // contract, rather than an `as any` at every call site.
+  const source = (constraint as { _internal?: { source?: unknown } } | null | undefined)
+    ?._internal?.source;
+  return source !== AUTO_SYNTHESISED_CONSTRAINT_SOURCE;
+}
+
 /** Facts a single option carries at the crown. All optional — absence is honest. */
 export interface CrownCandidateFacts {
   option_id: string;
@@ -160,7 +212,13 @@ export function isCrownPermittedByConstraints(facts: CrownCandidateFacts): boole
  */
 export function classifyCrownCompliance(
   facts: CrownCandidateFacts | undefined,
-  activeConstraintCount: number,
+  /**
+   * Count of constraints the USER stated — synthesised targets EXCLUDED. The
+   * parameter is named for what it must contain, because the previous name
+   * (`activeConstraintCount`) was true of the list it was given and silently
+   * wrong for the question it was answering. See `isUserStatedLimit`.
+   */
+  userStatedConstraintCount: number,
   withheldConstraintCount: number,
   anyCandidate: boolean,
 ): CrownCompliance {
@@ -178,7 +236,11 @@ export function classifyCrownCompliance(
   // `withheldConstraintCount`, quoting the same doctrine clause this module's
   // header quotes. Two predicates answering one question is trap 21; this
   // consumes the existing one rather than minting a rival.
-  const constraintsStated = activeConstraintCount > 0 || withheldConstraintCount > 0;
+  // Withheld constraints are counted here too, and they are always USER ones:
+  // the synthesised target carries no `deadline_metadata` and no `unit`, so
+  // neither temporal drop rule can match it, and 2.1023 has it UNSTAMP rather
+  // than refuse — so it never files a `_meta.filtered_constraints` record.
+  const constraintsStated = userStatedConstraintCount > 0 || withheldConstraintCount > 0;
 
   // 1. No limits were set ⇒ nothing to say, and the common case must not regress.
   if (!constraintsStated) return 'not_applicable';
