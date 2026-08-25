@@ -214,14 +214,25 @@ const SYNTH_OPTS = [
   { id: 'opt_b', label: 'B', interventions: { cost: 90000 } },
 ];
 
-/** Every reason that speaks of limits the USER authored. */
-const USER_AUTHORED_REASONS = [
-  CROWN_COMPLIANCE_REASONS.compliant,
-  CROWN_COMPLIANCE_REASONS.uncertain,
-  CROWN_COMPLIANCE_REASONS.unverified,
-  CROWN_COMPLIANCE_REASONS.not_assessed,
-  CROWN_COMPLIANCE_REASONS.no_eligible_option,
-];
+/**
+ * Every reason that speaks of limits the USER authored — DERIVED from the
+ * production map, never hand-listed.
+ *
+ * ⚠ THIS WAS A HAND-WRITTEN ARRAY OF FIVE LITERALS, which is the
+ * hand-maintained-mirror defect sitting INSIDE the guard written to prevent a
+ * class defect. A seventh reason would not have been added to it and the list
+ * would have gone short silently — the guard would have kept passing while
+ * covering less.
+ *
+ * Deriving it also makes the assertion below honest about its own worth. The
+ * class is protected by the `toBe('not_applicable')` value pin, not by this:
+ * `CROWN_COMPLIANCE_REASONS` is `Record<CrownCompliance, string>`, so the
+ * product map is total BY TYPE and a new member cannot be forgotten there. Only
+ * the test's copy could go short — so the copy is the thing that had to go.
+ */
+const USER_AUTHORED_REASONS = Object.entries(CROWN_COMPLIANCE_REASONS)
+  .filter(([verdict]) => verdict !== 'not_applicable')
+  .map(([, phrase]) => phrase);
 
 describe('the auto-synthesised Goal target is not a limit the user set', () => {
   let app: FastifyInstance;
