@@ -174,6 +174,18 @@ export interface BriefBandedHeadline {
 }
 
 export interface BriefDefaultedAssumption {
+  /**
+   * Stable join key for factor-scoped disclosures — the producer's own
+   * `factor_sensitivity[*].factor_id`. ABSENT on run-level disclosures, which
+   * have no factor to join to (an invented id there would be a fabricated
+   * join target).
+   *
+   * Emitted so a consumer can bind a row to a graph node BY ID rather than by
+   * `factor_label`, a join that breaks on rename, on duplicate labels, and on
+   * every label a consumer's raw-identifier guard withholds — including the
+   * id-shaped labels this producer's own no-label fallback emits below.
+   */
+  factor_id?: string;
   /** Factor label when the disclosure is factor-scoped; null for run-level disclosures */
   factor_label: string | null;
   /** provisional_doctrine_v0 wording (factor-scoped) or verbatim warning echo (run-level) */

@@ -508,6 +508,29 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //                                   did not change); only this content hash
     //                                   moves, which is the correct direction
     //                                   for an additive surface change.)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:742449aa4074527d');
+    //  join-   rch_v2:bd87f4af4460baf4 (JOIN KEY: `decision_brief`
+    //  key                              `.defaulted_assumptions[]` factor-scoped
+    //                                   rows now carry `factor_id`, the
+    //                                   producer's own id — already in scope in
+    //                                   the emitting loop and already used as
+    //                                   the label fallback, then dropped. A
+    //                                   consumer previously had to join a row to
+    //                                   a graph node BY LABEL, which breaks on
+    //                                   rename, on duplicate labels, and on
+    //                                   every label a consumer's raw-identifier
+    //                                   guard withholds. The golden diff on this
+    //                                   fixture is EXACTLY one appended key on
+    //                                   one row (`fac_team_maturity`) plus this
+    //                                   derived hash — verified by regenerating
+    //                                   against the pristine golden and
+    //                                   diffing. Run-level `default_disclosure`
+    //                                   rows deliberately do NOT gain the key:
+    //                                   they have no factor, and an invented id
+    //                                   there would be a fabricated join target.
+    //                                   `response_hash` is UNMOVED (the REQUEST
+    //                                   did not change) and no option row,
+    //                                   probability, factor entry or label
+    //                                   moved.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:bd87f4af4460baf4');
   });
 });

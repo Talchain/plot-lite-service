@@ -682,6 +682,11 @@ function buildDefaultedAssumptions(input: BriefAssemblyInput): BriefDefaultedAss
   for (const f of factors) {
     const label = f.factor_label?.trim() || f.factor_id;
     out.push({
+      // Stable join key — additive. `label` may FALL BACK to this same id
+      // above, which is precisely why the id also travels in its own field: a
+      // consumer can then tell "this label IS the id" from "this label is a
+      // real name", instead of guessing from the string's shape.
+      factor_id: f.factor_id,
       factor_label: label,
       // provisional_doctrine_v0
       note: `No starting value was provided for "${label}" — the analysis used a default. Setting a real value or range would make this result more trustworthy.`,

@@ -1296,6 +1296,7 @@
     },
     "defaulted_assumptions": [
       {
+        "factor_id": "fac_team_maturity",
         "factor_label": "Team Technical Maturity",
         "note": "No starting value was provided for \"Team Technical Maturity\" — the analysis used a default. Setting a real value or range would make this result more trustworthy.",
         "source": "value_defaulted",
@@ -1618,7 +1619,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:742449aa4074527d"
+    "response_content_hash": "rch_v2:bd87f4af4460baf4"
   },
   "meta": {
     "seed_used": "2034401427",
