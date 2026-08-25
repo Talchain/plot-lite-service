@@ -31,7 +31,10 @@
 
 import { describe, it, expect } from 'vitest';
 
-import { normaliseGoalConstraints } from '../../src/lib/intervention-normaliser.js';
+import {
+  normaliseGoalConstraints,
+  deriveClampDirection,
+} from '../../src/lib/intervention-normaliser.js';
 import { buildConstraintScaleProvenance } from '../../src/routes/v2/run.js';
 import type { GoalConstraint, EngineNodeV3 } from '../../src/types/engine-v3.js';
 
@@ -56,13 +59,22 @@ function chain(c: GoalConstraint, e: ReturnType<typeof extras>) {
   const provenance = buildConstraintScaleProvenance(
     [c],
     new Map(res.diagnostics.map((d) => [d.constraint_id, d.range])),
+    // ⚠ USES THE PRODUCTION DERIVATION, and must never re-implement it. An
+    // earlier version of this helper wrote its own ternary that collapsed the
+    // INDETERMINATE case into 'high', which made the test oracle MORE
+    // protective than production: a near-boundary stamp read
+    // `decision_grade: false` here while the route shipped `true`. A
+    // self-authored oracle certifying a cell it does not exercise is the
+    // defect this whole file exists to catch, one level up.
     new Map(
       res.diagnostics
         .filter((d) => d.clamped)
-        .map((d) => [
-          d.constraint_id,
-          (d.normalised_value <= 0 ? 'low' : 'high') as 'low' | 'high',
-        ]),
+        .flatMap((d) => {
+          const direction = deriveClampDirection(d.normalised_value);
+          return direction === undefined
+            ? []
+            : [[d.constraint_id, direction] as [string, 'low' | 'high']];
+        }),
     ),
     new Map(res.diagnostics.map((d) => [d.constraint_id, d.range_unified])),
     undefined,
@@ -203,6 +215,53 @@ describe('clamp erasure via goal-threshold correspondence', () => {
   // decision-grade" would wrongly RED this; a fix written against the CLAMP
   // passes it.
   // ---------------------------------------------------------------------
+
+  // -------------------------------------------------------------------
+  // THE LEDGE BESIDE THE WALL. Preserving `clamped` is not enough on its own:
+  // production derives the clamp DIRECTION from `normalised_value`, so a stamp
+  // that overwrites that value with something strictly inside (0,1) leaves
+  // `clamped: true` carrying a value that is NOT at an endpoint. The direction
+  // then reads INDETERMINATE, `threshold_clamped` is omitted, and
+  // `decision_grade` goes true — the pre-fix outcome, reached by a different
+  // road.
+  //
+  // ⭐ REACHABLE BY ORDINARY PHRASING, not contrived: CEE performs no rounding
+  // or quantisation on this path, so "reach 99.95% retention" against a cap of
+  // 100 mints `goal_threshold: 0.9995`, and even "99.9%" lands strictly inside
+  // the interval as 0.9990000000000001 through float. The correspondence
+  // tolerance is 1e-3, so 0.9995 sits inside it.
+  // -------------------------------------------------------------------
+
+  it('NEAR-BOUNDARY stamp (0.9995) must NOT launder a clamp — the ledge beside the wall', () => {
+    const c = constraint(50000);
+    const { diag, provenance } = chain(
+      c,
+      extras({ goal_threshold_cap: 20000, goal_threshold: 0.9995 }),
+    );
+
+    expect(diag.constraint_id).toBe('c_cap');
+    expect(diag.original_value).toBe(50000);
+    // PRECONDITION PINNED IN-TEST: the raw value really does clamp here, and
+    // the stamp really is inside the correspondence tolerance of the clamped
+    // value — so this exercises the adoption branch, not some other path.
+    expect(diag.clamped).toBe(true);
+    expect(Math.abs(1.0 - 0.9995)).toBeLessThanOrEqual(1e-3);
+
+    // THE PIN: a clamped threshold discloses its direction and is never graded.
+    expect(provenance.threshold_clamped).toBe('high');
+    expect(provenance.decision_grade).toBe(false);
+  });
+
+  it('NEAR-BOUNDARY stamp at the FLOOR (0.0005) — same rule, opposite direction', () => {
+    const c = constraint(-15000, '>=');
+    const { diag, provenance } = chain(
+      c,
+      extras({ goal_threshold_cap: 100000, goal_threshold: 0.0005 }),
+    );
+    expect(diag.clamped).toBe(true);
+    expect(provenance.threshold_clamped).toBe('low');
+    expect(provenance.decision_grade).toBe(false);
+  });
 
   it('EXACT-CEILING value (representable, NOT clamped) with a 1.0 stamp REMAINS decision-grade', () => {
     // 50000 / 50000 = 1.0 exactly. raw === 1, so `raw > 1` is false: no clamp.

@@ -198,6 +198,7 @@ import {
   constraintsNeedNormalisation,
   constraintsHavePercentPointValue,
   isIdentityRange,
+  deriveClampDirection,
   type NormalisationContext,
   type NormalisationDiagnostic,
   type NormalisationRange,
@@ -6926,7 +6927,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 constraintUnitMismatchByCid.set(d.constraint_id, d.unit_mismatch);
               }
               if (!d.clamped) continue;
-              const direction = d.normalised_value <= 0 ? 'low' : d.normalised_value >= 1 ? 'high' : undefined;
+              const direction = deriveClampDirection(d.normalised_value);
               if (direction === undefined) continue;
               constraintThresholdClampByConstraintId.set(d.constraint_id, direction);
             }
@@ -8910,7 +8911,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             optionDiagnosedFactors.set(d.option_id, diagnosed);
           }
           if (d.clamped) {
-            const direction = d.normalised_value >= 1 ? 'high' : d.normalised_value <= 0 ? 'low' : undefined;
+            const direction = deriveClampDirection(d.normalised_value);
             if (direction === undefined) {
               // Degenerate clamp (zero-width range path) with an interior
               // normalised value: direction is indeterminate. Record NEITHER a
