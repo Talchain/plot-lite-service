@@ -2907,7 +2907,17 @@ export interface RobustnessAssessmentV3 {
   recommended_option_compliance_reason?: string;
   /**
    * Near-tie detection when top options are statistically equivalent.
-   * Present when option_comparison is computed with valid win_probability values.
+   * Present when option_comparison is computed with valid win_probability
+   * values — EXCEPT when `recommended_option_compliance` is
+   * `no_eligible_option`, where it is deliberately WITHHELD.
+   *
+   * ⚠ THE EXCEPTION IS THE POINT, and it was registered in
+   * `contracts/isl-to-ui.contract.ts` while this docstring — the one a TS
+   * consumer actually sees on hover — still claimed unconditional presence.
+   * Two declarations of one fact, one updated, is the drift this estate keeps
+   * paying for. `near_tie` carries `top_option_id`, a second leader-ish
+   * identifier; emitting it beside "no option met the limits you set" would be
+   * the same payload asserting and denying a leader.
    */
   near_tie?: NearTieInfoV3;
   /**

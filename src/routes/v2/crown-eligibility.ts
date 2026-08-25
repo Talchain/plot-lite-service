@@ -110,7 +110,7 @@ export const CROWN_COMPLIANCE_REASONS: Record<CrownCompliance, string> = {
   compliant: 'this option met every limit you set, in all the scenarios we tested',
   uncertain: 'this option met your limits in some scenarios but not others',
   unverified: 'we could not check this option against your limits on a reliable scale',
-  not_assessed: 'your limits were not fully evaluated on this run',
+  not_assessed: 'we could not check every limit you set on this run',
   no_eligible_option: 'no option met the limits you set, so none is being recommended',
 };
 
@@ -199,10 +199,26 @@ export function classifyCrownCompliance(
   );
   if (values.length === 0) return 'not_assessed';
 
-  // 4. A limit was stated and WITHHELD before it reached the engine. Whatever
-  //    the surviving constraints say, `compliant` — "met EVERY limit you set" —
-  //    would be false, because one of them was never checked. Downgraded rather
-  //    than suppressed: the run still crowns and still says why.
+  // 4. A limit was stated and WITHHELD before it reached the engine.
+  //
+  // ⭐ DECIDED: THIS DELIBERATELY OUTRANKS THE DISCLOSURE RUNGS (5-7), not just
+  // `compliant`. An earlier comment here said it "blocks `compliant`" while the
+  // code blocked `uncertain` and `unverified` too — code and stated rule
+  // disagreeing is exactly how a later reader "restores" one of them, so the
+  // rule is now written to match the placement.
+  //
+  // WHY THIS WAY ROUND. This field is a SINGLE-LINE verdict on the crown. When
+  // one of the user's limits never reached the engine, the most useful thing to
+  // say is that we could not check them all — that outranks "the ones we did
+  // check were partly met", because a user who is told `uncertain` reasonably
+  // believes every limit they stated was evaluated. It is also the fail-closed
+  // direction, and it is the ratified eligibility doctrine's third clause: *if
+  // compliance cannot be evaluated, say so and name what is missing.*
+  //
+  // NOTHING IS LOST BY IT. The partial detail survives per-constraint in
+  // `constraint_probabilities`, and the drop is named in
+  // `_meta.filtered_constraints`. This rung decides only which single sentence
+  // leads.
   if (withheldConstraintCount > 0) return 'not_assessed';
 
   // 5. Untrustworthy scale ⇒ no claim in EITHER direction (unknown stays
