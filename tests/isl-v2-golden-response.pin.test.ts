@@ -489,6 +489,25 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //                                   fixture's 0.59025 sits mid-band, so it
     //                                   carries no readiness_signals stability
     //                                   entry to change.)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:5876bbda16001f63');
+    //  crown-  rch_v2:742449aa4074527d (CROWN ELIGIBILITY, step 5: the crown now
+    //  elig                             carries a producer-owned compliance
+    //                                   verdict against the user's stated
+    //                                   limits. The golden diff on THIS fixture
+    //                                   is EXACTLY two appended keys on
+    //                                   `robustness` —
+    //                                   `recommended_option_compliance` and its
+    //                                   `_reason` — plus this derived hash.
+    //                                   ⭐ THE VALUE HERE IS `not_applicable`,
+    //                                   AND THAT IS THE POINT: this capture
+    //                                   states NO goal constraints, so the
+    //                                   common case is pinned unchanged on a
+    //                                   REAL captured payload — the crown, every
+    //                                   option row, every probability and the
+    //                                   near-tie verdict are all untouched.
+    //                                   `response_hash` is UNMOVED (the REQUEST
+    //                                   did not change); only this content hash
+    //                                   moves, which is the correct direction
+    //                                   for an additive surface change.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:742449aa4074527d');
   });
 });

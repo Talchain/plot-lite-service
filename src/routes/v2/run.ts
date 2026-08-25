@@ -182,6 +182,11 @@ import {
   type UnreliableConstraintTarget,
 } from '../../lib/constraint-reliability.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
+import {
+  isCrownPermittedByConstraints,
+  classifyCrownCompliance,
+  CROWN_COMPLIANCE_REASONS,
+} from './crown-eligibility.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
 import { classifyEdgeSeverity, deriveFragileEdgeVisible } from '../../trust/edge-severity.js';
 import { deriveMarginPrecision } from '../../trust/margin-precision.js';
@@ -2111,7 +2116,14 @@ export function computeNearTie(
  * @public Exported for unit testing
  */
 export function deriveRecommendedOption(
-  optionComparison: Array<{ option_id: string; option_label?: string; win_probability?: number; status?: string }> | undefined,
+  optionComparison: Array<{
+    option_id: string;
+    option_label?: string;
+    win_probability?: number;
+    status?: string;
+    constraint_probabilities?: Record<string, number>;
+    constraints_decision_grade?: boolean;
+  }> | undefined,
   options: OptionV3[] | undefined
 ): { recommended_option_id: string; recommended_option_label: string } | undefined {
   if (!optionComparison || optionComparison.length === 0) {
@@ -2125,14 +2137,40 @@ export function deriveRecommendedOption(
     return undefined;
   }
 
-  // Find max win_probability
-  const maxWinProbability = Math.max(...validOptions.map((o) => o.win_probability!));
+  // STEP 5 — ELIGIBILITY CONSUMES THE CONSTRAINT VERDICT.
+  //
+  // A SECOND filter, deliberately NOT folded into `isCrownableCandidate`.
+  // That predicate answers *"did ISL compute a usable result?"* and is SHARED
+  // with `computeNearTie` so the two cannot drift; this one answers *"is this
+  // option permitted to be badged as leading, given the user's stated
+  // limits?"*. Two questions under one name is the defect trap 21 describes —
+  // and merging them would silently change near-tie, which has no business
+  // consulting constraint compliance (it asks only whether two win
+  // probabilities are close).
+  //
+  // An option is removed ONLY when the scale is trustworthy AND some
+  // constraint was satisfied in no sampled draw. See `crown-eligibility.ts`
+  // for why `prob_satisfied === 0` is the one place binarisation is
+  // legitimate, and why `binding` must never be read as a breach flag.
+  const permittedOptions = validOptions.filter(isCrownPermittedByConstraints);
+
+  // Every candidate breaches ⇒ there is no eligible leader. The crown is
+  // WITHHELD rather than handed to the least-bad breach — but the route emits
+  // `no_eligible_option` alongside, so this is a statement, not a silence.
+  if (permittedOptions.length === 0) {
+    return undefined;
+  }
+
+  // Find max win_probability — over the PERMITTED set. Using `validOptions`
+  // here would compute the crown from an option the eligibility filter has
+  // just excluded, which is the whole defect wearing a different shape.
+  const maxWinProbability = Math.max(...permittedOptions.map((o) => o.win_probability!));
 
   // Epsilon for floating point comparison (1e-9 as specified)
   const EPSILON = 1e-9;
 
   // Find all options within epsilon of max (potential ties)
-  const topOptions = validOptions.filter(
+  const topOptions = permittedOptions.filter(
     (o) => Math.abs(o.win_probability! - maxWinProbability) < EPSILON
   );
 
@@ -2149,6 +2187,12 @@ export function deriveRecommendedOption(
   const graphOption = options?.find((o) => o.id === winnerId);
   const winnerLabel = graphOption?.label ?? winner.option_label ?? winnerId;
 
+  // RETURN SHAPE DELIBERATELY UNCHANGED. The crowned option's constraint facts
+  // are NOT threaded back through here — the route already holds
+  // `optionComparison` and looks the winner up by id. Widening this return
+  // would have broken three existing unit pins for no gain, and a second
+  // carrier for facts that already exist one scope up is the kind of parallel
+  // structure that later drifts from its source.
   return {
     recommended_option_id: winnerId,
     recommended_option_label: winnerLabel,
@@ -3528,9 +3572,60 @@ function buildResponse(
     robustness.recommended_option_label = recommendedOption.recommended_option_label;
   }
 
+  // STEP 5 — the crown's COMPLIANCE VERDICT travels with it (or with its
+  // absence). Emitted UNCONDITIONALLY so that a withheld crown is a statement
+  // rather than a silence: `no_eligible_option` is the one disclosure that
+  // distinguishes "every option breaches your limits" from "this run produced
+  // no comparison at all", which are otherwise byte-identical to a consumer
+  // reading only `recommended_option_id`.
+  //
+  // `anyCandidate` is derived from the SAME shared status predicate the crown
+  // uses, so the two can never disagree about what a candidate is.
+  const anyCrownableCandidate = (optionComparison ?? []).some(isCrownableCandidate);
+  const crownedEntry = recommendedOption
+    ? (optionComparison ?? []).find(
+        (o: { option_id: string }) => o.option_id === recommendedOption.recommended_option_id,
+      )
+    : undefined;
+  // DERIVED from the records the route already assembled — the SAME expression
+  // `buildConstraintFields` consumes below, not a second count that can drift
+  // from it. `_meta.filtered_constraints` is "constraints that did not reach
+  // the engine, and why", so any producer that files a record is counted the
+  // moment it files one.
+  const withheldConstraintCount = (meta.filteredConstraints ?? []).length;
+  const crownCompliance = classifyCrownCompliance(
+    crownedEntry === undefined
+      ? undefined
+      : {
+          option_id: crownedEntry.option_id,
+          constraint_probabilities: crownedEntry.constraint_probabilities,
+          constraints_decision_grade: crownedEntry.constraints_decision_grade,
+        },
+    goalConstraints?.length ?? 0,
+    withheldConstraintCount,
+    anyCrownableCandidate,
+  );
+  robustness.recommended_option_compliance = crownCompliance;
+  robustness.recommended_option_compliance_reason = CROWN_COMPLIANCE_REASONS[crownCompliance];
+
   // Compute near-tie detection (after optionComparison is built)
+  //
+  // ⚠ WITHHELD ON `no_eligible_option`, AND ONLY THERE. `near_tie` answers a
+  // different question from the crown — *are the top two close on
+  // win_probability?* — and it keeps consuming the ISL-status predicate alone,
+  // exactly as `isCrownableCandidate`'s contract requires. But it carries
+  // `top_option_id`, a SECOND leader-ish identifier, and a UI could render it
+  // as precisely the badge the crown has just refused to award. Shipping
+  // `is_tie: true, top_option_id: opt_over` beside "no option met the limits
+  // you set" is the same payload asserting and denying a leader.
+  //
+  // Withheld rather than recomputed over the eligible set: when NO option is
+  // eligible there is no set to compute a tie over, so absence is the honest
+  // answer and not a suppression of something we know. Every other state —
+  // including `unverified` and `uncertain`, where the crown stands — keeps
+  // near-tie unchanged.
   const nearTie = computeNearTie(optionComparison);
-  if (nearTie) {
+  if (nearTie && crownCompliance !== 'no_eligible_option') {
     robustness.near_tie = nearTie;
   }
 
@@ -4022,7 +4117,7 @@ function buildResponse(
       //
       // The honest predicate is therefore "did a producer THAT FILES A RECORD
       // remove them?", not "did constraints arrive and none reach the engine?".
-      (meta.filteredConstraints ?? []).length,
+      withheldConstraintCount,
     ),
 
     // Auto-noise disclosure (audit B3, P0). `auto_noise_applied` echoes

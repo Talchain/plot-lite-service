@@ -272,7 +272,29 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     'auto_noise_provenance',             // B (tier-B): analysis-level typed disclosure object {applied, effect, formula_version, multiplier, noise_distribution, filter_scope, is_provisional, calibration_status} — audit B3
     'recommended_option_id',
     'recommended_option_label',
-    'near_tie',
+    // CROWN ELIGIBILITY (step 5): the crown is derived over options ELIGIBLE to
+    // be crowned — ISL-status candidates additionally permitted by the user's
+    // stated limits — so `recommended_option_id` is ABSENT when none qualifies.
+    // Absence was already a supported state (no finite win_probability), but it
+    // now has a SECOND cause, and that cause has a name on the wire.
+    'robustness.recommended_option_compliance',        // enum: not_applicable | compliant | uncertain | unverified | not_assessed | no_eligible_option
+    'robustness.recommended_option_compliance_reason', // claim-safe producer phrase, no numbers — emit verbatim, never re-derive
+    // ⛔ THE CONSUMER OBLIGATION, stated here because a UI reading this file is
+    // the reader it exists for: on `no_eligible_option` there is NO
+    // recommended_option_id, and the UI MUST render the reason ("no option met
+    // the limits you set") rather than an empty leader slot. A blank badge is
+    // indistinguishable from "we did not compute one", which is a different
+    // and much weaker statement than the one the producer is making.
+    // `uncertain` / `unverified` / `not_assessed` DO carry a crown — show it
+    // WITH the reason; they are disclosures, not suppressions.
+    // ⚠ `not_assessed` also covers "you stated a limit and PLoT could not carry
+    // it to the engine" (a temporal deadline, a refused frame) — it does NOT
+    // mean no limits were set. `not_applicable` is the only value that means
+    // that.
+    // ⚠ NEVER BINARISE `uncertain`: ISL publishes no satisfied/breached
+    // threshold, so any cut the UI invents is a claim this producer declines to
+    // make.
+    'near_tie',                          // ⚠ WITHHELD on `no_eligible_option` — it carries `top_option_id`, a second leader-ish identifier, and rendering it there would restore exactly the badge the crown just refused. Present in every other state, unchanged.
     // Lane PLoT-W5 (roadmap Tier 1.6): display-safe robustness verdict — the
     // producer-owned meaning of is_robust/level so the UI never re-derives it.
     // Derived ONLY from is_robust + level (confidence is NEVER an input);
