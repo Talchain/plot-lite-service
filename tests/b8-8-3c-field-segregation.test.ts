@@ -166,10 +166,19 @@ describe('B8-8: 3C field handling in /v2/run response', () => {
     expect(islFactors.length).toBeGreaterThan(0);
 
     for (const factor of islFactors) {
-      expect(typeof factor.elasticity_std).toBe('number');
       expect(['high', 'moderate', 'low', 'negligible']).toContain(factor.attribution_stability);
       expect(typeof factor.rank_flip_rate).toBe('number');
-      expect(typeof factor.stability_method).toBe('string');
+
+      // FactorScience slice 1 (2026-08-26). `confidence_source ===
+      // 'plot_unified_from_isl_bootstrap'` means ISL's bootstrap was an INPUT to
+      // PLoT's confidence formula — it does NOT make this a row on the ISL
+      // basis. Its sensitivity_score/elasticity are still the graph
+      // path-product, so the bootstrap DISPERSION pair may not ride here.
+      // Both remain published on the ISL basis in factor_stability[] — asserted
+      // by 'factor_stability[] DOES contain all 3C stability fields' below,
+      // which is what makes this an absence and not a loss.
+      expect(factor.elasticity_std).toBeUndefined();
+      expect(factor.stability_method).toBeUndefined();
     }
   });
 
@@ -266,9 +275,17 @@ describe('B8-8: 3C field handling in /v2/run response', () => {
       // factor_stability[] surface below is suppressed the same way (lane 2
       // fixup: buildFactorStability zeroes lever elasticity_std in-place;
       // entry presence and the other 3C diagnostics are retained).
-      expect(factor.elasticity_std).toBe(0);
+      // ⚠ SUPERSEDED BY FactorScience slice 1 (2026-08-26): `toBe(0)` above is
+      // no longer the contract. LEVER_SUPPRESSION_FIELDS no longer carries
+      // elasticity_std, because the field no longer rides a graph-basis
+      // factor_sensitivity row at all — so forcing a 0 would have made that set
+      // the ONLY thing putting it back. The original leak (a non-zero variance
+      // statistic of a suppressed elasticity) is closed by ABSENCE, which is
+      // strictly stronger than a zero. factor_stability[] keeps its own lever
+      // zeroing, where the field legitimately belongs.
+      expect(factor.elasticity_std).toBeUndefined();
       expect(factor.rank_flip_rate).toBe(0.08);
-      expect(factor.stability_method).toBe('bootstrap');
+      expect(factor.stability_method).toBeUndefined();
     }
   });
 

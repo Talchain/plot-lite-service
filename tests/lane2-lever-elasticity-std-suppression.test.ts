@@ -62,8 +62,27 @@ function islEntry(id: string, over: Record<string, unknown> = {}): FactorSensiti
   } as unknown as FactorSensitivityResultV3;
 }
 
-describe('LEVER_SUPPRESSION_FIELDS covers elasticity_std (unit, all spread branches)', () => {
-  it('islMatch branch: a union lever with non-zero ISL elasticity_std egresses elasticity_std 0 (the live fac_salary_cost leak)', () => {
+/**
+ * ⚠ SUPERSEDED IN PLACE by FactorScience slice 1 (2026-08-26).
+ *
+ * This half used to assert that LEVER_SUPPRESSION_FIELDS forces
+ * `elasticity_std: 0` on a suppressed lever's factor_sensitivity row. That is no
+ * longer the contract, and the change is a STRENGTHENING, not a relaxation:
+ * `elasticity_std` no longer rides a GRAPH-basis factor_sensitivity row for ANY
+ * factor, lever or not, so the r2 residual R1 leak (live fac_salary_cost
+ * egressing elasticity_std 0.00396846 beside a zeroed elasticity) is closed by
+ * ABSENCE. Keeping a forced 0 would have made LEVER_SUPPRESSION_FIELDS the only
+ * thing putting the field back on the rows slice 1 exists to clean.
+ *
+ * ⭐ WHERE THE DISCRIMINATION WENT. A positive control asserting "the unpinned
+ * factor keeps its value" cannot discriminate on this surface any more — every
+ * row is now undefined here. It has NOT been dropped: the lever-0 vs
+ * unpinned-non-zero pair is asserted on the factor_stability[] surface, in the
+ * two describes at the bottom of this same file, which slice 1 does not touch.
+ * Read those before concluding this file has stopped discriminating.
+ */
+describe('FactorScience slice 1: elasticity_std never rides a factor_sensitivity row (unit, all spread branches)', () => {
+  it('islMatch branch: a union lever with non-zero ISL elasticity_std carries NO elasticity_std (the live fac_salary_cost leak)', () => {
     const [lever] = mergeIslConfidenceIntoGraphFactors(
       [graphFactor('fac_lever')],
       [islEntry('fac_lever', { elasticity_std: 0.00396846 })],
@@ -71,24 +90,24 @@ describe('LEVER_SUPPRESSION_FIELDS covers elasticity_std (unit, all spread branc
       new Set(['fac_lever']),
     );
     expect(lever.zero_reason).toBe('intervention_override');
-    expect(lever.elasticity_std).toBe(0);
-    // the rest of the contract still holds alongside the new field
+    expect(lever.elasticity_std).toBeUndefined();
+    // the rest of the lever suppression contract is unchanged
     expect(lever.sensitivity_score).toBe(0);
     expect(lever.elasticity).toBe(0);
     expect(lever.value_of_information).toBe(0);
   });
 
-  it('islMatch branch: an ISL-STAMPED lever (no union set) with non-zero elasticity_std is also forced to 0', () => {
+  it('islMatch branch: an ISL-STAMPED lever (no union set) with non-zero elasticity_std also carries none', () => {
     const [lever] = mergeIslConfidenceIntoGraphFactors(
       [graphFactor('fac_stamped')],
       [islEntry('fac_stamped', { sensitivity_score: 0, zero_reason: 'intervention_override', elasticity_std: 0.005 })],
       [],
     );
     expect(lever.zero_reason).toBe('intervention_override');
-    expect(lever.elasticity_std).toBe(0);
+    expect(lever.elasticity_std).toBeUndefined();
   });
 
-  it('empty-islFactors branch: a union member carries elasticity_std 0 (key forced, not just absent)', () => {
+  it('empty-islFactors branch: a union member carries no elasticity_std (key absent, not forced to 0)', () => {
     const [lever] = mergeIslConfidenceIntoGraphFactors(
       [graphFactor('fac_union')],
       [],
@@ -96,10 +115,10 @@ describe('LEVER_SUPPRESSION_FIELDS covers elasticity_std (unit, all spread branc
       new Set(['fac_union']),
     );
     expect(lever.zero_reason).toBe('intervention_override');
-    expect(lever.elasticity_std).toBe(0);
+    expect(lever.elasticity_std).toBeUndefined();
   });
 
-  it('no-islMatch branch: a union member absent from a NON-empty ISL set carries elasticity_std 0', () => {
+  it('no-islMatch branch: a union member absent from a NON-empty ISL set carries no elasticity_std', () => {
     const [lever, plain] = mergeIslConfidenceIntoGraphFactors(
       [graphFactor('fac_union'), graphFactor('fac_plain')],
       [islEntry('fac_plain', { elasticity_std: 0.00750934 })],
@@ -107,13 +126,15 @@ describe('LEVER_SUPPRESSION_FIELDS covers elasticity_std (unit, all spread branc
       new Set(['fac_union']),
     );
     expect(lever.zero_reason).toBe('intervention_override');
-    expect(lever.elasticity_std).toBe(0);
+    expect(lever.elasticity_std).toBeUndefined();
     // positive control in the same merge: the unpinned factor keeps its value
     expect(plain.zero_reason ?? null).toBeNull();
-    expect(plain.elasticity_std).toBe(0.00750934);
+    // Slice 1: undefined for the unpinned factor too. The lever/unpinned
+    // discrimination lives on factor_stability[] (bottom of this file).
+    expect(plain.elasticity_std).toBeUndefined();
   });
 
-  it('positive control: an unpinned factor with non-zero ISL elasticity_std is preserved verbatim', () => {
+  it('an UNPINNED factor drops it too — the rule is basis, not lever status', () => {
     const [plain] = mergeIslConfidenceIntoGraphFactors(
       [graphFactor('fac_plain')],
       [islEntry('fac_plain', { elasticity_std: 0.00750934 })],
@@ -121,17 +142,19 @@ describe('LEVER_SUPPRESSION_FIELDS covers elasticity_std (unit, all spread branc
       new Set(['fac_other']),
     );
     expect(plain.zero_reason ?? null).toBeNull();
-    expect(plain.elasticity_std).toBe(0.00750934);
+    expect(plain.elasticity_std).toBeUndefined();
+    // Still discriminating on THIS surface: an unpinned row keeps a real
+    // sensitivity_score, so the undefined above is about basis, not suppression.
     expect(plain.sensitivity_score).not.toBe(0);
   });
 
-  it('idempotence: an ISL-stamped lever already at elasticity_std 0 is deep-equal with and without the union set', () => {
+  it('idempotence: an ISL-stamped lever is deep-equal with and without the union set', () => {
     const graph = () => [graphFactor('fac_lever')];
     const isl = () => [islEntry('fac_lever', { sensitivity_score: 0, zero_reason: 'intervention_override', elasticity_std: 0 })];
     const withUnion = mergeIslConfidenceIntoGraphFactors(graph(), isl(), [], new Set(['fac_lever']));
     const withoutUnion = mergeIslConfidenceIntoGraphFactors(graph(), isl(), []);
     expect(JSON.stringify(withUnion)).toBe(JSON.stringify(withoutUnion));
-    expect(withUnion[0].elasticity_std).toBe(0);
+    expect(withUnion[0].elasticity_std).toBeUndefined();
   });
 });
 
@@ -218,7 +241,7 @@ const PAYLOAD = {
   seed: '42',
 };
 
-describe('/v2/run egress: lever elasticity_std suppressed, unpinned preserved', () => {
+describe('/v2/run egress: no factor_sensitivity row carries elasticity_std (lever or not)', () => {
   let factors: any[];
 
   beforeAll(async () => {
@@ -240,26 +263,27 @@ describe('/v2/run egress: lever elasticity_std suppressed, unpinned preserved', 
     }
   });
 
-  it('the non-first-option (unstamped) lever egresses elasticity_std 0', () => {
+  it('the non-first-option (unstamped) lever egresses no elasticity_std', () => {
     const lever = factors.find((f) => f.factor_id === UNION_ID);
     expect(lever).toBeDefined();
     expect(lever.zero_reason).toBe('intervention_override');
-    expect(lever.elasticity_std).toBe(0);
+    expect(lever.elasticity_std).toBeUndefined();
   });
 
-  it('the ISL-stamped lever egresses elasticity_std 0', () => {
+  it('the ISL-stamped lever egresses no elasticity_std', () => {
     const lever = factors.find((f) => f.factor_id === STAMPED_ID);
     expect(lever).toBeDefined();
     expect(lever.zero_reason).toBe('intervention_override');
-    expect(lever.elasticity_std).toBe(0);
+    expect(lever.elasticity_std).toBeUndefined();
   });
 
-  it('positive control: the unpinned factor keeps a non-zero elasticity_std on the wire', () => {
+  it('the unpinned factor carries no elasticity_std on the wire either', () => {
     const plain = factors.find((f) => f.factor_id === PLAIN_ID);
     expect(plain).toBeDefined();
     expect(plain.zero_reason ?? null).toBeNull();
-    expect(typeof plain.elasticity_std).toBe('number');
-    expect(plain.elasticity_std).toBeGreaterThan(0);
+    expect(plain.elasticity_std).toBeUndefined();
+    // The wire-level lever/unpinned discrimination is asserted on the
+    // factor_stability surface below, which still carries the quantity.
   });
 });
 
