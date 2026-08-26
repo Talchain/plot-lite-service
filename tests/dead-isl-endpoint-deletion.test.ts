@@ -180,6 +180,10 @@ describe('Lane 3 — dead ISL endpoint deletion', () => {
   // -------------------------------------------------------------------------
   // The deletion must not become a SILENT drop: a caller that asked for
   // thresholds must still be told, on the wire, that it is not available.
+  //
+  // PRESENCE ONLY. Kept separate from the content test below because the two
+  // pin different harms and a single test that mixes them cannot say which one
+  // regressed: a missing field is a SILENT DROP, a wrong field is a LIE.
   // -------------------------------------------------------------------------
   it('include_thresholds: true → response still DISCLOSES unavailability (never silently omits)', async () => {
     const res = await app.inject({
@@ -192,10 +196,56 @@ describe('Lane 3 — dead ISL endpoint deletion', () => {
     const body = res.json();
 
     expect(body.thresholds_status).toBeDefined();
-    expect(body.thresholds_status).not.toBe('computed');
-    expect(body.thresholds_status).not.toBe('not_requested');
+    expect(body.thresholds_meta).toBeDefined();
     // No fabricated rows may accompany an unavailable capability.
     expect(body.threshold_analysis).toBeUndefined();
+  });
+
+  // -------------------------------------------------------------------------
+  // CONTENT, bound by identity. The test above proves the disclosure is
+  // PRESENT and is blind to WHAT IT SAYS — measured: mutating the status to
+  // 'timeout' and gutting thresholds_meta.reason both survived it. A status
+  // whose contracted meaning is "the ISL threshold call failed/timed out" is a
+  // false statement when no call is made and none can fail, so the honest wire
+  // value is pinned here exactly, not by exclusion.
+  //
+  // Every assertion binds to a NAMED key on the response body, so mutating a
+  // different object leaves this test GREEN (the discriminating partner).
+  // -------------------------------------------------------------------------
+  it('include_thresholds: true → the disclosure is HONEST: status is exactly "unavailable" and the reason names the missing producer', async () => {
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      payload: { ...BASE_PAYLOAD, include_thresholds: true },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+
+    // Precondition pinned in-test: this request DID ask for thresholds and DID
+    // reach the live analysis path, so the value below is the route's doing and
+    // not a request that quietly took another branch.
+    expect(analysisEndpointsCalled).toContain('/api/v1/robustness/analyze/v2');
+    expect(analysisEndpointsCalled).not.toContain('/api/v1/analysis/thresholds');
+
+    // The exact token. Not `not.toBe(...)`: an exclusion list admits every
+    // value nobody thought to exclude, which is how 'timeout' survived.
+    expect(body.thresholds_status).toBe('unavailable');
+
+    // The reason is the substantive half of the disclosure. It must name the
+    // missing producer and route the caller to the live alternative — a bare
+    // status token restates the enum and tells the caller nothing.
+    expect(typeof body.thresholds_meta?.reason).toBe('string');
+    expect(body.thresholds_meta.reason).toContain('threshold_analysis_unavailable');
+    expect(body.thresholds_meta.reason).toContain('no threshold-analysis producer is mounted');
+    expect(body.thresholds_meta.reason).toContain('flip_thresholds');
+
+    // Nothing was timed, so nothing may claim a duration.
+    expect(body.thresholds_meta.duration_ms).toBeUndefined();
+
+    // And the alternative the reason points at must actually be on the wire,
+    // or the disclosure sends the caller somewhere empty.
+    expect(body).toHaveProperty('flip_thresholds_status');
   });
 
   // -------------------------------------------------------------------------

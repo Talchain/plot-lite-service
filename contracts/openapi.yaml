@@ -5507,7 +5507,18 @@ components:
             type: object
         include_thresholds:
           type: boolean
-          description: Request threshold outputs (additive, request-gated opt-in).
+          description: |
+            RETAINED FOR COMPATIBILITY — NO LONGER PRODUCES THRESHOLD OUTPUTS.
+            PLoT's only threshold-analysis producer called ISL
+            `/api/v1/analysis/thresholds`, which ISL never mounted (import and
+            include_router both commented at `src/api/main.py:74` / `:792`);
+            that call has been deleted. When true, the response now carries
+            `thresholds_status: "unavailable"` plus a `thresholds_meta.reason`
+            naming the missing producer, and NEVER `threshold_analysis`.
+            The tipping points that ARE computed live in `flip_thresholds[]`,
+            derived from ISL's closed-form factor_flip_values over the mounted
+            `/api/v1/robustness/analyze/v2` — they require no request flag, so
+            setting this is not needed to obtain them.
         include_e_values:
           type: boolean
           description: |

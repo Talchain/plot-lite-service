@@ -8660,7 +8660,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const thresholdAnalysis: ThresholdResult[] | undefined = undefined;
 
         if (body.include_thresholds) {
-          thresholdsStatus = 'error';
+          // 'unavailable', NOT 'error'/'timeout'. Those two are contracted (see
+          // ThresholdsStatus) to mean the ISL threshold call FAILED or TIMED
+          // OUT. No call is made and none can fail, so either token would be a
+          // false statement on the wire about work PLoT did not attempt — the
+          // same defect class as the deleted call itself, one level down.
+          // 'unavailable' is the token the sibling flip_thresholds_status
+          // already uses for "requested, no producer".
+          thresholdsStatus = 'unavailable';
           thresholdsMeta = {
             reason: 'threshold_analysis_unavailable: no threshold-analysis producer is mounted; see flip_thresholds[] for computed tipping points',
           };
