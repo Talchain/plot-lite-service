@@ -960,14 +960,39 @@ export type PerFeatureStatus = 'computed' | 'unavailable' | 'skipped' | 'error';
 
 /**
  * Threshold analysis status.
- * Separate vocabulary from PerFeatureStatus to capture budget/timeout semantics.
+ *
+ * ⚠ THERE IS NO THRESHOLD-ANALYSIS PRODUCER. PLoT's only one called ISL's
+ * threshold-identification route, which ISL never mounted (the import at
+ * `src/api/main.py:74` and the `include_router` at `:792` are both commented;
+ * a sibling route under the same ISL analysis prefix IS mounted, which is the
+ * contrast control proving this is a missing path and not a dead prefix). That
+ * call was deleted and nothing replaced it: the live threshold answer is
+ * `flip_thresholds[]`, derived from ISL's closed-form `factor_flip_values` over
+ * the mounted robustness route, and it needs no request flag.
+ *
+ * The endpoint literals, and the manifest row classifying them, are in
+ * `tests/isl-request-drift-pairing.contract.test.ts` — deliberately not
+ * repeated here, because that suite makes every `/api/v1` literal in `src/`
+ * demand a manifest row, and this type has no call site to classify.
+ *
+ * Consequence for this vocabulary: the ONLY value that reaches the wire is
+ * `'unavailable'`. The budget/timeout/error/computed members below describe
+ * outcomes of a call that is no longer made, so none of them can occur. They
+ * are RETAINED rather than deleted so an existing consumer's exhaustive switch
+ * still type-checks — but emitting one would be a false statement about work
+ * PLoT did not attempt.
  */
 export type ThresholdsStatus =
-  | 'not_requested'    // include_thresholds absent or false
-  | 'skipped_budget'   // insufficient remaining budget
-  | 'timeout'          // ISL threshold call timed out
-  | 'error'            // ISL threshold call failed
-  | 'computed';        // success
+  // Requested, and there is no producer mounted to answer. THE ONLY EMITTED
+  // VALUE. Same token, same meaning as `flip_thresholds_status: 'unavailable'`.
+  | 'unavailable'
+  // Internal sentinel for "include_thresholds absent or false". Filtered out of
+  // the response in src/routes/v2/run.ts, so it never reaches the wire.
+  | 'not_requested'
+  | 'skipped_budget'   // UNREACHABLE — no threshold call remains to run out of budget
+  | 'timeout'          // UNREACHABLE — no threshold call remains to time out
+  | 'error'            // UNREACHABLE — no threshold call remains to fail
+  | 'computed';        // UNREACHABLE — no threshold-analysis producer remains to succeed
 
 /**
  * Per-pair identifiability status (B1.5 / B1.5a contracted interface).
@@ -1526,25 +1551,43 @@ export interface RunResponseV3 {
   // ---------------------------------------------------------------------------
 
   /**
-   * Threshold analysis status.
-   * - 'not_requested': include_thresholds absent or false
-   * - 'skipped_budget': insufficient remaining budget after main ISL call
-   * - 'timeout': ISL threshold call timed out
-   * - 'error': ISL threshold call failed
-   * - 'computed': success
+   * Threshold analysis status. Present ONLY when the request set
+   * include_thresholds.
+   *
+   * - 'unavailable': THE ONLY VALUE EMITTED. The request asked for thresholds
+   *   and no threshold-analysis producer is mounted. `thresholds_meta.reason`
+   *   names the missing producer and points at `flip_thresholds[]`, which
+   *   carries the computed tipping points that DO exist.
+   * - 'not_requested': internal sentinel, filtered out of the response.
+   * - 'skipped_budget' / 'timeout' / 'error' / 'computed': UNREACHABLE — they
+   *   describe outcomes of a call that is no longer made. See ThresholdsStatus.
    *
    * NOTE: Never affects analysis_status (non-blocking).
    */
   thresholds_status?: ThresholdsStatus;
 
-  /** Threshold analysis metadata for observability */
+  /**
+   * Threshold analysis metadata for observability.
+   *
+   * Emitted alongside `thresholds_status: 'unavailable'`. `reason` is the
+   * substantive half of the disclosure — it must name the missing producer and
+   * the live alternative, not merely repeat the status token. `duration_ms` is
+   * unreachable for the same reason the timing statuses are: nothing is timed.
+   */
   thresholds_meta?: { reason?: string; duration_ms?: number };
 
   /**
    * Threshold analysis results from ISL.
-   * Each entry describes a factor value at which the recommendation changes.
-   * Labels enriched from graph nodes and options with deterministic fallbacks.
-   * Sorted by factor_id for stability.
+   *
+   * ⚠ PROVABLY NEVER EMITTED. The ISL producer this was fed by
+   * (`/api/v1/analysis/thresholds`) was never mounted and its call site is
+   * deleted; the route now holds this as a typed `undefined` const. The field
+   * is retained so an existing consumer still type-checks. For the tipping
+   * points that ARE computed, read `flip_thresholds[]`.
+   *
+   * Historic shape, for consumers that still read it: each entry describes a
+   * factor value at which the recommendation changes, labels enriched from
+   * graph nodes and options with deterministic fallbacks, sorted by factor_id.
    *
    * NOTE: Excluded from response_hash (non-semantic post-analysis enrichment).
    */

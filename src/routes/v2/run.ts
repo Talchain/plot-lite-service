@@ -83,7 +83,6 @@ import { filterTemporalConstraints } from '../../normalisation/constraint-filter
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, InternalMetadata } from '../../types/engine-v3.js';
-import type { IslThresholdResponse, ThresholdPoint } from '../v1/types/proxy.types.js';
 import { toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, parseGoalThresholdFrame } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
@@ -114,12 +113,9 @@ import { orchestrateDecisionReview, type DecisionReviewInput, type DecisionRevie
 import {
   CEE_TIMEOUT_MS,
   CEE_DECISION_REVIEW_TIMEOUT_MS,
-  ISL_THRESHOLDS_TIMEOUT_MS_CAP,
-  THRESHOLDS_MIN_REMAINING_BUDGET_MS,
   resolveRequestBudgetMs,
   ISL_TIMEOUT_MS,
   worstCaseMs,
-  OPTIONAL_PHASE_MAX_RETRIES,
   BASE_CALL_MIN_TIMEOUT_MS,
 } from '../../config/timeouts.js';
 import { getISLClientConfig } from '../../integrations/isl/client.js';
@@ -8619,212 +8615,67 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // =================================================================
-        // Phase 6b: Threshold Analysis (B10.3, optional, non-blocking)
-        // Calls ISL's /api/v1/analysis/thresholds if include_thresholds=true
-        // and sufficient request budget remains after main ISL call.
+        // Threshold analysis — DELETED (Lane 3, 26 Aug 2026)
+        //
+        // This block used to POST ISL `/api/v1/analysis/thresholds`. That route
+        // is NOT MOUNTED in Inference-Service-Layer and the request could never
+        // have validated, so the call was guarantee theatre: a live round trip,
+        // a retry and a slice of the request budget spent to reach a route that
+        // cannot answer, after the base science had already completed.
+        //
+        // Derived at ISL staging 28fe0c95, from the AST (comments are invisible
+        // to an AST, so a commented-out mount cannot be misread as a live one):
+        //   src/api/main.py:74   `# from .threshold import router as threshold_router`
+        //   src/api/main.py:792  `# app.include_router(threshold_router, ...)`
+        // Both commented — the symbol is not even imported. The handler at
+        // src/api/threshold.py:22 is orphaned. Contrast controls in the same
+        // derivation: /api/v1/robustness/analyze/v2 and /api/v1/causal/counterfactual
+        // both resolved MOUNTED, so the absence is a real absence, not a blind probe.
+        //
+        // The payload was independently incompatible: ISL's
+        // ThresholdIdentificationRequest (src/models/requests.py:1687) makes
+        // `parameter_sweeps` REQUIRED (min_length=1) and its handler docstring
+        // states "PLoT provides pre-computed scores ... ISL only analyzes the
+        // provided data (does not run inference)". This route sent
+        // {graph, options, seed, goal_node_id} — the "native computation mode"
+        // prescribed by the B10.3 brief, which ISL never implemented. Even if the
+        // router were mounted the call would 422.
+        //
+        // NOTHING IS LOST. The live threshold answer is produced by the block
+        // immediately above: ISL's closed-form `factor_flip_values` (mounted, via
+        // /api/v1/robustness/analyze/v2) -> `flip_thresholds[]` with
+        // flip_thresholds_status/_reason/_margin_status/_margin_coverage.
+        //
+        // The disclosure below is deliberate and is NOT a disabled branch: a
+        // caller that asked for thresholds must be TOLD they are unavailable.
+        // Dropping the fields silently would trade guarantee theatre for the
+        // silent-drop defect class. No network call is made to produce it.
         // =================================================================
         let thresholdsStatus: ThresholdsStatus = 'not_requested';
         let thresholdsMeta: { reason?: string; duration_ms?: number } | undefined;
-        let thresholdAnalysis: ThresholdResult[] | undefined;
+        // Never assigned. PLoT has no threshold-analysis producer, so
+        // `threshold_analysis` is now provably never emitted. Kept as a typed
+        // const so buildResponse's signature is unchanged and the guarantee is
+        // visible at the call site rather than implied by an absent variable.
+        const thresholdAnalysis: ThresholdResult[] | undefined = undefined;
 
         if (body.include_thresholds) {
-          const elapsedMs = performance.now() - startTime;
-          // Read budget dynamically to support test-time env overrides
-          const requestBudgetMs = resolveRequestBudgetMs();
-          const remainingBudgetMs = requestBudgetMs - elapsedMs;
-
-          if (remainingBudgetMs < THRESHOLDS_MIN_REMAINING_BUDGET_MS) {
-            thresholdsStatus = 'skipped_budget';
-            thresholdsMeta = {
-              reason: `remaining_budget_ms=${Math.round(remainingBudgetMs)} < min=${THRESHOLDS_MIN_REMAINING_BUDGET_MS}`,
-            };
-            req.log.info({
-              event: 'threshold_analysis_skipped_budget',
-              request_id: requestId,
-              elapsed_ms: Math.round(elapsedMs),
-              remaining_budget_ms: Math.round(remainingBudgetMs),
-              min_required_ms: THRESHOLDS_MIN_REMAINING_BUDGET_MS,
-            });
-          } else {
-            const safetyMarginMs = 1_000;
-            const thresholdsTimeoutMs = Math.min(
-              Math.max(0, remainingBudgetMs - safetyMarginMs),
-              ISL_THRESHOLDS_TIMEOUT_MS_CAP
-            );
-
-            const thresholdsStart = performance.now();
-            try {
-              // B10.3: Native single-call threshold analysis.
-              // NOTE: The existing V1 route (analysis-thresholds.ts) calls the same
-              // ISL endpoint with { plot_request_id, sweep_results } (pre-computed sweeps).
-              // This payload shape (graph+options+seed) is prescribed by the B10.3 brief
-              // for ISL's native threshold computation mode.
-              // Bidirected edges are trust-layer only (identifiability + warnings).
-              // ISL operates on directed edges only. Phase 3A-inference will add inference semantics.
-              const thresholdsPayload = {
-                graph: { nodes: filteredGraph.nodes, edges: filteredGraph.edges.filter(e => e.edge_type !== 'bidirected') },
-                options: normalizedOptions.map(o => ({
-                  id: o.id,
-                  label: o.label,
-                  interventions: o.interventions,
-                })),
-                seed: plotSeedUsed,
-                goal_node_id: body.goal_node_id,
-                request_id: requestId,
-              };
-
-              req.log.info({
-                event: 'threshold_analysis_call',
-                request_id: requestId,
-                timeout_ms: Math.round(thresholdsTimeoutMs),
-                remaining_budget_ms: Math.round(remainingBudgetMs),
-              });
-
-              // F9 (Codex): pass maxRetries=1 for this OPTIONAL phase. Omitting it
-              // inherited the config default (ISL_MAX_RETRIES=3), so a "30s cap"
-              // was really ~3× the per-attempt timeout + the 1s+2s backoff (~93s)
-              // — and this call is synchronously awaited AFTER the base science, so
-              // a retry storm here discards a completed base result. A transient
-              // failure now degrades-and-discloses (thresholds_status
-              // 'timeout'/'error') rather than retrying past the budget. The
-              // per-attempt timeout stays clamped to the remaining budget
-              // (thresholdsTimeoutMs above).
-              const thresholdsResult = await islService.callAnalysisEndpoint<IslThresholdResponse>(
-                '/api/v1/analysis/thresholds',
-                thresholdsPayload,
-                requestId,
-                Math.round(thresholdsTimeoutMs),
-                OPTIONAL_PHASE_MAX_RETRIES
-              );
-
-              const thresholdsDurationMs = performance.now() - thresholdsStart;
-
-              if (thresholdsResult.data) {
-                // Transform ISL ThresholdPoints to ThresholdResult[]
-                const islThresholds = thresholdsResult.data.thresholds ?? [];
-                thresholdAnalysis = islThresholds.map((tp: ThresholdPoint) => {
-                  // Enrich factor label from graph
-                  const factorNode = filteredGraph.nodes.find(n => n.id === tp.node_id);
-                  const factorLabel = factorNode?.label ?? tp.node_id;
-
-                  // Enrich current_value from observed_state
-                  const currentValue = factorNode?.observed_state?.value;
-
-                  // Enrich affected options with labels
-                  const affectedOptions = (tp.options_affected ?? []).map(optId => {
-                    const opt = normalizedOptions.find(o => o.id === optId);
-                    return {
-                      option_id: optId,
-                      option_label: opt?.label ?? optId,
-                      becomes_winner: false, // ISL does not provide winner info; set conservatively
-                    };
-                  });
-                  // Stable order by option_id
-                  affectedOptions.sort((a, b) => a.option_id.localeCompare(b.option_id));
-
-                  const thresholdValue = tp.threshold_value;
-                  // Numeric-egress guard (Codex round-2): threshold_value comes from the
-                  // remote ISL endpoint cast-without-runtime-validation; a non-finite
-                  // value would serialise to a fabricated `null` while thresholds_status
-                  // is 'computed'. Guard margin here and drop non-finite entries below.
-                  const margin = (Number.isFinite(thresholdValue) && currentValue !== undefined)
-                    ? Math.abs(thresholdValue - currentValue)
-                    : undefined;
-
-                  return {
-                    factor_id: tp.node_id,
-                    factor_label: factorLabel,
-                    threshold_value: thresholdValue,
-                    current_value: currentValue,
-                    crossing_direction: tp.crossing_type === 'rising' ? 'above' as const : 'below' as const,
-                    affected_options: affectedOptions,
-                    margin,
-                  };
-                })
-                .filter((t) => Number.isFinite(t.threshold_value));
-                // Stable order: factor_id → threshold_value → crossing_direction
-                thresholdAnalysis.sort((a, b) =>
-                  a.factor_id.localeCompare(b.factor_id)
-                  || a.threshold_value - b.threshold_value
-                  || a.crossing_direction.localeCompare(b.crossing_direction)
-                );
-
-                // Honest status on filtering (Codex round-3 #4): entries with a
-                // non-finite threshold_value were dropped above. If EVERY input
-                // threshold was invalid, do NOT claim 'computed' — surface 'error'
-                // (an existing ThresholdsStatus). If only some were dropped, keep the
-                // valid entries but emit an observable warning so the silent loss is
-                // reported, not hidden. ('partial' is not a ThresholdsStatus value; a
-                // dedicated partial state would be a schema change.)
-                const thresholdsDropped = islThresholds.length - thresholdAnalysis.length;
-                thresholdsStatus = (islThresholds.length > 0 && thresholdAnalysis.length === 0)
-                  ? 'error'
-                  : 'computed';
-                if (thresholdsDropped > 0) {
-                  req.log.warn({
-                    event: 'threshold_entries_dropped_nonfinite',
-                    request_id: requestId,
-                    dropped: thresholdsDropped,
-                    kept: thresholdAnalysis.length,
-                  });
-                  critiques.push({
-                    id: randomUUID(),
-                    code: 'THRESHOLD_NONFINITE_DROPPED',
-                    severity: 'warning',
-                    message: `${thresholdsDropped} threshold result(s) omitted: ISL returned a non-finite threshold value.`,
-                    source: 'isl',
-                    blocks_analysis: false,
-                  });
-                }
-                thresholdsMeta = { duration_ms: Math.round(thresholdsDurationMs) };
-
-                req.log.info({
-                  event: 'threshold_analysis_computed',
-                  request_id: requestId,
-                  thresholds_count: thresholdAnalysis.length,
-                  duration_ms: Math.round(thresholdsDurationMs),
-                });
-              } else if (thresholdsResult.error?.code === 'ISL_TIMEOUT') {
-                thresholdsStatus = 'timeout';
-                thresholdsMeta = {
-                  reason: thresholdsResult.error.message,
-                  duration_ms: Math.round(thresholdsDurationMs),
-                };
-                req.log.warn({
-                  event: 'threshold_analysis_timeout',
-                  request_id: requestId,
-                  duration_ms: Math.round(thresholdsDurationMs),
-                });
-              } else {
-                thresholdsStatus = 'error';
-                thresholdsMeta = {
-                  reason: thresholdsResult.error?.message ?? 'ISL threshold analysis failed',
-                  duration_ms: Math.round(thresholdsDurationMs),
-                };
-                req.log.warn({
-                  event: 'threshold_analysis_error',
-                  request_id: requestId,
-                  error_code: thresholdsResult.error?.code,
-                  error_message: thresholdsResult.error?.message,
-                  duration_ms: Math.round(thresholdsDurationMs),
-                });
-              }
-            } catch (err) {
-              const thresholdsDurationMs = performance.now() - thresholdsStart;
-              thresholdsStatus = 'error';
-              thresholdsMeta = {
-                reason: (err as Error).message,
-                duration_ms: Math.round(thresholdsDurationMs),
-              };
-              req.log.warn({
-                event: 'threshold_analysis_exception',
-                request_id: requestId,
-                error: (err as Error).message,
-                duration_ms: Math.round(thresholdsDurationMs),
-              });
-              // Continue — threshold analysis is non-blocking
-            }
-          }
+          // 'unavailable', NOT 'error'/'timeout'. Those two are contracted (see
+          // ThresholdsStatus) to mean the ISL threshold call FAILED or TIMED
+          // OUT. No call is made and none can fail, so either token would be a
+          // false statement on the wire about work PLoT did not attempt — the
+          // same defect class as the deleted call itself, one level down.
+          // 'unavailable' is the token the sibling flip_thresholds_status
+          // already uses for "requested, no producer".
+          thresholdsStatus = 'unavailable';
+          thresholdsMeta = {
+            reason: 'threshold_analysis_unavailable: no threshold-analysis producer is mounted; see flip_thresholds[] for computed tipping points',
+          };
+          req.log.info({
+            event: 'threshold_analysis_unavailable',
+            request_id: requestId,
+            alternative_field: 'flip_thresholds',
+          });
         }
 
         // M2 Decision Review (LLM-generated review from CEE)

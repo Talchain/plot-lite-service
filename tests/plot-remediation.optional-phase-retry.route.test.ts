@@ -134,12 +134,28 @@ describe('optional ISL phases pass maxRetries = 1 (F9 threshold, F3 flip probes)
     return res.json();
   }
 
-  it('F9 — the threshold call passes maxRetries = 1 (was undefined → default 3)', async () => {
+  it('F9 (INVERTED 2026-08-26) — the threshold phase issues NO ISL call at all', async () => {
     await run();
-    const thresholdCall = captured.find((c) => c.endpoint === THRESHOLDS_ENDPOINT);
-    expect(thresholdCall, 'threshold call was made').toBeDefined();
-    expect(thresholdCall!.maxRetries).toBe(1);
-    expect(typeof thresholdCall!.timeoutMs).toBe('number'); // still clamped to remaining budget
+
+    // Positive control FIRST (trap 13): the same capture array demonstrably
+    // records ISL traffic on this request, so the zero below is a measurement
+    // and not a mock that stopped firing.
+    expect(captured.length, 'the capture instrument sees ISL traffic').toBeGreaterThan(0);
+
+    const thresholdCalls = captured.filter((c) => c.endpoint === THRESHOLDS_ENDPOINT);
+    expect(
+      thresholdCalls,
+      'the ISL threshold endpoint is not mounted; its call site is deleted',
+    ).toHaveLength(0);
+
+    // F9 originally capped this optional phase at maxRetries = 1, because
+    // inheriting the default 3 could burn ~93s AFTER the base science had
+    // already completed. That guard is now vacuous BY CONSTRUCTION rather than
+    // by configuration: PAYLOAD still sets include_thresholds: true, and no call
+    // is made regardless.
+    for (const call of thresholdCalls) {
+      expect(call.maxRetries).toBe(1); // unreachable; re-arms the original guard if the call returns
+    }
   });
 
   it('F3 (INVERTED by 2.228-F3) — the retired flip probe issues NO ISL calls at all', async () => {

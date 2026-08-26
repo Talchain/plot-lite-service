@@ -135,21 +135,32 @@ const ENDPOINT_MANIFEST: ManifestRow[] = [
     plotLiveness: 'live',
     islMounted: false,
     why:
-      'FINDING. routes/v1/run.ts:978 calls islService.validateCausal on every non-quick /v1/run when ISL is enabled, ' +
-      'but ISL mounts only `counterfactual_router` under /causal at the pin — the `router` carrying /validate is ' +
-      'never included (src/api/main.py:774, commented). A live producer against an unmounted path: 404, absorbed by ' +
-      "validateCausal's catch into createFallbackValidation. Reported, NOT fixed here (this slice is test-only).",
+      'FINDING, STILL OPEN. routes/v1/run.ts:1011 calls islService.validateCausal on every non-quick /v1/run when ' +
+      'ISL is enabled, but ISL mounts only `counterfactual_router` under /causal at the pin — the `router` ' +
+      'carrying /validate is never included (src/api/main.py:782 commented; its import at :64 commented too, so ' +
+      'the symbol does not exist). A live producer against an unmounted path: 404, absorbed by validateCausal\'s ' +
+      'catch into createFallbackValidation. ' +
+      'DELIBERATELY NOT DELETED, 2026-08-26 (Lane 3), having verified the call IS on the mounted PLoT path: ' +
+      'deleting it hollows out the three POSITIVE CONTROLS in ' +
+      'tests/isl-validation-unavailable-no-fabricated-verdict.test.ts (ROADMAP 1.240), whose header names ' +
+      'over-suppression as an equal failure to fabrication and whose timeout case is written to survive a future ' +
+      'mounting decision. Removing PLoT\'s ability to EVER receive a genuine ISL identifiability verdict is a ' +
+      'product decision about a trust surface, not a dead-code cleanup — it needs briefing alongside whether ISL ' +
+      'will mount causal_router, and is out of scope for a deletion lane.',
   },
   {
     endpoint: '/api/v1/analysis/thresholds',
-    reachability: 'call-site-not-captured',
-    plotLiveness: 'live',
+    reachability: 'docs-only',
+    plotLiveness: 'dead-no-caller',
     islMounted: false,
     why:
-      'FINDING. routes/v2/run.ts:6881 calls it on the request-gated thresholds phase; ISL comments out ' +
-      'threshold_router (src/api/main.py:787). Its payload is built inline in the /v2/run handler, so it cannot be ' +
-      'driven to the wire from a unit harness — and there is no mounted request model to pair its keys against ' +
-      'anyway. The claim carried here is the CALL SITE, asserted at the source below.',
+      'FINDING NOW CLOSED (Lane 3, 2026-08-26). Was: the request-gated "Phase 6b" thresholds block in ' +
+      'routes/v2/run.ts called it after the base science had completed; ISL comments out threshold_router ' +
+      '(src/api/main.py:792, import at :74 also commented). The payload was independently incompatible — ISL\'s ' +
+      'ThresholdIdentificationRequest (src/models/requests.py:1687) makes `parameter_sweeps` REQUIRED, and PLoT ' +
+      'sent {graph, options, seed, goal_node_id}. THE WHOLE BLOCK IS DELETED. The live threshold answer is ' +
+      'flip_thresholds[], from ISL\'s closed-form factor_flip_values over the MOUNTED ' +
+      '/api/v1/robustness/analyze/v2. The literal survives in src/ only inside the comment that records this.',
   },
   {
     endpoint: '/api/v1/causal/counterfactual',
@@ -356,15 +367,27 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
       expect([...captured].sort()).toEqual(declaredCaptured);
     });
 
-    it('the one call site that cannot be driven is asserted AT THE SOURCE, and labelled as such', () => {
+    it('the deleted thresholds call site is GONE from the source, and the row says so', () => {
       const runV2 = readFileSync(resolve(REPO_ROOT, 'src/routes/v2/run.ts'), 'utf8');
-      // The claim is narrow and explicit: this literal is the first argument to a
-      // callAnalysisEndpoint call. That is a source claim, not a wire claim, and
-      // the manifest row says so.
-      expect(runV2).toMatch(/callAnalysisEndpoint<IslThresholdResponse>\(\s*\n?\s*'\/api\/v1\/analysis\/thresholds'/);
-      expect(manifestByEndpoint.get('/api/v1/analysis/thresholds')!.reachability).toBe(
-        'call-site-not-captured',
-      );
+
+      // POSITIVE CONTROL FIRST (trap 13): an absence assertion over a file we
+      // failed to read, or read empty, would pass by testing nothing. Prove the
+      // instrument can see a PRESENCE in this exact string before believing an
+      // absence in it.
+      expect(runV2.length).toBeGreaterThan(100_000);
+      expect(runV2).toContain("callAnalysisEndpoint");
+      expect(runV2).toContain('/api/v1/robustness/analyze/v2');
+
+      // The narrow claim: no callAnalysisEndpoint invocation takes the thresholds
+      // path as its first argument any more. The literal itself still occurs, in
+      // the comment that records the deletion — which is why this matches the
+      // CALL FORM and not the bare string.
+      expect(runV2).not.toMatch(/callAnalysisEndpoint(<[^>]*>)?\(\s*\n?\s*'\/api\/v1\/analysis\/thresholds'/);
+
+      // ...and the literal IS still present, so `docs-only` is the honest row and
+      // the exhaustiveness scan above still has something to classify.
+      expect(runV2).toContain('/api/v1/analysis/thresholds');
+      expect(manifestByEndpoint.get('/api/v1/analysis/thresholds')!.reachability).toBe('docs-only');
     });
   });
 
@@ -874,14 +897,17 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
       // Slice 6 flagged this by reading the code. The pinned model now says it.
     });
 
-    it('two LIVE producers target endpoints ISL does not mount at the pin', () => {
+    it('exactly ONE live producer targets an endpoint ISL does not mount at the pin', () => {
       const liveUnmounted = ENDPOINT_MANIFEST.filter((r) => r.plotLiveness === 'live' && !r.islMounted)
         .map((r) => r.endpoint)
         .sort();
-      expect(liveUnmounted).toEqual(['/api/v1/analysis/thresholds', '/api/v1/causal/validate']);
-      // Both are absorbed by their callers (fallback / degrade-and-disclose), so
-      // this is capability loss, not an outage. It is pinned here so that ISL
-      // re-mounting either one — or PLoT adding a THIRD — is a visible change.
+      expect(liveUnmounted).toEqual(['/api/v1/causal/validate']);
+      // Was TWO until 2026-08-26. '/api/v1/analysis/thresholds' left this list
+      // because its call site was DELETED (Lane 3) — not because ISL mounted it.
+      // '/api/v1/causal/validate' remains live-against-unmounted BY DECISION: see
+      // its manifest row. It is absorbed by validateCausal's fallback, so it is
+      // capability loss, not an outage. Pinned so that ISL re-mounting it — or
+      // PLoT adding a SECOND — is a visible change.
     });
 
     it('the endpoints PLoT can reach and ISL mounts are exactly two', () => {
