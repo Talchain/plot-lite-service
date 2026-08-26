@@ -517,9 +517,7 @@
       "source": "graph",
       "flip_risk_category": "negligible",
       "attribution_stability": "low",
-      "elasticity_std": 0.01101973,
       "rank_flip_rate": 0.3,
-      "stability_method": "bootstrap_20",
       "importance_basis": "graph_structural",
       "driver_label": "biggest",
       "evpi_percentage_points": 0,
@@ -552,9 +550,7 @@
       "source": "graph",
       "flip_risk_category": "negligible",
       "attribution_stability": "low",
-      "elasticity_std": 0.00657316,
       "rank_flip_rate": 0.05,
-      "stability_method": "bootstrap_20",
       "value_defaulted": true,
       "importance_basis": "graph_structural",
       "driver_label": "moderate",
@@ -589,9 +585,7 @@
       "source": "graph",
       "flip_risk_category": "isolated",
       "attribution_stability": "negligible",
-      "elasticity_std": 0,
       "rank_flip_rate": 0,
-      "stability_method": "bootstrap_20",
       "importance_basis": "graph_structural",
       "driver_label": "strong",
       "range_derivation_source": "default"
@@ -623,9 +617,7 @@
       "source": "graph",
       "flip_risk_category": "isolated",
       "attribution_stability": "negligible",
-      "elasticity_std": 0,
       "rank_flip_rate": 0,
-      "stability_method": "bootstrap_20",
       "importance_basis": "graph_structural",
       "driver_label": "strong",
       "range_derivation_source": "default"
@@ -1619,7 +1611,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:bd87f4af4460baf4"
+    "response_content_hash": "rch_v2:46811083e96c4b1e"
   },
   "meta": {
     "seed_used": "2034401427",

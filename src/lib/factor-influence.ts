@@ -60,13 +60,23 @@ import { isInterventionOverride, isOptionControlledLever, factorIdOf, hasFactorI
  * - value_of_information 0: resolving knowledge of a value the user sets is
  *   not an information gain; without this the EVPI enrichment in
  *   routes/v2/run.ts would derive a positive EVPI from the graph VOI (P0a).
- * - elasticity_std 0: bootstrap spread of the (contractually zero)
- *   elasticity. Left unsuppressed, a non-zero spread republishes measurement
- *   texture for the very metric the contract zeroes — the live universality
- *   re-run (r2 residual R1, 2026-07-16) caught suppressed lever
- *   fac_salary_cost egressing elasticity_std 0.00396846. Forced to 0 so the
- *   suppression covers the variance statistic of the value it suppresses
- *   (A3 lane 2).
+ * - elasticity_std: REMOVED from this set by FactorScience slice 1
+ *   (2026-08-26), because the harm it guarded is now closed by ABSENCE, which
+ *   is strictly stronger than zeroing.
+ *   The A3-lane-2 rationale was: a non-zero bootstrap spread republishes
+ *   measurement texture for the very metric the contract zeroes — the live
+ *   universality re-run (r2 residual R1, 2026-07-16) caught suppressed lever
+ *   fac_salary_cost egressing elasticity_std 0.00396846. That is still a real
+ *   harm and is still closed.
+ *   What changed: `elasticity_std` no longer rides a factor_sensitivity row on
+ *   the GRAPH basis at all (see mergeIslConfidenceIntoGraphFactors). Every site
+ *   that applies this set — :904, :943, :1048 — is a graph-row path; the
+ *   ISL-only append path skips levers entirely. So keeping `elasticity_std: 0`
+ *   here would make this set the ONLY thing putting the field back on a graph
+ *   row: a fabricated zero-valued bootstrap statistic on the exact rows slice 1
+ *   exists to clean. Absent beats zero.
+ *   The factor_stability[] surface keeps its own lever zeroing
+ *   (buildFactorStability), where the field legitimately belongs.
  * All the numeric fields are idempotent constants: re-applying to an
  * already-suppressed factor is a no-op, so ISL-stamped levers (and, post
  * ISL #73, union-stamped ones) pass through unchanged.
@@ -76,7 +86,6 @@ const LEVER_SUPPRESSION_FIELDS = {
   zero_reason: 'intervention_override',
   elasticity: 0,
   value_of_information: 0,
-  elasticity_std: 0,
 } as const;
 
 /**
@@ -986,10 +995,42 @@ export function mergeIslConfidenceIntoGraphFactors(
       // Carry over ISL diagnostic bootstrap fields ONLY. ISL's own
       // `confidence` and `confidence_source` are deliberately not propagated —
       // the public response always uses PLoT's recomputation. See A1-PRIMARY.
+      // ── FactorScience slice 1 (2026-08-26) ──────────────────────────────
+      // `elasticity_std` and `stability_method` are NO LONGER attached here.
+      //
+      // This row is GRAPH-basis: `...gf` above carries the graph path-product
+      // numbers (sensitivity_score = raw total causal effect, :793; elasticity
+      // = normalised influence, :796 — byte-identical to influence_score, so it
+      // is not an elasticity at all). ISL's `elasticity_std` is the bootstrap
+      // dispersion of ISL's MONTE-CARLO elasticity, a quantity that does not
+      // appear on this row. Publishing the two together states a spread about a
+      // number the reader cannot see, beside one they can.
+      //
+      // Three places in this repo already said so before the guard existed:
+      //   types/engine-v3.ts:2450-2451  "valid for ISL-sourced entries only …
+      //                                  do not cross-attach"
+      //   lib/driver-quantity-register.ts:153-159  unit
+      //     'same_units_as_isl_elasticity', "ISL-sourced rows only … must never
+      //      be cross-attached to a graph row"
+      //   contracts/isl-to-ui.contract.ts:143-198  units differ, and a MEASURED
+      //     sign disagreement (live fac_dev_headcount: ISL negative, published
+      //     positive) — two numbers that disagree about direction are not two
+      //     views of one quantity.
+      //
+      // NOT LOST: both keep their honest home in the separate ISL-sourced
+      // `factor_stability[]` (FactorStabilityEntry, engine-v3.ts:2506), which
+      // /v2/run emits at run.ts:4222. The ISL-only append path below still
+      // attaches them via `...islFCleaned`, correctly: those rows ARE ISL-basis.
+      //
+      // ⚠ DELIBERATELY PARTIAL. `attribution_stability` and `rank_flip_rate`
+      // still cross-attach and are slice 2. They are rendered, and
+      // rank_flip_rate FILTERS what a default non-expert user sees
+      // (UI StressTestSection.tsx:143-146), so separating them changes the
+      // product and needs its own review and witness. Pinned by name in
+      // tests/factorscience-stability-basis-separation.test.ts so the deferral
+      // is visible rather than forgotten.
       ...(islMatch.attribution_stability !== undefined && { attribution_stability: islMatch.attribution_stability }),
-      ...(islMatch.elasticity_std !== undefined && { elasticity_std: islMatch.elasticity_std }),
       ...(islMatch.rank_flip_rate !== undefined && { rank_flip_rate: islMatch.rank_flip_rate }),
-      ...(islMatch.stability_method !== undefined && { stability_method: islMatch.stability_method }),
       // Track S: carry ISL factor value provenance onto the merged graph factor.
       // The graph factor (`gf`) never carries these — they originate from ISL —
       // so without this the common graph+ISL merge path would drop them.

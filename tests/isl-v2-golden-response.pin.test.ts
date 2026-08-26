@@ -531,6 +531,39 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //                                   did not change) and no option row,
     //                                   probability, factor entry or label
     //                                   moved.)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:bd87f4af4460baf4');
+    //  fsci-1- rch_v2:46811083e96c4b1e (FactorScience slice 1, 2026-08-26 — a
+    //  basis                            SEPARATION, and the only content-hash
+    //                                   move here that REMOVES keys.
+    //                                   `elasticity_std` and `stability_method`
+    //                                   no longer ride a GRAPH-basis
+    //                                   `factor_sensitivity[]` row: they are
+    //                                   bootstrap statistics about ISL's
+    //                                   Monte-Carlo elasticity, while the row's
+    //                                   own `elasticity` is PLoT's graph
+    //                                   path-product. Both keep their honest
+    //                                   home in `factor_stability[]`, which this
+    //                                   same golden still carries in full — so
+    //                                   this is a separation, not a loss.
+    //                                   The golden diff is EXACTLY 8 removed
+    //                                   lines (two keys off each of 4 factor
+    //                                   rows) plus this derived hash — verified
+    //                                   by regenerating against the pristine
+    //                                   golden and diffing (20 diff lines, all
+    //                                   accounted for). No option row,
+    //                                   probability, label, factor id or
+    //                                   ordering moved.
+    //                                   ⭐ TWO of the removed `elasticity_std`
+    //                                   values were `0` — the LEVER-suppressed
+    //                                   rows. That is this fixture's own
+    //                                   evidence that dropping `elasticity_std`
+    //                                   from LEVER_SUPPRESSION_FIELDS was
+    //                                   required: without it, that set would
+    //                                   have been the only thing putting a
+    //                                   fabricated zero-valued bootstrap
+    //                                   statistic back onto the graph rows the
+    //                                   change exists to clean.
+    //                                   `response_hash` is UNMOVED (the REQUEST
+    //                                   did not change).)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:46811083e96c4b1e');
   });
 });

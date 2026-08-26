@@ -243,9 +243,16 @@ describe('mergeIslConfidenceIntoGraphFactors', () => {
     const result = mergeIslConfidenceIntoGraphFactors(graph, isl);
 
     expect(result[0].attribution_stability).toBe('moderate');
-    expect(result[0].elasticity_std).toBe(0.08);
     expect(result[0].rank_flip_rate).toBe(0.15);
-    expect(result[0].stability_method).toBe('bootstrap_1000');
+
+    // FactorScience slice 1 (2026-08-26): these two are NO LONGER copied onto a
+    // GRAPH-basis row. elasticity_std is the bootstrap dispersion of ISL's
+    // Monte-Carlo elasticity; the elasticity on this row is PLoT's graph
+    // path-product. They keep their honest home in factor_stability[].
+    // engine-v3.ts:2450 and driver-quantity-register.ts:153 both already said
+    // "ISL-sourced rows only — never cross-attach to a graph row".
+    expect(result[0].elasticity_std).toBeUndefined();
+    expect(result[0].stability_method).toBeUndefined();
   });
 
   it('T8: confidence_components populated correctly for all scenarios', () => {
@@ -775,12 +782,13 @@ describe('plot_unified_v3 (continuous bootstrap confidence)', () => {
     expect(result.find(f => f.factor_id === 'fac_a')!.importance_rank).toBe(1);
     expect(result.find(f => f.factor_id === 'fac_b')!.importance_rank).toBe(2);
 
-    // 3C diagnostic fields passed through verbatim from ISL
+    // 3C diagnostic fields: the two SAME-BASIS-safe ones pass through verbatim.
     const a = result.find(f => f.factor_id === 'fac_a')!;
     expect(a.attribution_stability).toBe('moderate');
-    expect(a.elasticity_std).toBe(0.05);
     expect(a.rank_flip_rate).toBe(0.05);
-    expect(a.stability_method).toBe('bootstrap_20');
+    // FactorScience slice 1: the dispersion pair does NOT ride a graph row.
+    expect(a.elasticity_std).toBeUndefined();
+    expect(a.stability_method).toBeUndefined();
 
     // confidence_source / shape unchanged (v3 keeps the bootstrap source label)
     for (const f of result) {

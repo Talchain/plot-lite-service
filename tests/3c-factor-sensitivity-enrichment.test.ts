@@ -397,10 +397,20 @@ describe('T6: Route-level 3C source-scoping via /v2/run', () => {
     for (const factor of [factorA, factorB]) {
       expect(factor.confidence_source).toBe('plot_unified_from_isl_bootstrap');
       expect(factor.confidence_provenance?.computation_source).toBe('plot_unified_from_isl_bootstrap');
-      expect(typeof factor.elasticity_std).toBe('number');
       expect(['high', 'moderate', 'low', 'negligible']).toContain(factor.attribution_stability);
       expect(typeof factor.rank_flip_rate).toBe('number');
-      expect(typeof factor.stability_method).toBe('string');
+
+      // ⚠ NARROWED BY FactorScience slice 1 (2026-08-26). These rows are
+      // `source: 'graph'` — asserted above — so their sensitivity_score and
+      // elasticity are the graph path-product. `elasticity_std` is the
+      // bootstrap dispersion of ISL's MONTE-CARLO elasticity, a quantity that
+      // is not on this row, so it may no longer ride here. Note
+      // `confidence_source: 'plot_unified_from_isl_bootstrap'` means ISL's
+      // bootstrap was an INPUT to PLoT's confidence formula — it does not make
+      // this an ISL-basis row.
+      // Both fields remain published on the ISL basis in factor_stability[].
+      expect(factor.elasticity_std).toBeUndefined();
+      expect(factor.stability_method).toBeUndefined();
     }
   });
 

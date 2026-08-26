@@ -2449,6 +2449,16 @@ export interface FactorSensitivityResultV3 {
 
   // 3C stability fields — valid for ISL-sourced entries only.
   // Graph-derived and ISL elasticity use different scales; do not cross-attach.
+  //
+  // ⚠ THIS RULE WAS STATED HERE AND VIOLATED TWO FILES AWAY until 2026-08-26:
+  // mergeIslConfidenceIntoGraphFactors attached all four onto GRAPH-basis rows.
+  // FactorScience slice 1 ENFORCED it for `elasticity_std` and
+  // `stability_method`, guarded by
+  // tests/factorscience-stability-basis-separation.test.ts.
+  // `attribution_stability` and `rank_flip_rate` below ARE STILL CROSS-ATTACHED
+  // — slice 2, deferred because rank_flip_rate filters what a default user is
+  // shown (UI StressTestSection). Treat the rule as aspirational for those two
+  // until slice 2 lands; the test pins the current state either way.
   /** Bootstrap standard deviation of the elasticity estimate (from ISL) */
   elasticity_std?: number;
   /** Attribution stability category (from ISL) */
