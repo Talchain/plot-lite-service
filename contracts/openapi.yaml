@@ -25,6 +25,12 @@ servers:
     description: Local development
   - url: https://api.olumi.ai
     description: Production (future)
+# Default: every operation requires a bearer token. Operations that are genuinely
+# public override this with `security: []`. Declaring the default here rather than
+# per-operation keeps the contract honest by construction: a new operation inherits
+# the credential requirement instead of silently defaulting to open.
+security:
+  - bearerAuth: []
 tags:
   - name: v1
     description: v1 API group
@@ -57,6 +63,8 @@ tags:
 paths:
   /health:
     get:
+      # Public: no credential required. Verified by live probe against staging build 29a9e0d (HTTP 200 unauthenticated).
+      security: []
       summary: Engine health
       description: Returns engine health and minimal status for legacy clients.
       operationId: healthLegacy
@@ -81,6 +89,8 @@ paths:
                     type: object
   /version:
     get:
+      # Public: no credential required. Verified by live probe against staging build 29a9e0d (HTTP 200 unauthenticated).
+      security: []
       summary: Engine version and capabilities
       description: |
         Returns engine version, build metadata, feature flags, and supported capabilities.
@@ -1281,6 +1291,8 @@ paths:
   
   /v1/templates:
     get:
+      # Public: no credential required. Verified by live probe against staging build 29a9e0d (HTTP 200 unauthenticated).
+      security: []
       summary: List available templates
       operationId: templatesList
       tags: [v1, ergonomics]
@@ -1313,6 +1325,8 @@ paths:
 
   /v1/templates/{id}/graph:
     get:
+      # Public: no credential required. Verified by live probe against staging build 29a9e0d (HTTP 200 unauthenticated).
+      security: []
       summary: Get canonical graph for a template
       operationId: templateGraph
       tags: [v1, ergonomics]
@@ -3968,6 +3982,23 @@ paths:
 
 
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Bearer token, enforced by `authGuard` (src/middleware/auth-guard.ts).
+
+        Scope is flag-controlled:
+        - `/v1/*` is gated when `AUTH_ENABLED=1` (src/routes/v1/index.ts preHandler).
+        - `/v2/*` additionally requires `AUTH_V2_ENABLED=1` (src/routes/v2/index.ts onRequest).
+        - `GET /draft-flows` is gated directly (src/createServer.ts).
+
+        Outcomes: a missing or malformed `Authorization` header returns **401** with
+        `WWW-Authenticate: Bearer`; a well-formed but unrecognised token returns **403**.
+
+        Operations that are public regardless of flag posture carry an explicit
+        `security: []` override.
   schemas:
     # Review pass envelope (Stream D — deterministic review cards)
     ReviewPassEnvelopeV1:

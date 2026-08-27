@@ -7,11 +7,15 @@ on:
       - 'contracts/openapi.yaml'
       - 'contracts/openapi-*.yaml'
       - 'tools/spectral.rules.yaml'
+  # NO `paths:` FILTER, deliberately. It used to be filtered to the three contract
+  # files, which meant this — the ONLY lint gate on the published API contract —
+  # dispatched on ~9.5% of commits. The consequence was measured: the Redocly step
+  # failed 53/53 times it ran across 50 days while 24 distinct head branches walked
+  # past it, each locally correct to call it "pre-existing, not mine". A red that is
+  # rare enough to look like news, and attributable to nobody, is how a contract gap
+  # survives 9 months. Unconditional-on-PR is what makes it attributable to the
+  # person who just pushed. Do not re-add a paths filter here.
   pull_request:
-    paths:
-      - 'contracts/openapi.yaml'
-      - 'contracts/openapi-*.yaml'
-      - 'tools/spectral.rules.yaml'
 
 jobs:
   validate-structure:
@@ -31,7 +35,26 @@ jobs:
         run: node tools/validate-openapi-structure.js
       
       - name: Validate OpenAPI schema (Redocly)
-        run: npx @redocly/cli lint contracts/openapi.yaml --skip-rule=no-unused-components
+        # `--no-install` pins this to the @redocly/cli in devDependencies rather than
+        # resolving whatever npx fetches at run time. An unpinned linter's verdict can
+        # change with no commit to this repo — the version drift is real and measured:
+        # this same spec reported 33 warnings under CI's floating resolve and 29 under
+        # 2.48.0. If the dependency is missing, npx exits non-zero instead of silently
+        # substituting a different version.
+        #
+        # ⛔ Do NOT add further `--skip-rule=` flags, `continue-on-error`, or `|| true`
+        # to make this green. Two neighbouring contract guards already went that way
+        # (plot-validate.yml `|| true`, openapi-examples.yml `continue-on-error: true`)
+        # and both now report success while being structurally unable to fail.
+        # A rule genuinely not worth enforcing belongs in an explicit config with a
+        # written reason, not smuggled onto a command line.
+        run: npx --no-install @redocly/cli lint contracts/openapi.yaml --skip-rule=no-unused-components
 
       - name: Validate OpenAPI schema (Spectral)
+        # `always()` because these steps are sequential: for the entire 53-run failing
+        # era the Redocly red masked this step, which was SKIPPED 53/53 times. It runs
+        # the repo's OWN hand-written ruleset (tools/spectral.rules.yaml) — four bespoke
+        # contract rules that had never once executed in CI. Never let one linter's
+        # failure hide the other's verdict.
+        if: always()
         run: npm run openapi:lint
