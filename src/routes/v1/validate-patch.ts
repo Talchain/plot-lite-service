@@ -24,7 +24,8 @@ import type {
   ValidationWarning,
   ViolationV3,
 } from './validate-patch.types.js';
-import type { EngineNodeV3, EngineEdgeV3, EngineNodeKindV3 } from '../../types/engine-v3.js';
+import type { EngineNodeV3, EngineEdgeV3 } from '../../types/engine-v3.js';
+import { VALID_NODE_KINDS as CONTRACT_NODE_KINDS } from '../../trust/types.js';
 import { FLAGS } from '../../config/flags.js';
 import { MAX_NODES, MAX_EDGES } from '../../constants/limits.js';
 import { normaliseGraphWithRepairs, NormalisationError, REPAIR_CODES } from '../../normalisation/normalise-and-repair.js';
@@ -37,17 +38,29 @@ import type { RepairEntry } from '../../normalisation/repair-codes.js';
 const CASCADE_WARNING_CAP = 10;
 
 /**
- * Valid node kinds for validate-patch.
- * Includes EngineNodeKindV3 values plus 'option' (present in UI graphs,
- * filtered before analysis by /v2/run).
+ * Valid node kinds for validate-patch — DERIVED from the pinned
+ * `@talchain/schemas` contract, not hand-listed.
  *
- * Cross-layer note: validate-patch operates on UI-layer graphs (pre-analysis-filter).
- * 'option' is a valid UI node kind, stripped by /v2/run before inference.
- * Included here to prevent false rejections on graphs that haven't been filtered yet.
+ * This route validates UI-LAYER graphs (pre-analysis-filter), so its gate is the
+ * platform contract, NOT the narrower engine set: `/v2/run` is what strips
+ * non-causal kinds before inference, and rejecting them here would be a false
+ * rejection of a graph the UI is entitled to hold.
+ *
+ * ⚠ IT WAS A HAND-WRITTEN SEVEN-MEMBER SET AND THAT WAS DRIFT, NOT NARROWING.
+ * Its own comment declared the intent "engine kinds plus the UI-layer ones", but
+ * the pinned contract declares EIGHT and this list omitted `constraint` — a kind
+ * this service has a dedicated compiler for
+ * (`normalisation/constraint-compiler.ts`) and whose CEE-specific fields the
+ * shared normaliser explicitly preserves (`graph-normaliser.ts`, `normalizedKind
+ * === 'constraint'`). The consequence was not a warning: `structuralPreCheck`
+ * violations return HTTP 422 `status: 'rejected'`, so a contract-legal edit was
+ * HARD-FAILED. Deriving the set means the route and the contract cannot diverge
+ * again — the same repair PR #344 made in `trust/types.ts`.
+ *
+ * `VALID_NODE_KINDS` there is `NodeKindEnum.options` from the pin; re-used here
+ * so there is ONE derivation point in the service rather than two.
  */
-const VALID_NODE_KINDS = new Set<string>([
-  'goal', 'factor', 'outcome', 'decision', 'risk', 'action', 'option',
-] satisfies (EngineNodeKindV3 | 'option')[]);
+const VALID_NODE_KINDS = new Set<string>(CONTRACT_NODE_KINDS);
 
 // Canonical field allow-lists for patch operations
 const CANONICAL_EDGE_FIELDS = new Set([
