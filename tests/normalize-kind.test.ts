@@ -6,6 +6,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import Fastify from 'fastify';
 import { normalizeNode, normalizeGraphWithWarnings } from '../src/util/normalize.js';
+import { VALID_NODE_KINDS } from '../src/trust/types.js';
 
 describe('normalizeNode', () => {
   it('maps valid type to kind', () => {
@@ -19,7 +20,15 @@ describe('normalizeNode', () => {
     expect(node.kind).toBeUndefined();
     expect(warning).toContain('Invalid node kind');
     expect(warning).toContain('segment');
-    expect(warning).toContain('goal, decision, option, outcome, risk, action');
+    // The warning names every valid kind. Asserted by MEMBERSHIP against the
+    // canonical list rather than as one hardcoded, ordered substring — that
+    // substring was a hand-maintained mirror of both the contents AND the
+    // order of VALID_NODE_KINDS, and it went red purely because the list is
+    // now derived from the pinned @talchain/schemas contract (which orders
+    // its enum differently and includes `constraint`).
+    for (const kind of VALID_NODE_KINDS) {
+      expect(warning).toContain(kind);
+    }
   });
 
   it('removes invalid kind when directly provided', () => {
