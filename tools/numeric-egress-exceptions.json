@@ -1,0 +1,364 @@
+{
+  "//": [
+    "RETROFIT DEBT — numeric-egress coercions that existed when tools/numeric-egress-gate.mjs was written.",
+    "This is NOT a suppression list. It is the bill: every entry is a site where a contract-declared",
+    "numeric response field is assigned a literal fallback instead of being validated through",
+    "src/routes/v2/numeric-egress-guards.ts and OMITTED when the producer did not measure it.",
+    "",
+    "THE LIST MAY ONLY SHRINK. The gate REDs on a NEW violation and equally on a STALE entry, so a site",
+    "can only leave this file in the same commit that fixes it. Removing an entry without fixing the code",
+    "REDs; fixing the code without removing the entry REDs. There is no silent exit.",
+    "",
+    "Identity is file + key + normalised source snippet — NOT the line number. `line` is informational",
+    "and may drift; the gate does not read it.",
+    "",
+    "To pay one down: replace the literal fallback with the matching guard (finiteNum / prob01 / nonNeg /",
+    "nonNegInt), OMIT the field when it returns undefined, and delete the entry here in the same commit.",
+    "A MEASURED ZERO IS NOT AN ABSENCE — the guards test finiteness and range, never truthiness."
+  ],
+  "generated_at_commit": "236e82d6641b87e282dcfc5f8673904aec6678e7",
+  "count": 37,
+  "by_class": {
+    "fabricated-probability": 8,
+    "fabricated-reproducibility": 2,
+    "fabricated-measurement": 4,
+    "fabricated-distribution": 17,
+    "sentinel-rank": 2,
+    "fabricated-latency": 4
+  },
+  "exceptions": [
+    {
+      "file": "src/analysis/flip-thresholds.ts",
+      "key": "win_probability",
+      "snippet": "win_probability: opt.win_probability ?? 0",
+      "line": 944,
+      "fallback": "0",
+      "class": "fabricated-probability",
+      "why": "Reads as \"this option never wins\" when the truth is \"not measured\"."
+    },
+    {
+      "file": "src/assembly/decision-brief.ts",
+      "key": "win_probability",
+      "snippet": "win_probability: o.win_probability ?? 0",
+      "line": 342,
+      "fallback": "0",
+      "class": "fabricated-probability",
+      "why": "Reads as \"this option never wins\" when the truth is \"not measured\"."
+    },
+    {
+      "file": "src/cee/client.ts",
+      "key": "seed",
+      "snippet": "seed: context.seed ?? 0",
+      "line": 913,
+      "fallback": "0",
+      "class": "fabricated-reproducibility",
+      "why": "Publishes seed 0 when the seed is unknown — a false reproducibility claim."
+    },
+    {
+      "file": "src/cee/decision-review-orchestrator.ts",
+      "key": "elasticity",
+      "snippet": "elasticity: f.elasticity ?? 0",
+      "line": 490,
+      "fallback": "0",
+      "class": "fabricated-measurement",
+      "why": "This is a RANKING KEY downstream; a fabricated 0 silently reorders the card."
+    },
+    {
+      "file": "src/cee/decision-review-orchestrator.ts",
+      "key": "win_probability",
+      "snippet": "win_probability: opt.win_probability ?? 0",
+      "line": 473,
+      "fallback": "0",
+      "class": "fabricated-probability",
+      "why": "Reads as \"this option never wins\" when the truth is \"not measured\"."
+    },
+    {
+      "file": "src/cee/decision-review-request.ts",
+      "key": "confidence",
+      "snippet": "confidence: f.confidence ?? 0.5",
+      "line": 323,
+      "fallback": "0.5",
+      "class": "fabricated-probability",
+      "why": "Asserts 50% confidence for a factor whose confidence was never computed."
+    },
+    {
+      "file": "src/cee/decision-review-request.ts",
+      "key": "elasticity",
+      "snippet": "elasticity: f.elasticity ?? 0",
+      "line": 322,
+      "fallback": "0",
+      "class": "fabricated-measurement",
+      "why": "This is a RANKING KEY downstream; a fabricated 0 silently reorders the card."
+    },
+    {
+      "file": "src/cee/decision-review-request.ts",
+      "key": "mean",
+      "snippet": "mean: edge.strength?.mean ?? 0.5",
+      "line": 240,
+      "fallback": "0.5",
+      "class": "fabricated-distribution",
+      "why": "An unmeasured mean is published as a point value; 0.5/0 is a fabricated prior, not a measurement."
+    },
+    {
+      "file": "src/cee/decision-review-request.ts",
+      "key": "std",
+      "snippet": "std: edge.strength?.std ?? 0.2",
+      "line": 241,
+      "fallback": "0.2",
+      "class": "fabricated-distribution",
+      "why": "An unmeasured spread is published as a point value; 0.2 is a fabricated prior, not a measurement."
+    },
+    {
+      "file": "src/cee/decision-review-request.ts",
+      "key": "win_probability",
+      "snippet": "win_probability: opt.win_probability ?? 0",
+      "line": 285,
+      "fallback": "0",
+      "class": "fabricated-probability",
+      "why": "Reads as \"this option never wins\" when the truth is \"not measured\"."
+    },
+    {
+      "file": "src/coaching/evidence-gaps.ts",
+      "key": "confidence",
+      "snippet": "confidence: f.confidence ?? 0.5",
+      "line": 32,
+      "fallback": "0.5",
+      "class": "fabricated-probability",
+      "why": "Asserts 50% confidence for a factor whose confidence was never computed."
+    },
+    {
+      "file": "src/coaching/normalise-inputs.ts",
+      "key": "importance_rank",
+      "snippet": "importance_rank: f.importance_rank ?? 999",
+      "line": 74,
+      "fallback": "999",
+      "class": "sentinel-rank",
+      "why": "999 is a sort sentinel, not a measured rank; it is still a number a consumer can read as a rank."
+    },
+    {
+      "file": "src/coaching/normalise-inputs.ts",
+      "key": "importance_rank",
+      "snippet": "importance_rank: f.importance_rank ?? f.influence_rank ?? 999",
+      "line": 61,
+      "fallback": "999",
+      "class": "sentinel-rank",
+      "why": "999 is a sort sentinel, not a measured rank; it is still a number a consumer can read as a rank."
+    },
+    {
+      "file": "src/facts/mapper.ts",
+      "key": "confidence",
+      "snippet": "confidence: f.confidence ?? 0.5",
+      "line": 177,
+      "fallback": "0.5",
+      "class": "fabricated-probability",
+      "why": "Asserts 50% confidence for a factor whose confidence was never computed."
+    },
+    {
+      "file": "src/facts/mapper.ts",
+      "key": "mean",
+      "snippet": "mean: o.outcome!.mean ?? o.outcome!.p50 ?? 0",
+      "line": 144,
+      "fallback": "0",
+      "class": "fabricated-distribution",
+      "why": "An unmeasured mean is published as a point value; 0.5/0 is a fabricated prior, not a measurement."
+    },
+    {
+      "file": "src/facts/mapper.ts",
+      "key": "p10",
+      "snippet": "p10: o.outcome!.p10 ?? 0",
+      "line": 141,
+      "fallback": "0",
+      "class": "fabricated-distribution",
+      "why": "An option with no interval is described downstream as a degenerate zero distribution."
+    },
+    {
+      "file": "src/facts/mapper.ts",
+      "key": "p50",
+      "snippet": "p50: o.outcome!.p50 ?? 0",
+      "line": 142,
+      "fallback": "0",
+      "class": "fabricated-distribution",
+      "why": "An option with no interval is described downstream as a degenerate zero distribution."
+    },
+    {
+      "file": "src/facts/mapper.ts",
+      "key": "p90",
+      "snippet": "p90: o.outcome!.p90 ?? 0",
+      "line": 143,
+      "fallback": "0",
+      "class": "fabricated-distribution",
+      "why": "An option with no interval is described downstream as a degenerate zero distribution."
+    },
+    {
+      "file": "src/integrations/isl/index.ts",
+      "key": "mean",
+      "snippet": "mean: e.weight ?? 0",
+      "line": 521,
+      "fallback": "0",
+      "class": "fabricated-distribution",
+      "why": "An unmeasured mean is published as a point value; 0.5/0 is a fabricated prior, not a measurement."
+    },
+    {
+      "file": "src/integrations/isl/index.ts",
+      "key": "mean",
+      "snippet": "mean: e.weight ?? 0",
+      "line": 523,
+      "fallback": "0",
+      "class": "fabricated-distribution",
+      "why": "An unmeasured mean is published as a point value; 0.5/0 is a fabricated prior, not a measurement."
+    },
+    {
+      "file": "src/integrations/isl/translator-v3.ts",
+      "key": "intercept",
+      "snippet": "intercept: node.intercept ?? 0.0",
+      "line": 607,
+      "fallback": "0.0",
+      "class": "fabricated-measurement",
+      "why": "An unmeasured intercept is published as 0."
+    },
+    {
+      "file": "src/routes/ops/snapshot.ts",
+      "key": "last_compute_ms",
+      "snippet": "last_compute_ms: getLastComputeMs() || 0",
+      "line": 182,
+      "fallback": "0",
+      "class": "fabricated-latency",
+      "why": "Publishes 0 ms when no compute has been measured, which reads as instantaneous."
+    },
+    {
+      "file": "src/routes/ops/snapshot.ts",
+      "key": "p95_ms",
+      "snippet": "p95_ms: getEngineP95Ms() || 0",
+      "line": 180,
+      "fallback": "0",
+      "class": "fabricated-latency",
+      "why": "Publishes 0 ms when no latency has been measured, which reads as instantaneous."
+    },
+    {
+      "file": "src/routes/ops/snapshot.ts",
+      "key": "p99_ms",
+      "snippet": "p99_ms: getEngineP95MsRolling() || 0",
+      "line": 181,
+      "fallback": "0",
+      "class": "fabricated-latency",
+      "why": "Publishes 0 ms when no latency has been measured, which reads as instantaneous."
+    },
+    {
+      "file": "src/routes/v1/index.ts",
+      "key": "p95_ms",
+      "snippet": "p95_ms: p95Ms() || 0",
+      "line": 162,
+      "fallback": "0",
+      "class": "fabricated-latency",
+      "why": "Publishes 0 ms when no latency has been measured, which reads as instantaneous."
+    },
+    {
+      "file": "src/routes/v1/run.ts",
+      "key": "belief",
+      "snippet": "belief: edge.belief ?? 1.0",
+      "line": 939,
+      "fallback": "1.0",
+      "class": "fabricated-probability",
+      "why": "Asserts full belief in an edge whose belief was never stated."
+    },
+    {
+      "file": "src/routes/v1/run.ts",
+      "key": "p10",
+      "snippet": "p10: results.conservative?.outcome ?? 0",
+      "line": 1469,
+      "fallback": "0",
+      "class": "fabricated-distribution",
+      "why": "An option with no interval is described downstream as a degenerate zero distribution."
+    },
+    {
+      "file": "src/routes/v1/run.ts",
+      "key": "p50",
+      "snippet": "p50: results.most_likely?.outcome ?? 0",
+      "line": 1470,
+      "fallback": "0",
+      "class": "fabricated-distribution",
+      "why": "An option with no interval is described downstream as a degenerate zero distribution."
+    },
+    {
+      "file": "src/routes/v1/run.ts",
+      "key": "p90",
+      "snippet": "p90: results.optimistic?.outcome ?? 0",
+      "line": 1471,
+      "fallback": "0",
+      "class": "fabricated-distribution",
+      "why": "An option with no interval is described downstream as a degenerate zero distribution."
+    },
+    {
+      "file": "src/routes/v1/run.ts",
+      "key": "weight",
+      "snippet": "weight: edge.weight ?? 0",
+      "line": 938,
+      "fallback": "0",
+      "class": "fabricated-measurement",
+      "why": "An unweighted edge is published as weight 0, i.e. \"no effect\"."
+    },
+    {
+      "file": "src/routes/v2/run.ts",
+      "key": "p10",
+      "snippet": "p10: firstOption?.confidence_interval?.[0] ?? 0",
+      "line": 4768,
+      "fallback": "0",
+      "class": "fabricated-distribution",
+      "why": "An option with no interval is described downstream as a degenerate zero distribution."
+    },
+    {
+      "file": "src/routes/v2/run.ts",
+      "key": "p10",
+      "snippet": "p10: opt.confidence_interval?.[0] ?? opt.outcome?.p10 ?? 0",
+      "line": 4779,
+      "fallback": "0",
+      "class": "fabricated-distribution",
+      "why": "An option with no interval is described downstream as a degenerate zero distribution."
+    },
+    {
+      "file": "src/routes/v2/run.ts",
+      "key": "p50",
+      "snippet": "p50: firstOption?.expected_outcome ?? 0",
+      "line": 4769,
+      "fallback": "0",
+      "class": "fabricated-distribution",
+      "why": "An option with no interval is described downstream as a degenerate zero distribution."
+    },
+    {
+      "file": "src/routes/v2/run.ts",
+      "key": "p50",
+      "snippet": "p50: opt.expected_outcome ?? opt.outcome?.p50 ?? 0",
+      "line": 4780,
+      "fallback": "0",
+      "class": "fabricated-distribution",
+      "why": "An option with no interval is described downstream as a degenerate zero distribution."
+    },
+    {
+      "file": "src/routes/v2/run.ts",
+      "key": "p90",
+      "snippet": "p90: firstOption?.confidence_interval?.[1] ?? 0",
+      "line": 4770,
+      "fallback": "0",
+      "class": "fabricated-distribution",
+      "why": "An option with no interval is described downstream as a degenerate zero distribution."
+    },
+    {
+      "file": "src/routes/v2/run.ts",
+      "key": "p90",
+      "snippet": "p90: opt.confidence_interval?.[1] ?? opt.outcome?.p90 ?? 0",
+      "line": 4781,
+      "fallback": "0",
+      "class": "fabricated-distribution",
+      "why": "An option with no interval is described downstream as a degenerate zero distribution."
+    },
+    {
+      "file": "src/routes/v2/run.ts",
+      "key": "seed",
+      "snippet": "seed: Number(meta.seedUsed) || 0",
+      "line": 4014,
+      "fallback": "0",
+      "class": "fabricated-reproducibility",
+      "why": "Publishes seed 0 when the seed is unknown — a false reproducibility claim."
+    }
+  ]
+}

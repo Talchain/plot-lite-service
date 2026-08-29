@@ -66,6 +66,12 @@ const GATES = [
     description: 'No sensitive payloads in logs',
     critical: true,
   },
+  {
+    name: 'Numeric Egress',
+    script: 'numeric-egress-gate.mjs',
+    description: 'No literal fallback on a contract-declared numeric response field',
+    critical: true,
+  },
 ];
 
 /**
