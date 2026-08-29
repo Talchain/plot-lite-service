@@ -16,7 +16,7 @@ import type {
   EngineGraphV3,
   EngineNodeKindV3,
 } from '../types/engine-v3.js';
-import { NON_CAUSAL_NODE_KINDS } from '../types/engine-v3.js';
+import { NON_CAUSAL_NODE_KINDS, ENGINE_CAUSAL_NODE_KINDS } from '../types/engine-v3.js';
 import { DEFAULT_EXISTS_PROBABILITY } from '../constants/limits.js';
 import { REPAIR_CODES } from './repair-codes.js';
 
@@ -40,14 +40,19 @@ export class NormalisationError extends Error {
 // Constants
 // -----------------------------------------------------------------------------
 
-const VALID_NODE_KINDS: Set<string> = new Set([
-  'goal',
-  'factor',
-  'outcome',
-  'decision',
-  'risk',
-  'action',
-]);
+/**
+ * The kinds this normaliser recognises as CAUSAL.
+ *
+ * DERIVED from `ENGINE_CAUSAL_NODE_KINDS`, not hand-copied. It previously
+ * restated those six members literally — a hand-maintained mirror (programme
+ * trap 12) of a list one import away.
+ *
+ * ⚠ ITS MEMBERSHIP IS A DELIBERATE NARROWING AND STAYS SIX. It is NOT the pinned
+ * `@talchain/schemas` `NodeKind` enum (eight) and must not be converged with it;
+ * see the note on `ENGINE_CAUSAL_NODE_KINDS` in `types/engine-v3.ts`, and the
+ * pins in `tests/node-kind-list-convergence.test.ts`.
+ */
+const VALID_NODE_KINDS: ReadonlySet<string> = new Set<string>(ENGINE_CAUSAL_NODE_KINDS);
 
 // CIL M5: Imported from constants/limits.ts (single source of truth)
 

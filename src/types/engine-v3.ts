@@ -52,14 +52,34 @@ import type { ISLFlipStabilityBandV2, ISLPathDecompositionV2 } from '../integrat
 /**
  * Valid node kinds for causal graph nodes.
  * Note: 'option' is NOT a valid kind - option nodes are filtered before analysis.
+ *
+ * ⚠ THIS IS A DELIBERATE NARROWING, NOT DRIFT — do not "converge" it with the
+ * pinned `@talchain/schemas` `NodeKind` enum, which declares EIGHT members.
+ * These six are the kinds that participate in CAUSAL inference. The contract's
+ * other two are handled elsewhere and on purpose:
+ *   - `option`, `decision` → `NON_CAUSAL_NODE_KINDS`, filtered before ISL
+ *   - `constraint`         → compiled into `goal_constraints` by
+ *                            `normalisation/constraint-compiler.ts`
+ * Widening this list would suppress `UNKNOWN_NODE_KIND`, which is the only
+ * user-visible signal that a kind is not causally handled — and that signal is
+ * load-bearing, because ISL's `NON_INFERENCE_KINDS` drops only
+ * {decision, option, constraint} and lets EVERY other kind participate in
+ * inference. An unrecognised kind is forwarded to ISL unchanged, so it computes.
+ *
+ * The VALUE is the source of truth and the TYPE is derived from it, so the two
+ * cannot drift apart and no consumer needs to hand-copy the members
+ * (programme trap 12 — the hand-maintained mirror).
  */
-export type EngineNodeKindV3 =
-  | 'goal'
-  | 'factor'
-  | 'outcome'
-  | 'decision'
-  | 'risk'
-  | 'action';
+export const ENGINE_CAUSAL_NODE_KINDS = [
+  'goal',
+  'factor',
+  'outcome',
+  'decision',
+  'risk',
+  'action',
+] as const;
+
+export type EngineNodeKindV3 = (typeof ENGINE_CAUSAL_NODE_KINDS)[number];
 
 // -----------------------------------------------------------------------------
 // Upstream Input Types (what we accept from UI/CEE)
