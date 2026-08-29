@@ -218,8 +218,38 @@ function deriveEgressFiles() {
 
 /* ========================================================================== *
  * 3. SCAN — object-literal property whose key the contract declares numeric,
- *    assigned a literal fallback via ?? or ||
- * ========================================================================== */
+ *    fed by a literal substitution, DIRECTLY or through a local binding
+ * ========================================================================== *
+ *
+ * TWO AXES, WIDENED TOGETHER (2026-08-29). Either alone leaves a live sibling
+ * invisible, and a gate that cannot see the defect it was built for is a guard
+ * agreeing with itself.
+ *
+ *   · FORM       `a ?? 0.5` · `a || 0.5` · `cond ? real : 0.5`.
+ *                A ternary substitutes a literal for an absence exactly as `??`
+ *                does. This gate's own header names the defect
+ *                "structural_certainty ?? 0.5 — 50% certainty asserted for a
+ *                factor with no incoming edges"; the site it describes
+ *                (`src/lib/factor-influence.ts`) is written as a TERNARY, so
+ *                the gate documented a defect it could not see.
+ *                Both branches literal (`flag ? 1 : 0`) is a computed MAPPING,
+ *                not a substitution, and stays out of scope.
+ *
+ *   · LAUNDERING one hop through a local `const`/`let` in the same file:
+ *                `const sc = x ?? 0.5; return { structural_certainty: sc };`
+ *                The lie is identical; only the AST shape differs. One hop, not
+ *                a dataflow analysis — a second hop needs a type checker, and a
+ *                gate that pretends to more reach than it has is worse than one
+ *                whose limit is written down. Chained laundering is a known,
+ *                stated blind spot.
+ *
+ * RESOLUTION IS BY SCOPE, NEVER BY NAME. `factor-influence.ts` declares two
+ * different `structuralCertainty` locals in two different functions — one a
+ * coercion, one not. A name-keyed lookup would answer for whichever it recorded
+ * last: a verdict bound to its object by a predicate another object satisfies.
+ * Candidates are filtered to those whose enclosing scope contains the use, and
+ * the NARROWEST is taken.
+ */
 
 const unwrap = (n) => {
   let x = n;
@@ -263,40 +293,146 @@ const REQUEST_ROOTS = new Set(['body', 'req', 'request', 'payload', 'input', 'pa
 
 const normalise = (s) => s.replace(/\s+/g, ' ').trim();
 
+/**
+ * A SUBSTITUTION: an expression that puts a numeric literal where an absent
+ * value belongs. Returns `{ lit, value }` — `value` being the expression the
+ * literal stands in for, which the exemptions below are asked about — or null.
+ */
+function substitution(node) {
+  const e = unwrap(node);
+
+  if (ts.isBinaryExpression(e)
+      && (e.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
+       || e.operatorToken.kind === ts.SyntaxKind.BarBarToken)) {
+    const lit = literalFallback(e.right);
+    return lit === null ? null : { lit, value: e.left };
+  }
+
+  if (ts.isConditionalExpression(e)) {
+    const t = literalFallback(e.whenTrue);
+    const f = literalFallback(e.whenFalse);
+    // Both literal ⇒ a computed mapping (`flag ? 1 : 0`), not a substitution.
+    // Neither literal ⇒ a choice between two real values.
+    if (t !== null && f === null) return { lit: t, value: e.whenFalse };
+    if (f !== null && t === null) return { lit: f, value: e.whenTrue };
+    return null;
+  }
+
+  return null;
+}
+
+/** True when this substitution is one the gate deliberately does not fire on. */
+function isExempt(sub) {
+  const term = terminalProperty(sub.value);
+  const root = rootIdentifier(sub.value);
+  // `.length` / `.size` of an absent collection is a MEASURED zero.
+  if (term === 'length' || term === 'size') return true;
+  // A default chosen for an input the CLIENT did not supply is not an egress
+  // fabrication — it is the documented default for an absent request field.
+  if (root !== null && REQUEST_ROOTS.has(root)) return true;
+  return false;
+}
+
+/**
+ * The scope node a declaration belongs to: the nearest enclosing block, function
+ * body, arrow body, case block, for-statement or source file.
+ */
+function enclosingScope(node) {
+  let p = node.parent;
+  while (p) {
+    if (ts.isBlock(p) || ts.isSourceFile(p) || ts.isCaseBlock(p)
+        || ts.isForStatement(p) || ts.isForOfStatement(p) || ts.isForInStatement(p)
+        || ts.isModuleBlock(p) || ts.isArrowFunction(p)) return p;
+    p = p.parent;
+  }
+  return node.getSourceFile();
+}
+
+/**
+ * Every `const`/`let`/`var` in the file whose name is a plain identifier and
+ * whose initializer is a substitution, recorded with the range of its scope so
+ * a use site can be resolved by containment rather than by name.
+ */
+function collectCoercedLocals(sf) {
+  const out = [];
+  const visit = (n) => {
+    if (ts.isVariableDeclaration(n) && ts.isIdentifier(n.name) && n.initializer) {
+      const sub = substitution(n.initializer);
+      if (sub && !isExempt(sub)) {
+        const scope = enclosingScope(n);
+        out.push({
+          name: n.name.text,
+          lit: sub.lit,
+          declLine: sf.getLineAndCharacterOfPosition(n.getStart()).line + 1,
+          declText: normalise(n.getText()).slice(0, 160),
+          scopeStart: scope.getStart(),
+          scopeEnd: scope.getEnd(),
+        });
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+  return out;
+}
+
+/**
+ * The coerced local this identifier resolves to, or null. Candidates must share
+ * the name AND contain the use position; the NARROWEST scope wins, so a
+ * same-named sibling in another function can never answer for this one.
+ */
+function resolveCoercedLocal(locals, name, pos) {
+  let best = null;
+  for (const l of locals) {
+    if (l.name !== name) continue;
+    if (pos < l.scopeStart || pos > l.scopeEnd) continue;
+    const span = l.scopeEnd - l.scopeStart;
+    if (best === null || span < best.scopeEnd - best.scopeStart) best = l;
+  }
+  return best;
+}
+
 function scanFile(file, vocab) {
   const text = readFileSync(file, 'utf8');
   const sf = parse(file);
   const lines = text.split('\n');
+  const locals = collectCoercedLocals(sf);
   const found = [];
+
+  const record = (n, key, lit, via) => {
+    const line = sf.getLineAndCharacterOfPosition(n.getStart()).line;
+    found.push({
+      file: relative(ROOT, file),
+      key,
+      fallback: lit,
+      line: line + 1,
+      snippet: normalise(n.getText()).slice(0, 160),
+      source: normalise(lines[line]).slice(0, 160),
+      ...(via ? { via } : {}),
+    });
+  };
+
   const visit = (n) => {
+    // `{ structural_certainty: <expr> }`
     if (ts.isPropertyAssignment(n)) {
       const nameNode = n.name;
       const key = ts.isIdentifier(nameNode) ? nameNode.text
         : (ts.isStringLiteral(nameNode) ? nameNode.text : null);
       if (key && vocab.has(key)) {
-        const e = unwrap(n.initializer);
-        if (ts.isBinaryExpression(e)
-            && (e.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken
-             || e.operatorToken.kind === ts.SyntaxKind.BarBarToken)) {
-          const lit = literalFallback(e.right);
-          const term = terminalProperty(e.left);
-          const root = rootIdentifier(e.left);
-          // `.length` / `.size` of an absent collection is a MEASURED zero.
-          const isCount = term === 'length' || term === 'size';
-          const isRequestDefault = root !== null && REQUEST_ROOTS.has(root);
-          if (lit !== null && !isCount && !isRequestDefault) {
-            const line = sf.getLineAndCharacterOfPosition(n.getStart()).line;
-            found.push({
-              file: relative(ROOT, file),
-              key,
-              fallback: lit,
-              line: line + 1,
-              snippet: normalise(n.getText()).slice(0, 160),
-              source: normalise(lines[line]).slice(0, 160),
-            });
-          }
+        const init = unwrap(n.initializer);
+        const direct = substitution(init);
+        if (direct !== null) {
+          if (!isExempt(direct)) record(n, key, direct.lit, null);
+        } else if (ts.isIdentifier(init)) {
+          const l = resolveCoercedLocal(locals, init.text, init.getStart());
+          if (l) record(n, key, l.lit, `${l.declText}   (declared line ${l.declLine})`);
         }
       }
+    }
+    // `{ structural_certainty }` — key and local share a name.
+    if (ts.isShorthandPropertyAssignment(n) && vocab.has(n.name.text)) {
+      const l = resolveCoercedLocal(locals, n.name.text, n.getStart());
+      if (l) record(n, n.name.text, l.lit, `${l.declText}   (declared line ${l.declLine})`);
     }
     ts.forEachChild(n, visit);
   };
@@ -360,13 +496,22 @@ function main() {
   console.log(`  retrofit debt pinned            : ${declared.length}`);
 
   if (added.length) {
-    console.error(`\n❌ ${added.length} NEW numeric-egress coercion(s):\n`);
-    for (const { id } of added) {
-      const v = violations.find((x) => idOf(x) === id);
-      console.error(`   ${v.file}:${v.line}`);
-      console.error(`      ${v.source}`);
-      console.error(`      '${v.key}' is a contract-declared numeric response field; '${v.fallback}' `
-                  + `substitutes a value for an absent measurement.\n`);
+    const newOccurrences = added.reduce((n, a) => n + a.extra, 0);
+    console.error(`\n❌ ${newOccurrences} NEW numeric-egress coercion(s) at ${added.length} distinct site identit(y/ies):\n`);
+    for (const { id, extra } of added) {
+      // Identity is file|key|snippet, so two textually identical egress sites in
+      // one file share an id. Print EVERY occurrence: printing only the first
+      // under-reports the debt, and an under-reported bill is how a list stops
+      // being the bill.
+      const all = violations.filter((x) => idOf(x) === id);
+      if (all.length > 1) console.error(`   (${extra} unpinned occurrence(s) of an identical egress expression)`);
+      for (const v of all) {
+        console.error(`   ${v.file}:${v.line}`);
+        console.error(`      ${v.source}`);
+        if (v.via) console.error(`      via local: ${v.via}`);
+        console.error(`      '${v.key}' is a contract-declared numeric response field; '${v.fallback}' `
+                    + `substitutes a value for an absent measurement.\n`);
+      }
     }
     console.error(`   Validate through src/routes/v2/numeric-egress-guards.ts and OMIT the field when the`);
     console.error(`   producer did not measure it — a fabricated number is ranked, scored and shown to a user.`);

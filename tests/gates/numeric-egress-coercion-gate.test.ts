@@ -25,7 +25,10 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 const REPO = resolve(dirname(fileURLToPath(import.meta.url)), '../..');
-const GATE = join(REPO, 'tools/numeric-egress-gate.mjs');
+// The gate under test. Defaults to this repo's gate; NEG_GATE points it at a
+// MUTATED copy in a throwaway worktree, so the mutant kit can prove every
+// case below actually bites without ever writing inside this clone.
+const GATE = process.env.NEG_GATE || join(REPO, 'tools/numeric-egress-gate.mjs');
 
 /** Run the gate against `root`. Never throws — returns the exit code and output. */
 function runGate(root: string, extraEnv: Record<string, string> = {}) {
@@ -302,5 +305,205 @@ describe('numeric-egress gate · the REAL contract declares the confidence_compo
     restore();
     expect(r.out).toContain('No new numeric-egress coercions');
     expect(r.code).toBe(0);
+  });
+});
+
+/**
+ * LAUNDERING AXIS — a coercion that reaches egress through a local binding.
+ * ============================================================================
+ * The gate originally bound to a `PropertyAssignment` whose INITIALIZER is the
+ * `??` / `||` expression. Real code rarely writes it that way: it assigns the
+ * coercion to a `const` and then egresses the identifier. The lie is identical,
+ * the AST shape is not — so the gate was structurally blind to the form the
+ * offender in this repo actually takes, which is a guard agreeing with itself.
+ *
+ * Two axes are widened together, because either alone leaves a live sibling
+ * invisible:
+ *   · FORM      — `?? / ||` AND `cond ? real : LITERAL` (a ternary substitutes a
+ *                 literal for an absence exactly as `??` does; the gate's own
+ *                 header names "structural_certainty ?? 0.5 — 50% certainty
+ *                 asserted for a factor with no incoming edges", and the site it
+ *                 describes is written as a ternary).
+ *   · LAUNDERING — one hop through a local `const`/`let` in the same file.
+ *
+ * Every case is a DISCRIMINATING PAIR. The gate must fire on the coerced local
+ * and NOT on a local holding a real value — a gate that flags every local is
+ * worse than one that flags none, because it teaches people to add exceptions.
+ */
+describe('numeric-egress gate · LAUNDERING AXIS (coercion reaches egress via a local)', () => {
+  const REAL_CONTRACTS = { NEG_CONTRACTS_DIR: join(REPO, 'contracts') };
+
+  it('REDs when a `?? 0.5` is laundered through a local and egressed as a contract numeric', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const laundered = (o: any) => {\n`
+      + `  const sc = o.cc.structural_certainty ?? 0.5;\n`
+      + `  return { structural_certainty: sc };\n`
+      + `};\n`);
+    const r = runGate(FIX, REAL_CONTRACTS);
+    restore();
+    expect(r.code).toBe(1);
+    expect(r.out).toContain('NEW numeric-egress coercion');
+    expect(r.out).toContain("'structural_certainty' is a contract-declared numeric response field");
+  });
+
+  it('stays GREEN on the same laundering shape under a key the contract does NOT declare', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const launderedOk = (o: any) => {\n`
+      + `  const sc = o.cc.whatever ?? 0.5;\n`
+      + `  return { structural_certainty_unpublished: sc };\n`
+      + `};\n`);
+    const r = runGate(FIX, REAL_CONTRACTS);
+    restore();
+    expect(r.out).toContain('No new numeric-egress coercions');
+    expect(r.code).toBe(0);
+  });
+
+  it('stays GREEN on a legitimate local holding a REAL value — the mandatory twin', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const realLocal = (o: any, g: any) => {\n`
+      + `  const sc = g.finiteNum(o.cc.structural_certainty);\n`
+      + `  const p = o.outcome.p05;\n`
+      + `  return { structural_certainty: sc, p05: p };\n`
+      + `};\n`);
+    const r = runGate(FIX, REAL_CONTRACTS);
+    restore();
+    expect(r.out).toContain('No new numeric-egress coercions');
+    expect(r.code).toBe(0);
+  });
+
+  it('REDs on the shorthand form `{ structural_certainty }` fed by a coerced local', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const shorthand = (o: any) => {\n`
+      + `  const structural_certainty = o.cc.structural_certainty ?? 0.5;\n`
+      + `  return { structural_certainty };\n`
+      + `};\n`);
+    const r = runGate(FIX, REAL_CONTRACTS);
+    restore();
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("'structural_certainty' is a contract-declared numeric response field");
+  });
+
+  it('stays GREEN on the shorthand form fed by a local holding a real value', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const shorthandOk = (o: any, g: any) => {\n`
+      + `  const structural_certainty = g.finiteNum(o.cc.structural_certainty);\n`
+      + `  return { structural_certainty };\n`
+      + `};\n`);
+    const r = runGate(FIX, REAL_CONTRACTS);
+    restore();
+    expect(r.out).toContain('No new numeric-egress coercions');
+    expect(r.code).toBe(0);
+  });
+});
+
+describe('numeric-egress gate · FORM AXIS (a ternary substitutes a literal exactly as `??` does)', () => {
+  const REAL_CONTRACTS = { NEG_CONTRACTS_DIR: join(REPO, 'contracts') };
+
+  it('REDs on a direct `cond ? real : 0.5` — the shape the live offender is written in', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const ternary = (es: any[]) => ({\n`
+      + `  structural_certainty: es && es.length > 0 ? es.reduce((a: number, e: any) => a + e.p, 0) / es.length : 0.5,\n`
+      + `});\n`);
+    const r = runGate(FIX, REAL_CONTRACTS);
+    restore();
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("'structural_certainty' is a contract-declared numeric response field");
+  });
+
+  it('REDs on a ternary laundered through a local — both axes at once', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const ternaryLaundered = (es: any[]) => {\n`
+      + `  const sc = es.length > 0 ? es.reduce((a: number, e: any) => a + e.p, 0) / es.length : 0.5;\n`
+      + `  return { structural_certainty: sc };\n`
+      + `};\n`);
+    const r = runGate(FIX, REAL_CONTRACTS);
+    restore();
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("'structural_certainty' is a contract-declared numeric response field");
+  });
+
+  it('stays GREEN on the identical ternary under an undeclared key — the contrast control', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const ternaryOk = (es: any[]) => {\n`
+      + `  const sc = es.length > 0 ? es.reduce((a: number, e: any) => a + e.p, 0) / es.length : 0.5;\n`
+      + `  return { structural_certainty_unpublished: sc };\n`
+      + `};\n`);
+    const r = runGate(FIX, REAL_CONTRACTS);
+    restore();
+    expect(r.out).toContain('No new numeric-egress coercions');
+    expect(r.code).toBe(0);
+  });
+
+  it('stays GREEN on a ternary that yields a MEASURED count — an absent collection has zero items', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const counted2 = (o: any) => {\n`
+      + `  const n = o.samples ? o.samples.length : 0;\n`
+      + `  return { n_samples: n };\n`
+      + `};\n`);
+    const r = runGate(FIX);
+    restore();
+    expect(r.out).toContain('No new numeric-egress coercions');
+    expect(r.code).toBe(0);
+  });
+
+  it('stays GREEN on a request-rooted default laundered through a local', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const reqLocal = (body: any) => {\n`
+      + `  const n = body.n_samples ?? 5000;\n`
+      + `  return { n_samples: n };\n`
+      + `};\n`);
+    const r = runGate(FIX);
+    restore();
+    expect(r.out).toContain('No new numeric-egress coercions');
+    expect(r.code).toBe(0);
+  });
+
+  it('stays GREEN when BOTH ternary branches are literals — a mapping, not a substitution', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const mapping = (o: any) => {\n`
+      + `  const w = o.flag ? 1 : 0;\n`
+      + `  return { win_probability: w };\n`
+      + `};\n`);
+    const r = runGate(FIX);
+    restore();
+    expect(r.out).toContain('No new numeric-egress coercions');
+    expect(r.code).toBe(0);
+  });
+});
+
+/**
+ * Resolution must be by SCOPE, not by name. `factor-influence.ts` declares two
+ * different `structuralCertainty` locals in two different functions — one a
+ * coercion, one not — and a name-keyed lookup would answer for whichever it
+ * recorded last. That is trap 19 at file scope: an assertion binding to its
+ * object by a predicate another object satisfies.
+ */
+describe('numeric-egress gate · resolves the local by SCOPE, not by name', () => {
+  const REAL_CONTRACTS = { NEG_CONTRACTS_DIR: join(REPO, 'contracts') };
+
+  it('stays GREEN when a SIBLING scope has a coerced local of the same name', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const scopedGreen = (o: any, g: any) => {\n`
+      + `  function a() { const sc = o.x ?? 0.5; return { structural_certainty_unpublished: sc }; }\n`
+      + `  function b() { const sc = g.finiteNum(o.cc.structural_certainty); return { structural_certainty: sc }; }\n`
+      + `  return [a(), b()];\n`
+      + `};\n`);
+    const r = runGate(FIX, REAL_CONTRACTS);
+    restore();
+    expect(r.out).toContain('No new numeric-egress coercions');
+    expect(r.code).toBe(0);
+  });
+
+  it('REDs when it is THIS scope’s local that is coerced, with a clean sibling of the same name', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const scopedRed = (o: any, g: any) => {\n`
+      + `  function a() { const sc = g.finiteNum(o.x); return { structural_certainty_unpublished: sc }; }\n`
+      + `  function b() { const sc = o.cc.structural_certainty ?? 0.5; return { structural_certainty: sc }; }\n`
+      + `  return [a(), b()];\n`
+      + `};\n`);
+    const r = runGate(FIX, REAL_CONTRACTS);
+    restore();
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("'structural_certainty' is a contract-declared numeric response field");
   });
 });
