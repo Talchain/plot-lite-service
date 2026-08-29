@@ -17,7 +17,7 @@ import { assembleBrief, type BriefAssemblyInput } from '../src/assembly/decision
 import { generateHeadlines, detectHeadlineType } from '../src/coaching/headlines.js';
 import { generateCritiques } from '../src/coaching/critiques.js';
 import { computeKeyDrivers } from '../src/coaching/key-drivers.js';
-import { buildEvidencePriorityCard, type FactorInput } from '../src/review-pass/evidence-priority.js';
+import { buildEvidencePriorityCard, toEvidencePriorityFactorInputs, type FactorInput } from '../src/review-pass/evidence-priority.js';
 import { filterInterventionOverrides } from '../src/lib/intervention-override.js';
 import type { CoachingInputs, NormalisedFactorSensitivity } from '../src/coaching/types.js';
 
@@ -72,13 +72,14 @@ describe('A1b — evidence-priority excludes intervention_override levers', () =
       { factor_id: 'fac_leadership_capacity', factor_label: LEVER, elasticity: 1, confidence: 0.1, zero_reason: 'intervention_override' },
       { factor_id: 'fac_time_pressure', factor_label: NONLEVER, elasticity: 0.51, confidence: 0.1, zero_reason: null },
     ];
-    // Exactly as run.ts builds epFactors: filter THEN map to FactorInput.
-    const epFactors: FactorInput[] = filterInterventionOverrides(merged).map((fs: any) => ({
-      factor_id: fs.factor_id,
-      factor_label: fs.factor_label,
-      elasticity: fs.elasticity ?? 0,
-      confidence: fs.confidence,
-    }));
+    // Exactly as run.ts builds epFactors: filter THEN map, through the SAME
+    // exported mapper the route calls. This block used to open-code the map,
+    // and had already drifted from the route by a `?? fs.sensitivity_score`
+    // limb — the hand-maintained mirror CLAUDE.md trap 12 warns about. Derive,
+    // never mirror: if the mapping rule changes, this test moves with it.
+    const epFactors: FactorInput[] = toEvidencePriorityFactorInputs(
+      filterInterventionOverrides(merged),
+    );
     const card = buildEvidencePriorityCard(epFactors);
     const ids = (card?.items ?? []).map(i => i.factor_id);
     expect(ids).not.toContain('fac_leadership_capacity');

@@ -210,7 +210,7 @@ import {
   type RefusedConstraintRecord,
 } from '../../lib/intervention-normaliser.js';
 import { assembleBrief } from '../../assembly/decision-brief.js';
-import { buildEvidencePriorityCard, type FactorInput } from '../../review-pass/evidence-priority.js';
+import { buildEvidencePriorityCard, toEvidencePriorityFactorInputs, type FactorInput } from '../../review-pass/evidence-priority.js';
 import type { ProposalCardV1 } from '../../review-pass/types.js';
 import { assembleFactObjects, type ISLResponseInput, type FactorSensitivityInput } from '../../facts/index.js';
 import type { FactObjectV1, FactLineage } from '../../facts/types.js';
@@ -2693,13 +2693,32 @@ function buildConstraintFields(
           given_constraint_id: resolveConstraintId(givenConstraint, cp.given_constraint_index),
           target_constraint_id: resolveConstraintId(targetConstraint, cp.target_constraint_index),
           probability: cp.probability,
-          effective_sample_size: cp.effective_sample_size ?? 0,
+          // `effective_sample_size` is a PRECISION DIAGNOSTIC about ISL's
+          // computation, so PLoT can only publish what ISL reported. This read
+          // was `cp.effective_sample_size ?? 0`, which published "zero
+          // effective samples" — a measurement, and the most alarming one
+          // available — for "ISL did not report it". `nonNeg` (the house guard
+          // for non-negative reals; an ESS is a weighted count and legitimately
+          // fractional) returns `undefined` for absent / non-finite / negative,
+          // so the key is OMITTED. Honest absence, per
+          // `src/routes/v2/numeric-egress-guards.ts:13-16`.
+          // A MEASURED ZERO IS NOT AN ABSENCE: `nonNeg` tests finiteness and
+          // range, never truthiness, so a genuine `0` still ships.
+          ...(nonNeg(cp.effective_sample_size) !== undefined && {
+            effective_sample_size: nonNeg(cp.effective_sample_size),
+          }),
         };
       })
-      // Numeric-egress guard (Codex round-3): drop conditional rows whose probability
-      // or effective_sample_size is non-finite (would serialise to a fabricated `null`
-      // on these required-number fields). Non-finite ROW filtering only.
-      .filter((cp: ConditionalProbability) => Number.isFinite(cp.probability) && Number.isFinite(cp.effective_sample_size));
+      // Numeric-egress guard (Codex round-3): drop conditional rows whose
+      // `probability` is non-finite (it is a REQUIRED number on this row and
+      // would serialise to a fabricated `null`).
+      //
+      // `effective_sample_size` is deliberately NOT part of the row predicate
+      // any more. It is now optional and omitted when unusable, so it can no
+      // longer produce a fabricated null — and dropping the whole row for a
+      // missing DIAGNOSTIC discarded a `probability` ISL genuinely measured.
+      // Omit the field, keep the row: the narrower honest statement.
+      .filter((cp: ConditionalProbability) => Number.isFinite(cp.probability));
   }
 
   // Producer honesty (lane 27, ROADMAP 1.26a — the LANE25 §8 follow-up): the
@@ -3965,16 +3984,17 @@ function buildResponse(
   if (FLAGS.ENABLE_REVIEW_PASS) {
     // A1b: exclude intervention-controlled levers from the evidence-priority card
     // (ranked by abs(elasticity)) — option-pinned levers are not tunable evidence gaps.
-    const epFactors: FactorInput[] = filterInterventionOverrides(factorSensitivity ?? []).map((fs: any) => ({
-      factor_id: fs.factor_id,
-      factor_label: fs.factor_label ?? fs.factor_id,
-      elasticity: fs.elasticity ?? fs.sensitivity_score ?? 0,
-      confidence: fs.confidence ?? undefined,
-      attribution_stability: fs.attribution_stability ?? undefined,
-      incoming_edges: graph
-        ? graph.edges.filter((e) => e.to === fs.factor_id).map((e) => ({ exists_probability: e.exists_probability }))
-        : undefined,
-    }));
+    // Mapping lives in `toEvidencePriorityFactorInputs` (ONE construction site,
+    // next to the ranker it feeds) so the omit-never-substitute rule cannot
+    // drift away from the card. It DROPS rows whose `elasticity` the producer
+    // did not measure — this line previously read
+    // `elasticity: fs.elasticity ?? fs.sensitivity_score ?? 0`, which ranked an
+    // unmeasured row #1 on a value copied from a different quantity. Read the
+    // helper's JSDoc before changing this call.
+    const epFactors: FactorInput[] = toEvidencePriorityFactorInputs(
+      filterInterventionOverrides(factorSensitivity ?? []),
+      graph?.edges,
+    );
     const epCard = buildEvidencePriorityCard(epFactors);
     if (epCard) assembledReviewCards.push(epCard);
   }
