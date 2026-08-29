@@ -608,8 +608,16 @@ export interface ConditionalProbability {
   target_constraint_id: string;
   /** Conditional probability [0, 1] */
   probability: number;
-  /** Effective sample size for this computation */
-  effective_sample_size: number;
+  /**
+   * Effective sample size for this computation.
+   *
+   * OPTIONAL, and omitted when ISL did not report a usable value. It is a
+   * precision diagnostic about ISL's computation, not something PLoT can
+   * derive — the previous `?? 0` default published "zero effective samples"
+   * (a measurement, and the most alarming one available) for "not reported".
+   * A MEASURED ZERO still ships; absence is absence.
+   */
+  effective_sample_size?: number;
 }
 
 /**

@@ -15,6 +15,7 @@
 
 import type { ProposalCardV1, PriorityBand, CardProvenance } from './types.js';
 import { lookupBand } from './types.js';
+import { finiteNum } from '../util/numeric.js';
 
 // =============================================================================
 // Types
@@ -52,6 +53,76 @@ export interface EvidencePriorityItem {
 export interface EvidencePriorityCard extends ProposalCardV1 {
   card_type: 'evidence_priority';
   items: EvidencePriorityItem[];
+}
+
+/**
+ * The subset of a published `factor_sensitivity[]` row this card can read.
+ * Mirrors the OPTIONALITY of `FactorSensitivityResultV3` deliberately:
+ * `elasticity` and `sensitivity_score` are BOTH optional there because the
+ * producer omits what it did not measure (`run.ts` → `finiteNum(f.elasticity)`).
+ */
+export interface EvidencePriorityFactorRow {
+  factor_id: string;
+  factor_label?: string | null;
+  elasticity?: number;
+  sensitivity_score?: number;
+  confidence?: number;
+  attribution_stability?: string;
+}
+
+/**
+ * Map published `factor_sensitivity[]` rows onto this card's `FactorInput`
+ * shape. THE one construction site — `/v2/run` calls this rather than
+ * open-coding the mapping, so the rule below cannot drift away from the route
+ * (a hand-written copy in `tests/lane-a1b-elasticity-suppression.test.ts` had
+ * already drifted from the route's own version by one `??` limb).
+ *
+ * ── OMIT, NEVER SUBSTITUTE ─────────────────────────────────────────────────
+ * `elasticity` is this card's RANKING KEY: `buildEvidencePriorityCard` orders
+ * candidates by `abs(elasticity)` and scores them `abs(elasticity) × (1 −
+ * confidence)`. A row whose elasticity was not measured therefore cannot be
+ * ranked, and is DROPPED — the ranking excludes what it cannot rank. Two
+ * substitutions previously stood on this path (`run.ts:3971`,
+ * `elasticity: fs.elasticity ?? fs.sensitivity_score ?? 0`) and are
+ * deliberately absent:
+ *
+ *   · `?? fs.sensitivity_score` — a CROSS-QUANTITY alias. These are different
+ *     quantities; on the 2026-07-07 staging capture `fac_hiring_cost` carried
+ *     `elasticity: +0.497` against `sensitivity_score: -0.175` — opposite sign,
+ *     2.84× apart, same response. `src/facts/mapper.ts` removed exactly this
+ *     alias on the fact_objects path (FAMILY-4 SLICE 0, 2026-07-27); this is
+ *     the same alias surviving on the review-cards path. If the substitution is
+ *     ever wanted it must be DISCLOSED BY NAME on the wire, never aliased here.
+ *   · `?? 0` — "zero elasticity" is a measurement, not "not measured". It does
+ *     not merely mis-state the row; it RANKS it, and `?? ` does not catch a
+ *     non-finite value either, so a NaN elasticity propagated into
+ *     `Math.abs()` and defeated the card's own suppression threshold.
+ *
+ * ── A MEASURED ZERO IS NOT AN ABSENCE ──────────────────────────────────────
+ * `finiteNum` tests FINITENESS, never truthiness, so `elasticity === 0` — a
+ * real result, and the value the producer publishes for an option-pinned lever
+ * — passes through and is ranked at 0. Turning a real measurement into an
+ * omission is the mirror defect and would be just as wrong. See
+ * `src/routes/v2/numeric-egress-guards.ts:81-83`.
+ */
+export function toEvidencePriorityFactorInputs(
+  factors: ReadonlyArray<EvidencePriorityFactorRow>,
+  edges?: ReadonlyArray<{ to: string; exists_probability: number }>,
+): FactorInput[] {
+  return factors.flatMap((fs) => {
+    const elasticity = finiteNum(fs.elasticity);
+    if (elasticity === undefined) return [];
+    return [{
+      factor_id: fs.factor_id,
+      factor_label: fs.factor_label ?? fs.factor_id,
+      elasticity,
+      confidence: fs.confidence ?? undefined,
+      attribution_stability: fs.attribution_stability ?? undefined,
+      incoming_edges: edges
+        ? edges.filter((e) => e.to === fs.factor_id).map((e) => ({ exists_probability: e.exists_probability }))
+        : undefined,
+    }];
+  });
 }
 
 // =============================================================================
