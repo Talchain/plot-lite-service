@@ -54,6 +54,7 @@
     "gates:all": "node tools/run-all-gates.mjs",
     "gate:contract": "node tools/contract-drift-gate.mjs",
     "gate:slo": "node tools/slo-budget-gate.mjs",
+    "gate:numeric-egress": "node tools/numeric-egress-gate.mjs",
     "bootstrap:p0-1": "node tools/bootstrap-p0-1.mjs",
     "bootstrap:e2e": "node tools/bootstrap-e2e-all.mjs",
     "e2e": "tsx e2e/run-e2e.mjs || node e2e/run-e2e.mjs",

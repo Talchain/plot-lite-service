@@ -30,6 +30,14 @@ jobs:
         run: npm run lint
       - name: Validate contracts
         run: npm run validate:contracts
+      - name: Numeric-egress coercion gate
+        # Fails when a contract-declared numeric response field is assigned a
+        # literal fallback (`?? 0`, `?? 0.5`) instead of being validated through
+        # src/routes/v2/numeric-egress-guards.ts and OMITTED when the producer
+        # did not measure it. Its own scope is derived from contracts/ and the
+        # route import graph, and it fails loud rather than passing vacuously if
+        # either derivation comes back empty.
+        run: npm run gate:numeric-egress
       - run: npm run build
       - name: Run tests
         run: RATE_LIMIT_ENABLED=0 npm test
