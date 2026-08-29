@@ -14,17 +14,35 @@
     "",
     "To pay one down: replace the literal fallback with the matching guard (finiteNum / prob01 / nonNeg /",
     "nonNegInt), OMIT the field when it returns undefined, and delete the entry here in the same commit.",
+    "",
+    "WIDENED 2026-08-29 — the gate now also sees a substitution written as `cond ? real : LITERAL`",
+    "and one laundered through a local `const`/`let` before egress. Both forms were structurally",
+    "invisible before, which is why the site this gate's own header names as its motivating example",
+    "(`structural_certainty` 0.5 for a factor with no incoming edges, src/lib/factor-influence.ts:837)",
+    "was never on this list. 16 occurrences at 15 identities became visible and are pinned below.",
+    "",
+    "`class: heuristic-limit` is NOT DEBT. It marks a site the gate flags but which is not a",
+    "fabrication — recorded here, with its reason, rather than silently exempted in the gate, because a",
+    "widened exemption hides real lies and a silent one cannot be reviewed. Do not 'fix' such a line.",
+    "",
+    "Where two entries share file+key+snippet, the identity genuinely occurs twice in the file and the",
+    "gate compares COUNTS: both must be present, and `line` tells a human which is which.",
     "A MEASURED ZERO IS NOT AN ABSENCE — the guards test finiteness and range, never truthiness."
   ],
   "generated_at_commit": "236e82d6641b87e282dcfc5f8673904aec6678e7",
-  "count": 37,
+  "count": 53,
   "by_class": {
-    "fabricated-probability": 8,
-    "fabricated-reproducibility": 2,
-    "fabricated-measurement": 4,
+    "fabricated-certainty": 3,
+    "fabricated-confidence": 2,
     "fabricated-distribution": 17,
-    "sentinel-rank": 2,
-    "fabricated-latency": 4
+    "fabricated-formula-input": 2,
+    "fabricated-latency": 4,
+    "fabricated-measurement": 10,
+    "fabricated-probability": 8,
+    "fabricated-rate": 2,
+    "fabricated-reproducibility": 2,
+    "heuristic-limit": 1,
+    "sentinel-rank": 2
   },
   "exceptions": [
     {
@@ -217,6 +235,104 @@
       "why": "An unmeasured intercept is published as 0."
     },
     {
+      "file": "src/lib/BoundedLRU.ts",
+      "key": "hitRate",
+      "snippet": "hitRate: total > 0 ? this.hits / total : 0",
+      "line": 90,
+      "fallback": "0",
+      "class": "fabricated-rate",
+      "why": "Reads as \"nothing has ever hit this cache\" when the truth is \"nothing has looked yet\" (total === 0). An undefined rate, not a zero one."
+    },
+    {
+      "file": "src/lib/factor-influence.ts",
+      "key": "confidence",
+      "snippet": "confidence: avgConfidence",
+      "line": 405,
+      "fallback": "1",
+      "class": "fabricated-confidence",
+      "why": "Laundered through `avgConfidence` (line 393). An empty confidence list yields 1 — MAXIMUM confidence asserted for a path that carried no confidence data at all.",
+      "via": "avgConfidence = confidences.length > 0 ? confidences.reduce((a, b) => a * b, 1) ** (1 / confidences.length) : 1   (declared line 393)"
+    },
+    {
+      "file": "src/lib/factor-influence.ts",
+      "key": "confidence",
+      "snippet": "confidence: weightedConfidence",
+      "line": 489,
+      "fallback": "0",
+      "class": "fabricated-confidence",
+      "why": "Laundered through `weightedConfidence` (line 475). totalWeight === 0 yields 0. Partly mitigated downstream by `zero_reason` ('zero_net_influence'), which distinguishes a disconnected factor from a connected one — but the number itself is still a substitution, not a measurement.",
+      "via": "weightedConfidence = totalWeight > 0 ? paths.reduce((sum, p) => sum + Math.abs(p.effect) * p.confidence, 0) / totalWeight : 0   (declared line 475)"
+    },
+    {
+      "file": "src/lib/factor-influence.ts",
+      "key": "exists_probability",
+      "snippet": "exists_probability: structuralCertainty",
+      "line": 965,
+      "fallback": "0.5",
+      "class": "fabricated-formula-input",
+      "why": "Laundered through `structuralCertainty` (line 961) into a SYNTHETIC edge fed to computeUnifiedConfidence. Not a wire field at this site — an internal formula input whose fabrication propagates into the published `confidence`. Removing it changes the formula's input, so the fix is not local to this line: it needs its own lane.",
+      "via": "structuralCertainty = gf.confidence_components?.structural_certainty ?? 0.5   (declared line 961)"
+    },
+    {
+      "file": "src/lib/factor-influence.ts",
+      "key": "structural_certainty",
+      "snippet": "structural_certainty: incomingEdges && incomingEdges.length > 0 ? incomingEdges.reduce((acc, e) => acc + e.exists_probability, 0) / incomingEdges.length : 0.5",
+      "line": 837,
+      "fallback": "0.5",
+      "class": "fabricated-certainty",
+      "why": "THE SITE THIS GATE'S OWN HEADER NAMES — \"50% certainty asserted for a factor with no incoming edges\" — and could not see, because it is written as a ternary rather than `?? 0.5`. LIVE: any graph factor with no incoming edges publishes structural_certainty 0.5."
+    },
+    {
+      "file": "src/lib/factor-influence.ts",
+      "key": "structural_certainty",
+      "snippet": "structural_certainty: structuralCertainty",
+      "line": 992,
+      "fallback": "0.5",
+      "class": "fabricated-certainty",
+      "why": "TWO occurrences of an identical egress expression fed by DIFFERENT locals. Line 992 is fed by `?? 0.5` at line 961, which is unreachable from /v2/run's only callers (run.ts:7982/:7997 pass either computeFactorSensitivityFromGraph's output — every element carries a numeric confidence_components.structural_certainty — or []); the guard is dead there but the shape is not safe to leave unpinned. Line 1125 is fed by the ternary at line 1097 and is LIVE: an ISL-only factor with no incoming edges publishes 0.5.",
+      "via": "structuralCertainty = gf.confidence_components?.structural_certainty ?? 0.5   (declared line 961)"
+    },
+    {
+      "file": "src/lib/factor-influence.ts",
+      "key": "structural_certainty",
+      "snippet": "structural_certainty: structuralCertainty",
+      "line": 1125,
+      "fallback": "0.5",
+      "class": "fabricated-certainty",
+      "why": "TWO occurrences of an identical egress expression fed by DIFFERENT locals. Line 992 is fed by `?? 0.5` at line 961, which is unreachable from /v2/run's only callers (run.ts:7982/:7997 pass either computeFactorSensitivityFromGraph's output — every element carries a numeric confidence_components.structural_certainty — or []); the guard is dead there but the shape is not safe to leave unpinned. Line 1125 is fed by the ternary at line 1097 and is LIVE: an ISL-only factor with no incoming edges publishes 0.5.",
+      "via": "structuralCertainty = incoming.length > 0 ? incoming.reduce((acc, e) => acc + e.exists_probability, 0) / incoming.length : 0.5   (declared line 1097)"
+    },
+    {
+      "file": "src/lib/intervention-normaliser.ts",
+      "key": "baseline",
+      "snippet": "baseline",
+      "line": 590,
+      "fallback": "0",
+      "class": "fabricated-formula-input",
+      "why": "Laundered through `baseline` (line 585). A factor with no observed_state gets baseline 0, which then anchors normalisation — \"its baseline is zero\" for \"we were never told its baseline\".",
+      "via": "baseline = node.observed_state?.baseline ?? node.observed_state?.value ?? 0   (declared line 585)"
+    },
+    {
+      "file": "src/lib/sensitivity-simple.ts",
+      "key": "belief",
+      "snippet": "belief",
+      "line": 37,
+      "fallback": "1.0",
+      "class": "fabricated-measurement",
+      "why": "Laundered through `belief` (line 27). An edge with no stated belief is scored as FULLY believed (1.0) and the row is ranked by abs(weight) * belief.",
+      "via": "belief = edge.belief ?? 1.0   (declared line 27)"
+    },
+    {
+      "file": "src/lib/sensitivity-simple.ts",
+      "key": "weight",
+      "snippet": "weight",
+      "line": 36,
+      "fallback": "0",
+      "class": "fabricated-measurement",
+      "why": "Laundered through `weight` (line 26). An edge with no stated weight is ranked as zero-impact, which is indistinguishable from a measured zero-impact edge.",
+      "via": "weight = edge.weight ?? 0   (declared line 26)"
+    },
+    {
       "file": "src/routes/ops/snapshot.ts",
       "key": "last_compute_ms",
       "snippet": "last_compute_ms: getLastComputeMs() || 0",
@@ -251,6 +367,16 @@
       "fallback": "0",
       "class": "fabricated-latency",
       "why": "Publishes 0 ms when no latency has been measured, which reads as instantaneous."
+    },
+    {
+      "file": "src/routes/v1/run-batch.ts",
+      "key": "k_samples",
+      "snippet": "k_samples",
+      "line": 132,
+      "fallback": "1000",
+      "class": "heuristic-limit",
+      "why": "NOT DEBT — a gate heuristic limit, recorded rather than silently exempted. `item` is an element of `body.items`, so `item.k_samples ?? 1000` is a documented default for an absent REQUEST field, the class the gate already exempts for `body`/`req`/`params`. The root-identifier heuristic cannot see that a callback parameter is request-rooted. Do not 'fix' this line; remove this entry only if the exemption is ever derived properly.",
+      "via": "k_samples = item.k_samples ?? 1000   (declared line 121)"
     },
     {
       "file": "src/routes/v1/run.ts",
@@ -359,6 +485,55 @@
       "fallback": "0",
       "class": "fabricated-reproducibility",
       "why": "Publishes seed 0 when the seed is unknown — a false reproducibility claim."
+    },
+    {
+      "file": "src/trust/sensitivity-node.ts",
+      "key": "contribution_pct",
+      "snippet": "contribution_pct: totalScore > 0 ? Math.round((score / totalScore) * 100) : 0",
+      "line": 67,
+      "fallback": "0",
+      "class": "fabricated-rate",
+      "why": "totalScore === 0 yields 0% for every node — \"this node contributes nothing\" for \"there is nothing to contribute to\". The rows are then SORTED by this fabricated percentage."
+    },
+    {
+      "file": "src/util/change-attribution.ts",
+      "key": "after_value",
+      "snippet": "after_value: weight",
+      "line": 356,
+      "fallback": "1",
+      "class": "fabricated-measurement",
+      "why": "Laundered through `weight` (line 350). A changed edge with no stated weight is attributed an after-value of 1 — maximum strength.",
+      "via": "weight = deltaEdge.weight ?? 1   (declared line 350)"
+    },
+    {
+      "file": "src/util/change-attribution.ts",
+      "key": "before_value",
+      "snippet": "before_value: baseValue",
+      "line": 318,
+      "fallback": "0",
+      "class": "fabricated-measurement",
+      "why": "Laundered through `baseValue` (line 310). A node with no value gets a before-value of 0, so the reported delta is measured against a baseline nobody supplied.",
+      "via": "baseValue = baseNode.value ?? 0   (declared line 310)"
+    },
+    {
+      "file": "src/util/change-attribution.ts",
+      "key": "before_value",
+      "snippet": "before_value: baseWeight",
+      "line": 370,
+      "fallback": "1",
+      "class": "fabricated-measurement",
+      "why": "Laundered through `baseWeight` (line 364). An edge with no weight gets a before-value of 1, so the reported delta is measured against a baseline nobody supplied.",
+      "via": "baseWeight = baseEdge.weight ?? 1   (declared line 364)"
+    },
+    {
+      "file": "src/util/change-attribution.ts",
+      "key": "contribution_to_delta",
+      "snippet": "contribution_to_delta: weight",
+      "line": 354,
+      "fallback": "1",
+      "class": "fabricated-measurement",
+      "why": "Laundered through `weight` (line 350). The edge's contribution to the reported delta IS the fabricated weight.",
+      "via": "weight = deltaEdge.weight ?? 1   (declared line 350)"
     }
   ]
 }
