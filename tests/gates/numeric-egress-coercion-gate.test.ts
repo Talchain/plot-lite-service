@@ -249,3 +249,58 @@ describe('numeric-egress gate · the real tree', () => {
     expect(found![1]).toBe(pinned![1]);
   });
 });
+
+/**
+ * The gate's field axis is DERIVED from `contracts/`, so a field the contract
+ * never declares is invisible to it — not by a gate defect, but by a
+ * contract-documentation gap. `confidence_components.structural_certainty` is
+ * emitted by `src/lib/factor-influence.ts` and was undeclared, so the gate could
+ * not have caught a `structural_certainty ?? 0.5` — the very example the gate's
+ * own header names ("50% certainty asserted for a factor with no incoming
+ * edges").
+ *
+ * These pin the DECLARATION, by pointing the field axis at the REAL
+ * `contracts/` directory rather than restating the names in a fixture. Delete
+ * the schema entry and the first case goes RED — there is no mirror to drift.
+ * The contrast control is a sibling name the real contract does NOT declare, so
+ * a pass here can never be the gate agreeing with itself.
+ */
+describe('numeric-egress gate · the REAL contract declares the confidence_components leaves', () => {
+  const REAL_CONTRACTS = { NEG_CONTRACTS_DIR: join(REPO, 'contracts') };
+
+  it('REDs on a `structural_certainty` literal fallback, with the REAL contracts/ as the field axis', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const sc = (o: any) => ({ structural_certainty: o.cc.structural_certainty ?? 0.5 });\n`);
+    const r = runGate(FIX, REAL_CONTRACTS);
+    restore();
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("'structural_certainty' is a contract-declared numeric response field");
+  });
+
+  it('REDs on a `sampling_stability` literal fallback — an explicit null is a declared absence', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const ss = (o: any) => ({ sampling_stability: o.cc.sampling_stability ?? 0 });\n`);
+    const r = runGate(FIX, REAL_CONTRACTS);
+    restore();
+    expect(r.code).toBe(1);
+    expect(r.out).toContain("'sampling_stability' is a contract-declared numeric response field");
+  });
+
+  it('stays GREEN for a sibling name the real contract does NOT declare — the contrast control', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const zz = (o: any) => ({ structural_certainty_unpublished: o.x ?? 0.5 });\n`);
+    const r = runGate(FIX, REAL_CONTRACTS);
+    restore();
+    expect(r.out).toContain('No new numeric-egress coercions');
+    expect(r.code).toBe(0);
+  });
+
+  it('a MEASURED structural_certainty still ships — the fix must not start deleting real values', () => {
+    const restore = patch('src/routes/v1/index.ts',
+      `export const measured = (g: any) => ({ structural_certainty: g.finiteNum(0), sampling_stability: 0 });\n`);
+    const r = runGate(FIX, REAL_CONTRACTS);
+    restore();
+    expect(r.out).toContain('No new numeric-egress coercions');
+    expect(r.code).toBe(0);
+  });
+});

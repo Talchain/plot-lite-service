@@ -281,6 +281,23 @@
             "minimum": 0,
             "maximum": 1
           },
+          "confidence_components": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Progressive disclosure: the raw components behind `confidence`. Emitted by src/lib/factor-influence.ts. Documented here so the numeric-egress coercion gate's derived field vocabulary covers these names — an absent component must be OMITTED, never substituted with a plausible literal.",
+            "properties": {
+              "structural_certainty": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1,
+                "description": "Mean `exists_probability` across the factor's incoming edges. A measurement about graph structure, not a prior: when it was never computed the key must be absent, never a fabricated 0.5 (which asserts 50% certainty for a factor with no incoming edges)."
+              },
+              "sampling_stability": {
+                "type": ["number", "null"],
+                "description": "Band score derived from ISL `attribution_stability`. Explicitly `null` when no ISL data was available at this stage — a declared absence, distinct from an unmeasured value."
+              }
+            }
+          },
           "source": {
             "type": "string"
           },
