@@ -5,7 +5,7 @@
 
 import type { EvidenceFreshnessSummary } from './evidence-freshness.js';
 // CIL Phase 1: DetailLevel canonical type imported from shared schema package
-import { DetailLevel as DetailLevelEnum } from '@talchain/schemas';
+import { DetailLevel as DetailLevelEnum, NodeKind as NodeKindEnum } from '@talchain/schemas';
 import { z } from 'zod';
 
 /**
@@ -410,11 +410,19 @@ export interface TrustedResponse {
  * - risk: Potential negative outcome or hazard
  * - action: Executable step within an option
  * - factor: External uncertainty or chance node (not controllable)
+ * - constraint: A bound on a goal or factor (non-causal; compiled, not inferred)
+ *
+ * DERIVED from the pinned `@talchain/schemas` contract, not mirrored. The
+ * hand-written list previously carried SEVEN members and omitted `constraint`,
+ * while the contract declared EIGHT — so `src/util/normalize.ts` deleted the
+ * `kind` of every contract-legal constraint node crossing the six v1 routes
+ * that call it. Deriving both the type and the value from the enum means the
+ * two cannot drift apart again.
  */
-export type NodeKind = 'goal' | 'decision' | 'option' | 'outcome' | 'risk' | 'action' | 'factor';
+export type NodeKind = z.infer<typeof NodeKindEnum>;
 
-/** All valid node kind values for validation */
-export const VALID_NODE_KINDS: readonly NodeKind[] = ['goal', 'decision', 'option', 'outcome', 'risk', 'action', 'factor'];
+/** All valid node kind values for validation — derived from the pinned contract */
+export const VALID_NODE_KINDS: readonly NodeKind[] = NodeKindEnum.options;
 
 /**
  * Edge type classification for inference semantics
