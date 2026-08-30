@@ -686,7 +686,7 @@ export function toISLOption(option: OptionV3): ISLOptionV3 {
  * Non-finite, zero, and negative `observed_state.std` are treated as missing
  * and fall through to default synthesis.
  *
- * SECOND PASS — external factors whose only quantitative statement is a `prior`.
+ * SECOND PASS — factors whose only quantitative statement is a `prior`.
  * These have no `observed_state`, so they emit `{distribution:'uniform',
  * range_min, range_max}`: the one ISL family whose centre travels on the wire
  * rather than being read from the graph node. A degenerate range (min == max)
@@ -694,6 +694,14 @@ export function toISLOption(option: OptionV3): ISLOptionV3 {
  * instead of sampling a centre nobody stated. See the long note at the push
  * site — this is the prior-only sampling-centre P0, and reverting it to a
  * normal reinstates a silently-wrong analysis.
+ *
+ * ⚠ THIS PASS IS DELIBERATELY CATEGORY-AGNOSTIC (was `category === 'external'`).
+ * A `prior` is the producer's QUANTITATIVE STATEMENT; `category` is a coaching
+ * CLASSIFICATION, and the two answer different questions. Gating the statement
+ * on the classification meant a controllable or observable factor could declare
+ * a support and still be sent to ISL as an undeclared root defaulting to 0.0.
+ * The guard that actually decides this pass is the `observed_state.value` skip
+ * immediately below: a stated value always wins, whatever the category.
  *
  * @param nodes Graph nodes
  * @returns Parameter uncertainties for ISL
@@ -738,12 +746,15 @@ export function buildParameterUncertaintiesV3(
     }
   }
 
-  // Second pass: external factors with prior distribution
+  // Second pass: factors with a prior distribution and no stated value.
   for (const node of nodes) {
     // Skip if already processed via observed_state (observed_state takes precedence)
     if (node.kind === 'factor' && node.observed_state?.value !== undefined) continue;
 
-    if (node.kind === 'factor' && node.category === 'external' && node.prior) {
+    // No `category` conjunct: see the SECOND PASS note in the function's doc
+    // block. A declared prior is honoured whatever the factor is classified as;
+    // the `observed_state.value` skip above is what protects the stated value.
+    if (node.kind === 'factor' && node.prior) {
       // Only "uniform" distribution supported for now
       if (node.prior.distribution !== 'uniform') {
         // Wave1-L1 (PII): node id + user-supplied distribution text digested —
