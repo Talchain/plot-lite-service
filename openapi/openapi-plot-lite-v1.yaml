@@ -811,7 +811,13 @@ components:
         source:
           type: string
           enum: [brief_extraction, user_specified, cee_hypothesis]
-      required: [value, source]
+          description: >
+            Provenance of the value. OPTIONAL, and OMITTED when unknown — an
+            absent source means "provenance unknown" and must not be defaulted
+            by a consumer. PLoT carries this through only when the caller
+            actually stated one of the three values and never invents one; it is
+            stripped before the ISL boundary and appears in no response body.
+      required: [value]
     GoalConstraint:
       type: object
       properties:
