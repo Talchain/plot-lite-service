@@ -44,6 +44,35 @@ export function isCrownableCandidate(o: { win_probability?: number; status?: str
   );
 }
 
+/** Shared attestation/identity/share validation; it does not select a winner. */
+export function validateObjectiveComparison(
+  rawRanking: unknown,
+  candidates: readonly ObjectiveComparisonCandidate[] | undefined,
+  options: readonly { id: string; label?: string }[] | undefined,
+  expectedDirection: GoalDirectionType | undefined,
+): EnrichmentObjectiveRanking | undefined {
+  const parsed = EnrichmentObjectiveRankingSchema.safeParse(rawRanking);
+  if (!parsed.success || expectedDirection === undefined) return undefined;
+  const ranking: EnrichmentObjectiveRanking = parsed.data;
+  if (
+    ranking.status !== 'computed' || ranking.attested !== true ||
+    ranking.direction !== expectedDirection || !candidates || !options
+  ) return undefined;
+
+  const requestedIds = new Set(options.map((o) => o.id));
+  const byId = new Map(candidates.map((o) => [o.option_id, o]));
+  if (
+    requestedIds.size !== options.length || byId.size !== candidates.length ||
+    ranking.ranked_options.length !== byId.size || requestedIds.size !== byId.size ||
+    [...requestedIds].some((id) => !byId.has(id))
+  ) return undefined;
+  for (const row of ranking.ranked_options) {
+    const candidate = byId.get(row.option_id);
+    if (!candidate || candidate.win_probability !== row.win_probability) return undefined;
+  }
+  return ranking;
+}
+
 /**
  * ISL orders the objective comparison; PLoT applies its existing eligibility
  * policy once. No sort, scalar-outcome fallback, or invented objective lives here.
@@ -55,34 +84,14 @@ export function licenseObjectiveComparison(
   options: readonly { id: string; label?: string }[] | undefined,
   expectedDirection: GoalDirectionType | undefined,
 ): LicensedObjectiveComparison {
-  const withheld: LicensedObjectiveComparison = {
-    attested: false,
-    rankedOptions: [],
-    permittedOptions: [],
-  };
-  const parsed = EnrichmentObjectiveRankingSchema.safeParse(rawRanking);
-  if (!parsed.success || expectedDirection === undefined) return withheld;
-  const ranking: EnrichmentObjectiveRanking = parsed.data;
-  if (
-    ranking.status !== 'computed' || ranking.attested !== true ||
-    ranking.direction !== expectedDirection || !candidates || !options
-  ) return withheld;
-
-  const requestedIds = new Set(options.map((o) => o.id));
-  const byId = new Map(candidates.map((o) => [o.option_id, o]));
-  if (
-    requestedIds.size !== options.length || byId.size !== candidates.length ||
-    ranking.ranked_options.length !== byId.size || requestedIds.size !== byId.size ||
-    [...requestedIds].some((id) => !byId.has(id))
-  ) return withheld;
+  const ranking = validateObjectiveComparison(rawRanking, candidates, options, expectedDirection);
+  if (!ranking) return { attested: false, rankedOptions: [], permittedOptions: [] };
+  const byId = new Map(candidates!.map((o) => [o.option_id, o]));
   const labels = new Map(options?.map((o) => [o.id, o.label]));
   const rankedOptions: LicensedRankedOption[] = [];
   const permittedOptions: LicensedRankedOption[] = [];
   for (const row of ranking.ranked_options) {
-    const candidate = byId.get(row.option_id);
-    if (!candidate) return withheld;
-    // Identity and percentage must describe the same producer option/run.
-    if (candidate.win_probability !== row.win_probability) return withheld;
+    const candidate = byId.get(row.option_id)!; // exact join validated above
     // A non-computed option is not a candidate, even if a producer reports a share.
     if (!isCrownableCandidate(candidate)) continue;
     const projected: LicensedRankedOption = {

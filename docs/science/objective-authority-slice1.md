@@ -45,6 +45,15 @@ rejects any frame-refusal warning. Scale,
 default-base and unit guards remain independent and unchanged. There is no new
 public frame field or duplicated frame resolver.
 
+A complete min/target run remains `computed` when its only unavailable feature
+is deliberately unsupported max-only robustness. This requires the matched
+producer objective, all admitted options computed with usable outcomes, valid
+upstream drivers, and the existing typed capability disclosure. Robustness
+itself stays `unavailable` with its warning; actual partial computation,
+malformed comparisons and missing drivers are never promoted. Completion is
+separate from confidence and constraint eligibility, including ties and runs
+where no option satisfies the stated limits.
+
 Discriminating fixture: `tests/objective-authority.test.ts` calls the full
 `/v2/run` handler with producer ranks `expensive/.8/rank1` and
 `affordable/.2/rank2`, while the first option breaches a trusted budget. The

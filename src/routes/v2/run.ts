@@ -78,7 +78,7 @@ import {
   detectCategoricalIssues,
   type CategoricalDetectionResult,
 } from '../../validation/categorical-detector.js';
-import { licenseObjectiveComparison, isCrownableCandidate, type ObjectiveComparisonCandidate } from '../../lib/objective-recommendation.js';
+import { licenseObjectiveComparison, validateObjectiveComparison, isCrownableCandidate, type ObjectiveComparisonCandidate } from '../../lib/objective-recommendation.js';
 import type { GoalDirectionType } from '@talchain/schemas';
 import { compileConstraintNodes } from '../../normalisation/constraint-compiler.js';
 import { filterTemporalConstraints } from '../../normalisation/constraint-filter.js';
@@ -1539,6 +1539,30 @@ const runV3Schema = {
 // Status Mapping
 // -----------------------------------------------------------------------------
 
+/** Actual V2 driver data, before graph-derived rows can mask an upstream defect. */
+function hasCompleteIslDriverData(raw: unknown, nodes: readonly { id: string }[]): boolean {
+  if (!Array.isArray(raw) || raw.length === 0) return false;
+  const nodeIds = new Set(nodes.map(n => n.id));
+  const seen = new Set<string>();
+  const positiveRank = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 1;
+  return raw.every((row: any) => {
+    if (!row || !nodeIds.has(row.node_id) || seen.has(row.node_id) ||
+        prob01(row.sensitivity_score) === undefined ||
+        (row.direction !== 'positive' && row.direction !== 'negative')) return false;
+    seen.add(row.node_id);
+    // Optional V2 carriers stay optional, but malformed supplied values cannot
+    // establish a complete driver computation. Zero sensitivity is valid.
+    return (row.elasticity === undefined || finiteNum(row.elasticity) !== undefined) &&
+      (row.importance_rank === undefined || positiveRank(row.importance_rank)) &&
+      (row.influence_rank === undefined || positiveRank(row.influence_rank)) &&
+      (row.importance_score === undefined || prob01(row.importance_score) !== undefined) &&
+      (row.influence_score === undefined || prob01(row.influence_score) !== undefined) &&
+      (row.confidence === undefined || prob01(row.confidence) !== undefined) &&
+      (row.elasticity_std === undefined || nonNeg(row.elasticity_std) !== undefined) &&
+      (row.rank_flip_rate === undefined || prob01(row.rank_flip_rate) !== undefined);
+  });
+}
+
 /**
  * Map ISL status to UI vocabulary per-feature status.
  *
@@ -1565,7 +1589,7 @@ function mapToPerFeatureStatus(islStatus: string | undefined, hasData: boolean):
  * Determine top-level analysis status from per-feature statuses.
  *
  * Semantics:
- * - computed: ALL features computed successfully
+ * - computed: ALL applicable features computed successfully
  * - partial: Options computed with usable outcomes; some secondary features degraded
  * - failed: No usable option outcomes (primary deliverable missing)
  *
@@ -1586,7 +1610,8 @@ function determineTopLevelStatus(
   robustnessStatus: PerFeatureStatus,
   driversStatus: PerFeatureStatus,
   hasUsableOptionComparison: boolean,
-  islAnalysisStatus?: string
+  islAnalysisStatus?: string,
+  robustnessNotApplicable = false,
 ): TopLevelAnalysisStatus {
   // No usable option outcomes → the primary deliverable is missing → failed,
   // regardless of how many secondary features computed.
@@ -1594,7 +1619,9 @@ function determineTopLevelStatus(
     return 'failed';
   }
 
-  const statuses = [optionStatus, robustnessStatus, driversStatus];
+  const statuses = robustnessNotApplicable
+    ? [optionStatus, driversStatus]
+    : [optionStatus, robustnessStatus, driversStatus];
 
   // Everything computed → computed
   if (statuses.every(s => s === 'computed')) {
@@ -8226,6 +8253,33 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // it here from the stale V1 field `expected_outcome`, which the V2
         // wire never carries — so the check was vacuously false and the
         // 'partial' fallback in determineTopLevelStatus did the (wrong) work.
+        // A completed min/target comparison intentionally omits max-only
+        // robustness. Recognise only the request-bound producer contract, not
+        // generic missing data or warning prose. All real degradation remains.
+        const statusComparison = validateObjectiveComparison(
+          islResult.objective_ranking,
+          Array.isArray(optionComparisonData) ? optionComparisonData.map((r: any) => ({
+            option_id: r?.option_id ?? r?.id,
+            win_probability: r?.win_probability,
+            status: r?.status,
+          })) : undefined,
+          optionsForISL,
+          islRequest.goal_direction,
+        );
+        const robustnessNotApplicable =
+          (islRequest.goal_direction === 'minimise' || islRequest.goal_direction === 'target') &&
+          statusComparison !== undefined &&
+          islAnalysisStatus === 'computed' &&
+          islResult.request_id === islRequest.request_id &&
+          robustnessStatus === 'unavailable' && islResult.robustness_status === 'unavailable' &&
+          islResult.factor_sensitivity_status === 'computed' &&
+          hasCompleteIslDriverData(islResult.factor_sensitivity, islRequest.graph.nodes) &&
+          hasUsableOptionComparison && usableOptionData.every((r: any) =>
+            r?.status === 'computed' && isOptionUsable(r) &&
+            !(r.id !== undefined && r.option_id !== undefined && r.id !== r.option_id)) &&
+          Array.isArray(islResult.inference_warnings) && islResult.inference_warnings.some((w: any) =>
+            w?.code === 'OBJECTIVE_METRICS_UNAVAILABLE' && w.field === 'objective_ranking' &&
+            Array.isArray(w.detail?.suppressed_fields) && w.detail.suppressed_fields.includes('robustness'));
         const topLevelStatus = determineTopLevelStatus(
           optionStatus,
           robustnessStatus,
@@ -8233,7 +8287,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           hasUsableOptionComparison,
           // 2.744: ISL's own verdict on the run, so PLoT cannot report it
           // healthier than the producer declared it.
-          islAnalysisStatus
+          islAnalysisStatus,
+          robustnessNotApplicable,
         );
 
         // =================================================================
