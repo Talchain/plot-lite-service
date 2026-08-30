@@ -60,6 +60,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { mockObjectiveRanking } from './helpers/objective-fixtures.js';
 import type { FastifyInstance } from 'fastify';
 
 // ---------------------------------------------------------------------------
@@ -115,6 +116,7 @@ const mockISLService = {
   async analyseRobustness(_graph: any, _goalNodeId: string, options: any[]) {
     return {
       options: options.map(buildMockOption),
+        objective_ranking: mockObjectiveRanking(options.map(buildMockOption)),
       edges: [],
       edges_provenance: 'isl:/api/v1/robustness/analyze/v2' as const,
       edge_sensitivity_status: 'available' as const,
@@ -139,6 +141,7 @@ const mockISLService = {
     return {
       data: {
         options: options.map(buildMockOption),
+        objective_ranking: mockObjectiveRanking(options.map(buildMockOption)),
         edges: [],
         factors: [],
         value_of_information: [],
@@ -172,7 +175,7 @@ import { createServer } from '../src/createServer.js';
  */
 const GRAPH = {
   nodes: [
-    { id: 'goal', kind: 'goal', label: 'Programme value', observed_state: { value: 0.4 } },
+    { id: 'goal', kind: 'goal', goal_direction: 'maximise', label: 'Programme value', observed_state: { value: 0.4 } },
     { id: 'fac_cost', kind: 'factor', label: 'First-year cost', observed_state: { value: 40000, cap: 60000, unit: '£' } },
   ],
   edges: [{ from: 'fac_cost', to: 'goal', strength: { mean: -0.5, std: 0.1 } }],
@@ -488,7 +491,7 @@ describe('B4/L2 constraint eligibility gate + graded breach margins', () => {
         opt_just_over: islConstraint(1.0),
         opt_far_over: islConstraint(1.0),
       };
-      mockWinProbabilityByOption = { opt_under: 0.2, opt_just_over: 0.3, opt_far_over: 0.9 };
+      mockWinProbabilityByOption = { opt_under: 0.1, opt_just_over: 0.2, opt_far_over: 0.7 };
       mockStatusByOption = { opt_far_over: 'error' };
 
       const body = await runAnalysis(baseUrl, { ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });

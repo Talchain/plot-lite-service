@@ -10,8 +10,8 @@
 /**
  * DecisionBriefV1 Assembly Mapping (G.1)
  *
- * headline:          m2_decision_review.narrative_summary → executive_summary.summary
- * options:           option_comparison[] sorted by win_probability desc
+ * headline:          the same licensed producer comparison as robustness.recommended_option_id
+ * options:           producer objective ranking, in its declared order and dense ranks
  * top_drivers:       factor_sensitivity[] top 5 by abs(elasticity)
  * key_assumptions:   m1_coaching.evidence_gaps[].factor_label → []
  * what_would_change: robustness.fragile_edges[].from_label/to_label → factor_sensitivity[].factor_label (sorted by |elasticity|)
@@ -35,6 +35,7 @@ import type {
 } from '../types/decision-brief.js';
 import { DECISION_BRIEF_VERSION } from '../types/decision-brief.js';
 import type { RunResponseV3 } from '../types/engine-v3.js';
+import type { LicensedObjectiveComparison } from '../lib/objective-recommendation.js';
 import { STANDARD_N_SAMPLES_DEFAULT } from '../config/sampling.js';
 import { FLAGS } from '../config/flags.js';
 // Lane PLoT-R3: 'very close' band shares the near-tie threshold (0.10) with
@@ -106,7 +107,7 @@ function computeConfigVersion(nSamples: number = STANDARD_N_SAMPLES_DEFAULT): st
     n_samples_default: nSamples,
     enable_review_pass: process.env.ENABLE_REVIEW_PASS ?? 'default',
     enable_facts_assembly: process.env.ENABLE_FACTS_ASSEMBLY ?? 'default',
-    brief_assembly_version: '1',
+    brief_assembly_version: '2',
   };
   return createHash('sha256')
     .update(JSON.stringify(configInputs))
@@ -124,6 +125,8 @@ function computeConfigVersion(nSamples: number = STANDARD_N_SAMPLES_DEFAULT): st
  */
 export type BriefAssemblyInput = Pick<RunResponseV3, 'analysis_status' | 'critiques'> & {
   option_comparison?: RunResponseV3['option_comparison'];
+  /** The route's one objective/constraint projection, never recomputed here. */
+  licensed_comparison?: LicensedObjectiveComparison;
   factor_sensitivity?: RunResponseV3['factor_sensitivity'];
   /**
    * ⭐ Family-4 S1b (additive, optional): PLoT's ONE canonical driver order and
@@ -232,8 +235,10 @@ export function assembleBrief(input: BriefAssemblyInput): DecisionBriefV1 | null
 
   const isPartial = analysis_status === 'partial';
 
-  // --- Headline ---
-  const headline = resolveHeadline(input);
+  // A narrative authored before the final comparison cannot license its leader.
+  // The headline and band share the same permitted pair; absent truth stays neutral.
+  const bandedHeadline = buildBandedHeadline(input);
+  const headline = bandedHeadline?.text ?? 'Analysis complete';
 
   // --- Options ---
   const options = buildOptions(input);
@@ -267,8 +272,7 @@ export function assembleBrief(input: BriefAssemblyInput): DecisionBriefV1 | null
   const claimSafeSurfaces = FLAGS.BRIEF_CLAIM_SAFE_SURFACES_ENABLE
     ? {
         ...(() => {
-          const banded = buildBandedHeadline(options, input);
-          return banded ? { headline_banded: banded } : {};
+          return bandedHeadline ? { headline_banded: bandedHeadline } : {};
         })(),
         defaulted_assumptions: buildDefaultedAssumptions(input),
         robustness_caveat: buildRobustnessCaveat(input),
@@ -310,37 +314,12 @@ export function assembleBrief(input: BriefAssemblyInput): DecisionBriefV1 | null
 // Field Builders
 // =============================================================================
 
-function resolveHeadline(input: BriefAssemblyInput): string {
-  // Primary: M2 decision review narrative_summary
-  const m2Summary = input.m1_review?.narrative_summary?.trim();
-  if (m2Summary) return m2Summary;
-
-  // Fallback: M1 coaching executive_summary.summary
-  const m1Summary = input.m1_coaching?.executive_summary?.summary?.trim();
-  if (m1Summary) return m1Summary;
-
-  // Final fallback
-  return 'Analysis complete';
-}
-
 function buildOptions(input: BriefAssemblyInput): BriefOption[] {
-  const optionComparison = input.option_comparison;
-  if (!optionComparison || optionComparison.length === 0) return [];
-
-  // Sort by win_probability descending, then option_id ascending for deterministic tie-breaking
-  const sorted = [...optionComparison]
-    .filter(o => o.win_probability !== undefined && o.win_probability !== null)
-    .sort((a, b) => {
-      const diff = (b.win_probability ?? 0) - (a.win_probability ?? 0);
-      if (diff !== 0) return diff;
-      return a.option_id < b.option_id ? -1 : a.option_id > b.option_id ? 1 : 0;
-    });
-
-  return sorted.map((o, i) => ({
+  return (input.licensed_comparison?.rankedOptions ?? []).map((o) => ({
     option_id: o.option_id,
-    label: o.option_label || o.label || o.option_id,
-    win_probability: o.win_probability ?? 0,
-    rank: i + 1,
+    label: o.option_label,
+    win_probability: o.win_probability,
+    rank: o.rank,
   }));
 }
 
@@ -348,8 +327,8 @@ function buildOptions(input: BriefAssemblyInput): BriefOption[] {
  * Platform lane (roadmap 3.1): the decision-record capture surface.
  *
  * Ratified seam (orchestrator, 2026-07-10) — every field copied, none
- * derived: leading_option/win_probability from the rank-1 option (the same
- * deterministic ranking as buildOptions), goal_fit from the LEADER's
+ * derived: leading_option/win_probability from the same permitted identity
+ * as robustness.recommended_option_id, goal_fit from the LEADER's
  * probability_of_joint_goal (omitted when absent — never invented from
  * probability_of_goal or anything else), robustness_band from
  * robustness.display_verdict VERBATIM incl. 'not_assessed' (omitted when
@@ -363,7 +342,8 @@ function buildAnalysisSummary(
   options: BriefOption[],
   input: BriefAssemblyInput,
 ): BriefAnalysisSummary | undefined {
-  const leader = options[0];
+  const recommendedId = input.licensed_comparison?.recommendation?.recommended_option_id;
+  const leader = options.find((o) => o.option_id === recommendedId);
   if (!leader) return undefined;
 
   const summary: BriefAnalysisSummary = {
@@ -619,14 +599,12 @@ function isRobustnessEstablished(robustness: BriefAssemblyInput['robustness']): 
  * Returns null when fewer than two ranked options exist — no comparative
  * claim without a comparison.
  */
-function buildBandedHeadline(
-  options: BriefOption[],
-  input: BriefAssemblyInput,
-): BriefBandedHeadline | null {
-  if (options.length < 2) return null;
-
-  const leader = options[0];
-  const runnerUp = options[1];
+function buildBandedHeadline(input: BriefAssemblyInput): BriefBandedHeadline | null {
+  const licensed = input.licensed_comparison;
+  if (!licensed?.recommendation || licensed.permittedOptions.length < 2) return null;
+  const [leader, runnerUp] = licensed.permittedOptions;
+  // This pair was selected once by the route's objective/constraint projection.
+  // No raw argmax, outcome fallback, or rank renumbering is allowed here.
   const gap = leader.win_probability - runnerUp.win_probability;
   const robust = isRobustnessEstablished(input.robustness);
 
@@ -637,25 +615,25 @@ function buildBandedHeadline(
   if (gap < NEAR_TIE_THRESHOLD) {
     band = 'very_close';
     // provisional_doctrine_v0
-    text = `${leader.label} leads, but the top options are very close.`;
+    text = `${leader.option_label} leads, but the top options are very close.`;
   } else if (gap >= CLEARLY_AHEAD_GAP_THRESHOLD && robust) {
     band = 'clearly_ahead';
     // provisional_doctrine_v0 — strongest claim requires decisive gap AND robustness
-    text = `${leader.label} is clearly ahead.`;
+    text = `${leader.option_label} is clearly ahead.`;
   } else {
     band = 'slightly_ahead';
     robustnessGated = gap >= CLEARLY_AHEAD_GAP_THRESHOLD && !robust;
     // provisional_doctrine_v0
-    text = `${leader.label} is slightly ahead.`;
+    text = `${leader.option_label} is slightly ahead.`;
   }
 
   return {
     text,
     band,
     leader_option_id: leader.option_id,
-    leader_label: leader.label,
+    leader_label: leader.option_label,
     runner_up_option_id: runnerUp.option_id,
-    runner_up_label: runnerUp.label,
+    runner_up_label: runnerUp.option_label,
     win_probability_gap: gap,
     robustness_gated: robustnessGated,
     doctrine: 'provisional_doctrine_v0',

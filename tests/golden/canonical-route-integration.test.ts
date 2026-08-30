@@ -10,6 +10,7 @@
  * 3. No-network tripwire: real fetch() is intercepted — any unmocked call fails
  */
 
+import { mockObjectiveRanking } from '../helpers/objective-fixtures.js';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { canonicalCompare, DEFAULT_IGNORE_FIELDS } from '../utils/canonical-compare.js';
@@ -107,6 +108,7 @@ const mockISLService = {
 
     return {
       data: {
+        objective_ranking: mockObjectiveRanking(options.map((opt: any, idx: number) => ({ option_id: opt.id, win_probability: idx === 0 ? 0.6 : 0.4 }))),
         options: options.map((opt: any, idx: number) => ({
           option_id: opt.id,
           outcome: { mean: 0.7 + idx * 0.1, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 },
@@ -142,7 +144,7 @@ import { createServer } from '../../src/createServer.js';
 
 const GRAPH = {
   nodes: [
-    { id: 'goal', kind: 'goal', label: 'Revenue' },
+    { id: 'goal', kind: 'goal', goal_direction: 'maximise', label: 'Revenue' },
     { id: 'factor-a', kind: 'factor', label: 'Marketing', observed_state: { value: 0.6 } },
     { id: 'factor-b', kind: 'factor', label: 'Churn', observed_state: { value: 0.5 } },
   ],
@@ -359,7 +361,7 @@ describe('Canonical route integration (B1.4 Category B)', () => {
     // so Phase 4b+ injection triggers and we can verify repair shape.
     const graphWithOutcome = {
       nodes: [
-        { id: 'goal', kind: 'goal', label: 'Revenue' },
+        { id: 'goal', kind: 'goal', goal_direction: 'maximise', label: 'Revenue' },
         { id: 'factor-a', kind: 'factor', label: 'Marketing', observed_state: { value: 0.6 } },
         { id: 'outcome-sat', kind: 'outcome', label: 'Satisfaction', observed_state: { value: 0.8 } },
       ],

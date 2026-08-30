@@ -18,6 +18,7 @@ import type {
   EdgeV3 as SchemaEdgeV3,
   GraphV3 as SchemaGraphV3,
   RepairEntry as SchemaRepairEntry,
+  GoalDirectionType,
 } from '@talchain/schemas';
 import {
   MAX_NODES as LIMITS_MAX_NODES,
@@ -29,7 +30,7 @@ import {
 // from a PLoT-local restatement. `@talchain/schemas` 0.31.0 owns this shape and
 // the egress guard validates against the same schema at runtime, so importing
 // the type is agreement with the contract rather than an invented one.
-import type { EnrichmentFactorEvppiEntry } from '@talchain/schemas/boundary';
+import type { EnrichmentFactorEvppiEntry, EnrichmentObjectiveRanking } from '@talchain/schemas/boundary';
 import type { GoalThresholdFrameType } from '@talchain/schemas';
 
 // Import CEE types for factor enrichments
@@ -91,6 +92,8 @@ export type EngineNodeKindV3 = (typeof ENGINE_CAUSAL_NODE_KINDS)[number];
  */
 export interface UpstreamNode {
   id: string;
+  /** Canonical objective on the selected goal; never defaulted by PLoT. */
+  goal_direction?: GoalDirectionType;
   kind?: string;
   type?: string; // Some sources use 'type' instead of 'kind'
   label?: string;
@@ -1137,6 +1140,8 @@ export interface V2RunError {
  * V2 Run Response with explicit status flags.
  */
 export interface RunResponseV3 {
+  /** ISL objective comparison and tie-split win shares, forwarded unchanged. */
+  objective_ranking?: EnrichmentObjectiveRanking;
   /** Request schema version */
   request_schema_version: 'v3';
   /** Endpoint version */
@@ -1959,7 +1964,8 @@ export interface OptionComparisonResultV3 {
    */
   probability_of_goal?: number;
   /**
-   * Probability this option outperforms alternatives across simulated scenarios [0, 1].
+   * Monte Carlo win-credit share [0, 1]; tied draws split credit.
+   * The objective and comparison set are attested by objective_ranking.
    */
   win_probability?: number;
 
@@ -2960,12 +2966,11 @@ export interface RobustnessAssessmentV3 {
   /** Normalization errors if any (for observability) */
   normalization_errors?: Array<{ edge_type: string; error: string; raw_value?: unknown }>;
   /**
-   * Recommended option ID derived from argmax(win_probability) over the options
-   * ELIGIBLE to be crowned — ISL-status candidates that are additionally
-   * permitted by the user's stated constraints (see `crown-eligibility.ts`).
-   * Tie-breaker: lexicographic sort on option_id when win_probability within epsilon (1e-9).
-   * ABSENT when no option is eligible; `recommended_option_compliance` then
-   * carries `no_eligible_option` and says why.
+   * Recommended option ID from the request-matching ISL objective_ranking order
+   * after existing status and constraint eligibility checks.
+   * Equal best permitted producer ranks withhold the single recommendation.
+   * ABSENT when objective truth is missing/withheld or best eligible ranks tie.
+   * When all computed candidates breach, compliance is `no_eligible_option`.
    */
   recommended_option_id?: string;
   /**

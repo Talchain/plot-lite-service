@@ -9,7 +9,17 @@ and `DecisionGuideAI` (UI).
 
 ## Current contents
 
-### `talchain-schemas-0.40.0.tgz`
+### `talchain-schemas-0.52.0.tgz`
+
+Science objective contract candidate, packed from the shared schema development
+branch (not a registry release). SHA256:
+`f2cf05fc68d75ae6453050c70d0af95cfd8adb643dfba56c12e73aa7f99014ed`.
+Adds the explicit canonical goal direction and ordered objective-ranking boundary
+used here. Final reviewed schema artifact must be repinned before integration.
+No registry publication or deployment is claimed.
+
+
+### `talchain-schemas-0.40.0.tgz` (historical, superseded)
 
 **Purpose:** PARITY (0.39.0 → 0.40.0, one minor), taken as part of ROADMAP
 2.1023/2.1024 because the frame/freshness audit found PLoT **two minors behind

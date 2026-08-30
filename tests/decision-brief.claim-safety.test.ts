@@ -15,6 +15,7 @@
  */
 
 import { describe, it, expect, afterEach } from 'vitest';
+import { mockLicensedComparison } from './helpers/objective-fixtures.js';
 import { assembleBrief, type BriefAssemblyInput } from '../src/assembly/decision-brief.js';
 
 afterEach(() => {
@@ -32,7 +33,7 @@ function makeInput(overrides: {
 } = {}): BriefAssemblyInput {
   const topWin = overrides.topWin ?? 0.6;
   const secondWin = overrides.secondWin ?? 0.4;
-  return {
+  const input: BriefAssemblyInput = {
     analysis_status: 'computed',
     critiques: [],
     option_comparison: (overrides.option_comparison ?? [
@@ -44,6 +45,8 @@ function makeInput(overrides: {
     inference_warnings: overrides.inference_warnings as any,
     meta: { seed_used: '42' },
   };
+  input.licensed_comparison = mockLicensedComparison(input.option_comparison!);
+  return input;
 }
 
 // =============================================================================

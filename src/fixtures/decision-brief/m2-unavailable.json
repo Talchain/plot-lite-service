@@ -1,6 +1,41 @@
 {
   "description": "M2 decision review failed/unavailable — falls back to M1 headline, adds warning",
   "input": {
+    "licensed_comparison": {
+      "attested": true,
+      "rankedOptions": [
+        {
+          "option_id": "opt_x",
+          "option_label": "Strategy X",
+          "rank": 1,
+          "win_probability": 0.61
+        },
+        {
+          "option_id": "opt_y",
+          "option_label": "Strategy Y",
+          "rank": 2,
+          "win_probability": 0.39
+        }
+      ],
+      "permittedOptions": [
+        {
+          "option_id": "opt_x",
+          "option_label": "Strategy X",
+          "rank": 1,
+          "win_probability": 0.61
+        },
+        {
+          "option_id": "opt_y",
+          "option_label": "Strategy Y",
+          "rank": 2,
+          "win_probability": 0.39
+        }
+      ],
+      "recommendation": {
+        "recommended_option_id": "opt_x",
+        "recommended_option_label": "Strategy X"
+      }
+    },
     "analysis_status": "computed",
     "critiques": [],
     "option_comparison": [
@@ -59,7 +94,7 @@
     "version": "1",
     "graph_hash": "def456abc789gh12",
     "seed": 99,
-    "headline": "Strategy X has a moderate lead over Strategy Y.",
+    "headline": "Strategy X is slightly ahead.",
     "options": [
       { "option_id": "opt_x", "label": "Strategy X", "win_probability": 0.61, "rank": 1 },
       { "option_id": "opt_y", "label": "Strategy Y", "win_probability": 0.39, "rank": 2 }

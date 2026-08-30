@@ -270,6 +270,10 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     'factor_sensitivity[].confidence_provenance', // B (tier-B): typed disclosure object {computation_source, formula_version, is_provisional, calibration_status, input_quality} — audit A1-PRIMARY
     'auto_noise_applied',                // B (tier-B): boolean echo of ISL's auto-noise flag — present on analysis_status ∈ {computed, partial}, null when ISL omits — audit B3
     'auto_noise_provenance',             // B (tier-B): analysis-level typed disclosure object {applied, effect, formula_version, multiplier, noise_distribution, filter_scope, is_provisional, calibration_status} — audit B3
+    // ISL's objective_ranking is passed through verbatim. Its dense producer
+    // ranks, joined to the same option shares and selected-goal direction, are
+    // filtered through existing status/constraint policy once. Only a unique
+    // surviving best rank licenses the existing recommendation fields.
     'recommended_option_id',
     'recommended_option_label',
     // CROWN ELIGIBILITY (step 5): the crown is derived over options ELIGIBLE to
