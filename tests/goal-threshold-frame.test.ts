@@ -124,7 +124,7 @@ function graphWithGoal(goalOverrides: Record<string, unknown> = {}) {
     nodes: [
       {
         id: 'goal_arr',
-        kind: 'goal',
+        kind: 'goal', goal_direction: 'maximise',
         label: 'Reach 6M ARR Within 12 Months',
         observed_state: { value: 0.4, baseline: 0.35, unit: '£' },
         ...goalOverrides,
@@ -426,7 +426,7 @@ describe('ROADMAP 2.258 — goal_threshold_frame reaches the ISL request', () =>
     // threshold carry never runs, and the goal probability vanishes SILENTLY.
     // A comment is not a test.
     const goalNode = {
-      id: 'goal_arr', kind: 'goal', label: 'Goal',
+      id: 'goal_arr', kind: 'goal', goal_direction: 'maximise', label: 'Goal',
       observed_state: { value: 0.4, baseline: 0.35 },
     } as unknown as EngineNodeV3;
 

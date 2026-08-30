@@ -168,6 +168,7 @@ import { buildDriverOrder, readIslSuppressedAttributions } from '../../lib/drive
 import {
   detectUnreliableConstraintTargets,
   detectUnanchoredSampleFrameTargets,
+  collectResolvedConstraintFrameIds,
   detectUnitMismatchedConstraintTargets,
   mergeUnreliableConstraintTargets,
   collectDirectedEdgeTargets,
@@ -2791,10 +2792,11 @@ function buildResponse(
   // L63: the producer's per-node `goal_threshold_frame` stamps, read off the RAW
   // upstream nodes (the canonical EngineNodeV3 drops them, so `graph` above
   // cannot carry them). Appended rather than inserted for the same reason 2.258
-  // gave: the call sites pass these positionally. Feeds the ONE limb of the
-  // sample-frame gate that a producer can open — an attested 'delta' target.
+  // gave: the call sites pass these positionally. Feeds the legacy graph-frame
+  // evidence; current per-constraint resolution is request-bound below.
   goalThresholdFrameByNodeId?: ReadonlyMap<string, string>,
-  goalDirection?: GoalDirectionType
+  goalDirection?: GoalDirectionType,
+  forwardedConstraintRequest?: Parameters<typeof collectResolvedConstraintFrameIds>[0]
 ): RunResponseV3 {
   // Producer honesty (lane PLoT-H item A): detect goal constraints whose
   // targets are NOT decision-grade — threshold normalisation fell back to the
@@ -2825,6 +2827,9 @@ function buildResponse(
   // so no absolute threshold can be compared against them, and the near-zero
   // that comes back is arithmetic, not a finding. Derivation + the measured
   // 2.286 counter-example: src/lib/constraint-reliability.ts.
+  // Current ISL resolves declared level frames itself (2.798). A complete,
+  // matching result proves that resolution without repeating its arithmetic;
+  // the historical graph-only detector remains the fallback when proof is absent.
   //
   // THE UNIT COLLISION: a THIRD, DERIVED detection, and neither sibling can
   // reach it. The witnessed capture (`l60-artefacts/scenario-people.json` +
@@ -2846,6 +2851,7 @@ function buildResponse(
       collectDirectedEdgeTargets(graph?.edges),
       options,
       goalThresholdFrameByNodeId,
+      collectResolvedConstraintFrameIds(forwardedConstraintRequest, islResult),
     ),
     detectUnitMismatchedConstraintTargets(
       goalConstraints,
@@ -5795,7 +5801,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Reading the POST-filter set fires in a strict superset of the previous
         // cases (post-filter-empty ⊇ pre-filter-empty): the only new case is
         // "non-empty before the filter, empty after" — exactly the defect.
-        if (constraintCompilation.constraints.length === 0) {
+        // A >= target expresses maximisation only. It must never become a
+        // hidden eligibility limit for minimise, nearest-target, or unknown aims.
+        // Explicit user constraints retain their own operators unchanged.
+        if (constraintCompilation.constraints.length === 0 && nodeGoalDirection === 'maximise') {
           // Resolve threshold: prefer request-level goal_threshold (already parsed),
           // fall back to goal_threshold on the raw upstream goal node (CEE may set
           // it on the node even if the request root field is absent).
@@ -6017,7 +6026,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             event: 'plot.auto_constraint_from_threshold',
             goal_node_id: body.goal_node_id,
             action: 'skipped',
-            reason: 'constraints_present',
+            reason: constraintCompilation.constraints.length > 0
+              ? 'constraints_present'
+              : 'objective_not_explicit_maximise',
             constraint_count: constraintCompilation.constraints.length,
           });
         }
@@ -8891,8 +8902,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           optionClampDirectionByFactor,  // 1d + Codex F1: per-option clamp DIRECTION map for margin_precision
           optionDiagnosedFactors,  // Codex F1: factors with a recorded diagnostic (exact vs unknown)
           constraintScaleProvenanceByConstraintId,  // A3 trust marker: scale_provenance + constraints_decision_grade (also carries F2a threshold_clamped)
-          goalThresholdFrameByNodeId,  // L63: unchanged constraint frame gate
-          nodeGoalDirection  // Bind recommendation to the objective actually sent to ISL
+          goalThresholdFrameByNodeId,  // L63: legacy graph-frame evidence
+          nodeGoalDirection,  // Bind recommendation to the objective actually sent to ISL
+          islRequest  // Current per-constraint frame result must match the actual forwarded request
         ));
       } catch (err) {
         req.log.error({

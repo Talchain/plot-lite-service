@@ -130,7 +130,7 @@ function graphWithGoal(goalOverrides: Record<string, unknown> = {}) {
   return {
     nodes: [
       {
-        id: 'goal_arr', kind: 'goal', label: 'Reach 6M ARR Within 12 Months',
+        id: 'goal_arr', kind: 'goal', goal_direction: 'maximise', label: 'Reach 6M ARR Within 12 Months',
         goal_threshold_frame: 'delta',
         ...goalOverrides,
       },
@@ -316,7 +316,7 @@ describe('ROADMAP 2.239 — goal target reaches the ISL request', () => {
       graph: {
         nodes: [
           // ROADMAP 2.266: frame stamped so auto-synthesis engages (see builder note).
-          { id: 'goal_arr', kind: 'goal', label: 'ARR', goal_threshold_cap: 50000, goal_threshold_frame: 'delta' },
+          { id: 'goal_arr', kind: 'goal', goal_direction: 'maximise', label: 'ARR', goal_threshold_cap: 50000, goal_threshold_frame: 'delta' },
           {
             id: 'lever', kind: 'factor', label: 'MRR',
             observed_state: { value: 15000 },

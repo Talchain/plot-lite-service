@@ -38,15 +38,24 @@ const service = {
       ...(ranking !== undefined ? { objective_ranking: ranking } : {}),
       options: body.options.map((option: any) => ({
         option_id: aliasResponseIds ? `alien_${option.id}` : option.id, status: 'computed',
-        ...(includeShares ? { win_probability: option.id === 'expensive' ? 0.8 : 0.2 } : {}),
+        ...(includeShares ? { win_probability: ranking?.ranked_options?.find((r: any) =>
+          r.option_id === (aliasResponseIds ? `alien_${option.id}` : option.id))?.win_probability
+          ?? (option.id === 'expensive' ? 0.8 : 0.2) } : {}),
         // Deliberately opposite marginal means: they cannot decide objective rank.
         outcome: { mean: option.id === 'expensive' ? 0.2 : 0.8, std: 0.1,
           p10: 0.1, p50: 0.5, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1 },
-        constraint_analysis: {
-          constraints: [{ constraint_id: 'budget', node_id: 'cost', operator: '<=',
-            value: 50000, prob_satisfied: allCompliant || option.id === 'affordable' ? 1 : 0 }],
-          joint_probability: allCompliant || option.id === 'affordable' ? 1 : 0,
-        },
+        constraint_analysis: body.goal_constraints?.length ? {
+          constraints: body.goal_constraints.map((c: any) => ({
+            constraint_id: c.constraint_id, node_id: c.node_id, operator: c.operator,
+            value: c.value,
+            prob_satisfied: c.node_id === 'goal'
+              ? (option.id === 'expensive' ? 1 : 0)
+              : (allCompliant || option.id === 'affordable' ? 1 : 0),
+          })),
+          joint_probability: body.goal_constraints.some((c: any) => c.node_id === 'goal')
+            ? (option.id === 'expensive' ? 1 : 0)
+            : (allCompliant || option.id === 'affordable' ? 1 : 0),
+        } : undefined,
       })),
       edges: [], factors: [], value_of_information: [],
       overall_robustness: 'robust', robustness_score: 0.8, fragile_edges: [], robust_edges: [],
@@ -197,6 +206,52 @@ describe('objective authority on the complete /v2/run boundary', () => {
     expect(matching.robustness.recommended_option_id).toBe('affordable');
   });
 
+  it.each(['minimise', 'target', undefined])('never invents a >= eligibility limit for %j', async (direction) => {
+    const input: any = payload(direction);
+    if (direction === undefined) delete input.graph.nodes[0].goal_direction;
+    delete input.goal_constraints;
+    Object.assign(input.graph.nodes[0], { goal_threshold: 0.6, goal_threshold_frame: 'delta', goal_threshold_cap: 1 });
+    input.graph.nodes[0].observed_state.cap = 1;
+    ranking = direction ? {
+      direction, attested: true, status: 'computed', ranked_options: [
+        { option_id: 'affordable', rank: 1, win_probability: 0.8 },
+        { option_id: 'expensive', rank: 2, win_probability: 0.2 },
+      ],
+    } : WITHHELD;
+    const result = await run(input);
+    expect(capturedRequest.goal_constraints).toBeUndefined();
+    expect(result.robustness.recommended_option_id).toBe(direction ? 'affordable' : undefined);
+    expect(result.robustness.recommended_option_compliance).toBe('not_applicable');
+  });
+
+  it('preserves explicit goal limits for minimise without changing their trust assessment', async () => {
+    const input: any = payload('minimise');
+    Object.assign(input.graph.nodes[0], { goal_threshold: 0.6, goal_threshold_frame: 'delta', goal_threshold_cap: 1 });
+    input.graph.nodes[0].observed_state.cap = 1;
+    input.goal_constraints = [{ constraint_id: 'stated_goal_limit', node_id: 'goal', operator: '>=', value: 0.6, value_frame: 'delta' }];
+    ranking = { direction: 'minimise', attested: true, status: 'computed', ranked_options: [
+      { option_id: 'affordable', rank: 1, win_probability: 0.8 },
+      { option_id: 'expensive', rank: 2, win_probability: 0.2 },
+    ] };
+    const result = await run(input);
+    expect(result.option_comparison.find((o: any) => o.option_id === 'affordable')).toMatchObject({
+      constraints_decision_grade: false, constraint_probabilities: { stated_goal_limit: 0 },
+    });
+    expect(result.robustness.recommended_option_id).toBe('affordable');
+    expect(capturedRequest.goal_constraints[0].operator).toBe('>=');
+  });
+
+  it('preserves >= synthesis for an explicit maximise objective', async () => {
+    const input: any = payload('maximise'); delete input.goal_constraints;
+    Object.assign(input.graph.nodes[0], { goal_threshold: 0.6, goal_threshold_frame: 'delta', goal_threshold_cap: 1 });
+    input.graph.nodes[0].observed_state.cap = 1;
+    const result = await run(input);
+    expect(capturedRequest.goal_constraints).toEqual(expect.arrayContaining([
+      expect.objectContaining({ constraint_id: 'auto_goal_threshold', operator: '>=' }),
+    ]));
+    expect(result.robustness.recommended_option_id).toBe('expensive');
+  });
+
   it('refuses a response that consistently renames ranked and comparison IDs outside the admitted set', async () => {
     aliasResponseIds = true;
     ranking.ranked_options = ranking.ranked_options.map((o: any) => ({ ...o, option_id: `alien_${o.option_id}` }));
@@ -239,6 +294,19 @@ describe('objective projection refusal and ties', () => {
     const changed = [{ ...candidates[0], win_probability: 0.6 }, candidates[1]];
     expect(licenseObjectiveComparison(tied, changed, admitted, 'maximise').attested).toBe(false);
   });
+  it('the existing trusted-limit policy would exclude a lower-valued winner, so synthesis must require maximise', () => {
+    const raw = { direction: 'minimise', attested: true, status: 'computed', ranked_options: [
+      { option_id: 'a', rank: 1, win_probability: 0.8 },
+      { option_id: 'b', rank: 2, win_probability: 0.2 },
+    ] };
+    const rows = [
+      { option_id: 'a', win_probability: 0.8, constraints_decision_grade: true, constraint_probabilities: { auto_goal_threshold: 0 } },
+      { option_id: 'b', win_probability: 0.2, constraints_decision_grade: true, constraint_probabilities: { auto_goal_threshold: 1 } },
+    ];
+    expect(licenseObjectiveComparison(raw, rows, admitted, 'minimise').recommendation?.recommended_option_id).toBe('b');
+    expect(licenseObjectiveComparison(raw, rows.map(({ constraint_probabilities, constraints_decision_grade, ...o }) => o), admitted, 'minimise').recommendation?.recommended_option_id).toBe('a');
+  });
+
   it('refuses extra raw options, missing admitted identity, and duplicate admitted IDs', () => {
     const extra = [...candidates, { option_id: 'extra', win_probability: 0 }];
     expect(licenseObjectiveComparison(tied, extra, admitted, 'maximise').attested).toBe(false);
