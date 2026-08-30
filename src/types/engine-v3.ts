@@ -333,8 +333,21 @@ export type InterventionSource =
 export interface InterventionValueV3 {
   /** The intervention value to set */
   value: number;
-  /** Where this intervention came from */
-  source: InterventionSource;
+  /**
+   * Where this intervention came from — OPTIONAL, and absent when unknown.
+   *
+   * This was once required, which forced `normalizeInterventions()` to invent a
+   * value for every intervention that arrived without one; the literal it
+   * invented was `'user_specified'`, the strongest possible claim of human
+   * authorship, applied to numbers CEE had chosen. An absent provenance is
+   * honest and an invented one is a lie, so absence is now representable.
+   *
+   * Consumers must treat an absent `source` as "provenance unknown" and must
+   * NOT substitute a default. Nothing branches on this field today:
+   * `toISLInterventions()` strips it before ISL (PLOT_TO_ISL_CONTRACT.drops),
+   * `normaliseOptions()` only propagates it, and no /v2/run response carries it.
+   */
+  source?: InterventionSource;
   // Reserved for Phase 2 - do not implement yet
   // uncertainty?: { distribution: 'normal' | 'uniform'; std?: number; range?: [number, number] };
 }

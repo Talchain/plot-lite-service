@@ -60,6 +60,8 @@ import type {
   StabilityThresholds,
   InferenceWarning,
   OutcomeStatsV3,
+  InterventionValueV3,
+  InterventionSource,
 } from '../../types/engine-v3.js';
 import { INFERENCE_WARNING_CODES } from '../../types/engine-v3.js';
 import { sha8 } from '../../util/pii-redact.js';
@@ -1329,17 +1331,23 @@ function resolveSeed(providedSeed: string | number | undefined, graph: EngineGra
  * - Rich: { "factor_price": { "value": 10, "source": "user" } }
  *
  * Normalizes to:
- * - { "factor_price": { "value": 10, "source": "user_specified" } }
+ * - { "factor_price": { "value": 10, "source": "user_specified" } }   (source STATED)
+ * - { "factor_price": { "value": 10 } }                               (source ABSENT)
+ *
+ * `source` is carried through ONLY when the caller actually stated one of the
+ * three real provenances. It is never invented: an unattributed value comes
+ * back unattributed. See the in-body comment for why, and for why
+ * `user_specified` is honoured on input rather than folded into the default.
  *
  * TOTAL OR LOUD. Every entry must carry a finite value; one that does not
  * THROWS rather than being dropped. The route guarantees that by rejecting the
  * same entries at the Phase 1a++ ingress guard, which runs above this
  * function's only call site — see the in-body comment for the derivation.
  */
-function normalizeInterventions(
+export function normalizeInterventions(
   interventions: Record<string, number | { value: number; source?: string }>
-): Record<string, { value: number; source: 'user_specified' | 'brief_extraction' | 'cee_hypothesis' }> {
-  const result: Record<string, { value: number; source: 'user_specified' | 'brief_extraction' | 'cee_hypothesis' }> = {};
+): Record<string, InterventionValueV3> {
+  const result: Record<string, InterventionValueV3> = {};
 
   for (const [nodeId, intervention] of Object.entries(interventions ?? {})) {
     // ROADMAP 1.278: inclusion is decided by the SHARED reader, the same
@@ -1393,13 +1401,46 @@ function normalizeInterventions(
       );
     }
 
+    // PROVENANCE IS NEVER FABRICATED. This else-branch used to read
+    // `: 'user_specified'`, i.e. every value that did not arrive with a
+    // recognised source was stamped with the strongest possible claim of HUMAN
+    // AUTHORSHIP. A bare number is exactly that case, and a bare number is
+    // exactly what CEE sends (its `perOption` is typed
+    // `Array<Record<string, number>>` and its plot-client THROWS on any
+    // non-number), so a value the model invented was labelled "the user said
+    // this". That launders an AI-chosen anchor as the user's own judgement,
+    // which is the one attribution error this product cannot afford.
+    //
+    // An ABSENT provenance is honest; an invented one is a lie. So the unknown
+    // case now OMITS the key rather than substituting another literal —
+    // `InterventionValueV3.source` is optional for this reason.
+    //
+    // ⚠ `user_specified` is ACCEPTED here, and that is load-bearing rather than
+    // an oversight. Under the old code an EXPLICITLY-STATED `user_specified`
+    // and an ABSENT source were INDISTINGUISHABLE — both fell through to the
+    // stamp. Omitting on the else-branch ALONE would therefore have stripped
+    // the attribution from callers that genuinely stated it, trading a
+    // fabricated claim for a deleted true one. Callers do send it explicitly
+    // (the repo's own /v2/run request fixtures carry it across ~95 test files),
+    // so the two harms need two answers: honour all three real sources, invent
+    // none. Both directions are pinned in
+    // tests/intervention-source-no-fabricated-attribution.test.ts.
+    //
+    // NOTHING DOWNSTREAM BREAKS ON THE ABSENCE, derived rather than assumed:
+    // `toISLInterventions()` reads only `.value` and strips `.source` (declared
+    // in PLOT_TO_ISL_CONTRACT.drops as 'intervention.source'), so ISL never
+    // sees it; `normaliseOptions()` in lib/intervention-normaliser.ts only
+    // PROPAGATES it and never branches on it; identical-options dedup has zero
+    // `.source` reads; and no /v2/run response path carries interventions at
+    // all. Every remaining reader is a pass-through.
     const source = (intervention && typeof intervention === 'object')
       ? (intervention as { source?: string }).source
       : undefined;
-    const validSource = (source === 'brief_extraction' || source === 'cee_hypothesis')
-      ? source
-      : 'user_specified';
-    result[nodeId] = { value, source: validSource };
+    const validSource: InterventionSource | undefined =
+      (source === 'brief_extraction' || source === 'cee_hypothesis' || source === 'user_specified')
+        ? source
+        : undefined;
+    result[nodeId] = validSource === undefined ? { value } : { value, source: validSource };
   }
 
   return result;
