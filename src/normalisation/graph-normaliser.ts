@@ -394,11 +394,25 @@ export function normaliseNode(
     ) {
       prior = p;
 
-      // Warn if prior exists on non-external factor
+      // Warn if prior exists on non-external factor.
+      //
+      // ⚠ THE CONSEQUENCE CLAUSE CHANGED WITH THE TRANSLATOR, AND HAD TO.
+      // This warning reaches a USER: `normalise-and-repair` keeps repair-less
+      // warnings as `warnings`, `routes/v2/run.ts` turns each into a critique,
+      // and `critique-humaniser.ts` renders it. It used to end "Prior will be
+      // ignored", which was true while `buildParameterUncertaintiesV3` gated
+      // its prior pass on `category === 'external'`. That conjunct is gone: a
+      // declared prior is now honoured whatever the category, and loses only to
+      // a stated `observed_state.value`. Saying "ignored" here would state a
+      // consequence the product no longer produces.
+      //
+      // The TRIGGER is unchanged on purpose — a prior on a non-external factor
+      // is still worth reporting, because it usually means the producer
+      // mis-classified the factor. Only the consequence is restated.
       if (category !== 'external') {
         warnings?.push({
           code: REPAIR_CODES.PRIOR_ON_NON_EXTERNAL,
-          message: `Node '${node.id}' has prior but category is '${category ?? 'undefined'}' (expected 'external'). Prior will be ignored.`,
+          message: `Node '${node.id}' has prior but category is '${category ?? 'undefined'}' (expected 'external'). The prior is used only where the factor has no stated value.`,
           node_id: node.id,
         });
       }

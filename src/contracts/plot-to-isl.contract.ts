@@ -175,7 +175,7 @@ export const PLOT_TO_ISL_CONTRACT: BoundaryContract = {
       from: ['nodes[].prior.range_min', 'nodes[].prior.range_max'],
       to: 'parameter_uncertainties[] (distribution: uniform)',
       why:
-        'An external factor whose only quantitative statement is a `prior` has no ' +
+        'A factor whose only quantitative statement is a `prior` has no ' +
         'observed_state, and ISL reads a NORMAL entry\'s centre from observed_state.value ' +
         '(defaulting to 0.0). Only the uniform family carries its centre on the wire, so ' +
         'the declared support is forwarded verbatim as range_min/range_max. Sending a ' +

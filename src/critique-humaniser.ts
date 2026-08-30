@@ -162,13 +162,20 @@ export const NORMALISATION_WARNING_COPY: Record<
   /**
    * `graph-normaliser.ts normaliseNode` — a prior distribution was supplied on
    * a node whose category is not `external`. The producer's own declared
-   * semantics, verbatim from its message: "Prior will be ignored." The prior is
-   * not altered here, so the copy states the consequence, not a repair.
+   * semantics, verbatim from its message: "The prior is used only where the
+   * factor has no stated value." The prior is not altered here, so the copy
+   * states the consequence, not a repair.
+   *
+   * ⚠ THIS COPY SAID "so it will be ignored" AND WAS MADE FALSE BY A CHANGE IN
+   * ANOTHER FILE. `buildParameterUncertaintiesV3` used to gate its prior pass on
+   * `category === 'external'`; it no longer does, so a prior on a controllable
+   * or observable factor IS forwarded to ISL whenever that factor has no stated
+   * value. Re-derive this sentence from the translator, not from memory.
    */
   PRIOR_ON_NON_EXTERNAL: (subject) =>
     subject
-      ? `${subject} was given a starting-value distribution, but those are only used on factors marked external, so it will be ignored.`
-      : 'A factor was given a starting-value distribution, but those are only used on factors marked external, so it will be ignored.',
+      ? `${subject} was given a starting-value distribution, which normally belongs on factors marked external. It will be used only if the factor has no stated value of its own.`
+      : 'A factor was given a starting-value distribution, which normally belongs on factors marked external. It will be used only if the factor has no stated value of its own.',
 };
 
 /**

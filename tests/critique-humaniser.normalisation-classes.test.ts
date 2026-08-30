@@ -152,11 +152,18 @@ describe('2.645 — normalisation-warning copy must be TRUE for each producer cl
     expect(msg).toContain('passed to the engine unchanged');
   });
 
-  it('PRIOR_ON_NON_EXTERNAL says what the producer actually declared — the prior will be ignored', () => {
+  it('PRIOR_ON_NON_EXTERNAL says what the producer actually declared — the prior is used only without a stated value', () => {
     const msg = humanisedFor('PRIOR_ON_NON_EXTERNAL');
     expect(msg).toContain('Churn');
     expect(msg).toContain('external');
-    expect(msg).toContain('ignored');
+    expect(msg).toContain('no stated value');
+    // ⚠ The copy asserted 'ignored' until the translator stopped gating its
+    // prior pass on `category === 'external'`. A prior on a non-external factor
+    // is now FORWARDED to ISL when the factor has no stated value, so claiming
+    // it is ignored would be the class-6 defect (the product stating a
+    // consequence it does not produce). This assertion is what keeps the old
+    // sentence from coming back.
+    expect(msg).not.toContain('ignored');
   });
 
   it('RED — an untagged normalisation critique must not claim the option class', () => {
