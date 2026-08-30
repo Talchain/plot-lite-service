@@ -12,8 +12,9 @@ and `DecisionGuideAI` (UI).
 ### `talchain-schemas-0.52.0.tgz`
 
 Science objective contract candidate, packed from the shared schema development
-branch (not a registry release). SHA256:
-`f2cf05fc68d75ae6453050c70d0af95cfd8adb643dfba56c12e73aa7f99014ed`.
+branch at `f152a388c3fe323da52cdb5d52b4d234458865e0`
+(not a registry release). SHA256:
+`facdc475e829c34934faea9a071318a4797122f433cfc6c18ca72e0bf85d03c0`.
 Adds the explicit canonical goal direction and ordered objective-ranking boundary
 used here. Final reviewed schema artifact must be repinned before integration.
 No registry publication or deployment is claimed.

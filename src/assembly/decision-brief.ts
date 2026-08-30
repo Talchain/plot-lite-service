@@ -355,7 +355,10 @@ function buildAnalysisSummary(
     (o) => o.option_id === leader.option_id,
   );
   const goalFit = leaderComparison?.probability_of_joint_goal;
-  if (typeof goalFit === 'number' && Number.isFinite(goalFit)) {
+  // Joint threshold attainment is not success at a nearest-target objective.
+  // Keep the descriptive raw probability on the response, not this ambiguous slot.
+  if (input.licensed_comparison?.direction !== 'target' &&
+      typeof goalFit === 'number' && Number.isFinite(goalFit)) {
     summary.goal_fit = goalFit;
   }
 

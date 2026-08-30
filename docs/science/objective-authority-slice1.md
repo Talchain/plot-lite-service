@@ -14,14 +14,18 @@ Data flow:
 3. ISL owns `objective_ranking`: dense ranks over tie-split simulation win
    shares, with stable ID order for ties. PLoT forwards the envelope unchanged.
 4. Validate its objective against the request, join every row to its option's
-   exact share, then apply existing computation-status and constraint policy.
+   exact share and the admitted request option identities, then apply existing
+   computation-status and constraint policy. Foreign, missing, or duplicate
+   identities withhold recommendation even when the response is self-consistent.
    No local re-sort, epsilon tie-break, mean-outcome fallback, or default
    direction is used. Equal best permitted ranks do not name one winner.
 5. The one internal projection supplies `robustness.recommended_option_id`,
    the brief's permitted headline pair, and the brief's capture identity/share.
    Raw brief option ranks remain producer ranks. One eligible option has no
    comparative band. Missing/withheld objective truth has no ranked brief or
-   recommendation; descriptive outcome statistics remain available.
+   recommendation; descriptive outcome statistics remain available. The brief
+   omits ambiguous `goal_fit` for nearest-target objectives: threshold attainment
+   is a separate quantity and remains available in the raw response.
 
 The existing raw-population `near_tie` remains a descriptive statistic; it is
 not a licence for a different permitted identity. It is absent without a valid

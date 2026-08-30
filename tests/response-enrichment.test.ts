@@ -20,7 +20,7 @@ describe('deriveRecommendedOption', () => {
         { option_id: 'opt_b', win_probability: 0.7 },
       ];
 
-      const result = deriveRecommendedOption(optionComparison, undefined, mockObjectiveRanking(optionComparison), 'maximise');
+      const result = deriveRecommendedOption(optionComparison, optionComparison.map((o) => ({ id: o.option_id, interventions: {} })), mockObjectiveRanking(optionComparison), 'maximise');
 
       expect(result).toEqual({
         recommended_option_id: 'opt_b',
@@ -46,14 +46,14 @@ describe('deriveRecommendedOption', () => {
         { option_id: 'opt_d', win_probability: Infinity },
       ];
 
-      const result = deriveRecommendedOption(optionComparison, undefined, mockObjectiveRanking(optionComparison), 'maximise');
+      const result = deriveRecommendedOption(optionComparison, optionComparison.map((o) => ({ id: o.option_id, interventions: {} })), mockObjectiveRanking(optionComparison), 'maximise');
       expect(result).toBeUndefined();
     });
 
     it('handles single option', () => {
       const optionComparison = [{ option_id: 'only_option', win_probability: 1.0 }];
 
-      const result = deriveRecommendedOption(optionComparison, undefined, mockObjectiveRanking(optionComparison), 'maximise');
+      const result = deriveRecommendedOption(optionComparison, optionComparison.map((o) => ({ id: o.option_id, interventions: {} })), mockObjectiveRanking(optionComparison), 'maximise');
 
       expect(result).toEqual({
         recommended_option_id: 'only_option',
@@ -68,7 +68,7 @@ describe('deriveRecommendedOption', () => {
         { option_id: 'opt_c', win_probability: 0.10 },
       ];
 
-      const result = deriveRecommendedOption(optionComparison, undefined, mockObjectiveRanking(optionComparison), 'maximise');
+      const result = deriveRecommendedOption(optionComparison, optionComparison.map((o) => ({ id: o.option_id, interventions: {} })), mockObjectiveRanking(optionComparison), 'maximise');
 
       expect(result).toEqual({
         recommended_option_id: 'opt_b',
@@ -88,7 +88,7 @@ describe('deriveRecommendedOption', () => {
         { option_id: 'opt_alpha', win_probability: baseProb },
       ];
 
-      const result = deriveRecommendedOption(optionComparison, undefined, mockObjectiveRanking(optionComparison), 'maximise');
+      const result = deriveRecommendedOption(optionComparison, optionComparison.map((o) => ({ id: o.option_id, interventions: {} })), mockObjectiveRanking(optionComparison), 'maximise');
 
       // Preserve the producer winner; PLoT applies no epsilon tie-break.
       expect(result?.recommended_option_id).toBe('opt_zebra');
@@ -104,7 +104,7 @@ describe('deriveRecommendedOption', () => {
         { option_id: 'opt_zebra', win_probability: baseProb + EPSILON * 10 },
       ];
 
-      const result = deriveRecommendedOption(optionComparison, undefined, mockObjectiveRanking(optionComparison), 'maximise');
+      const result = deriveRecommendedOption(optionComparison, optionComparison.map((o) => ({ id: o.option_id, interventions: {} })), mockObjectiveRanking(optionComparison), 'maximise');
 
       // Should pick 'opt_zebra' (higher probability)
       expect(result?.recommended_option_id).toBe('opt_zebra');
@@ -117,7 +117,7 @@ describe('deriveRecommendedOption', () => {
         { option_id: 'opt_alpha', win_probability: 0.5 },
       ];
 
-      const result = deriveRecommendedOption(optionComparison, undefined, mockObjectiveRanking(optionComparison), 'maximise');
+      const result = deriveRecommendedOption(optionComparison, optionComparison.map((o) => ({ id: o.option_id, interventions: {} })), mockObjectiveRanking(optionComparison), 'maximise');
 
       // Equal producer ranks never license a unique recommendation.
       expect(result).toBeUndefined();
@@ -130,7 +130,7 @@ describe('deriveRecommendedOption', () => {
         { option_id: 'opt_c', win_probability: 0.2 },
       ];
 
-      const result = deriveRecommendedOption(optionComparison, undefined, mockObjectiveRanking(optionComparison), 'maximise');
+      const result = deriveRecommendedOption(optionComparison, optionComparison.map((o) => ({ id: o.option_id, interventions: {} })), mockObjectiveRanking(optionComparison), 'maximise');
 
       expect(result).toBeUndefined();
     });
@@ -180,12 +180,12 @@ describe('deriveRecommendedOption', () => {
       ];
 
       // No options array
-      const result = deriveRecommendedOption(optionComparison, undefined, mockObjectiveRanking(optionComparison), 'maximise');
+      const result = deriveRecommendedOption(optionComparison, optionComparison.map((o) => ({ id: o.option_id, interventions: {} })), mockObjectiveRanking(optionComparison), 'maximise');
 
       expect(result?.recommended_option_label).toBe('opt_winner');
     });
 
-    it('uses option_id when graph option not found', () => {
+    it('refuses a result whose identity is absent from the admitted options', () => {
       const optionComparison = [
         { option_id: 'opt_winner', win_probability: 1.0 },
       ];
@@ -200,7 +200,7 @@ describe('deriveRecommendedOption', () => {
 
       const result = deriveRecommendedOption(optionComparison, options, mockObjectiveRanking(optionComparison), 'maximise');
 
-      expect(result?.recommended_option_label).toBe('opt_winner');
+      expect(result).toBeUndefined();
     });
 
     it('handles undefined label in graph option', () => {
@@ -230,7 +230,7 @@ describe('deriveRecommendedOption', () => {
         { option_id: 'opt_valid', win_probability: 0.5 },
       ];
 
-      const result = deriveRecommendedOption(optionComparison, undefined, mockObjectiveRanking(optionComparison), 'maximise');
+      const result = deriveRecommendedOption(optionComparison, optionComparison.map((o) => ({ id: o.option_id, interventions: {} })), mockObjectiveRanking(optionComparison), 'maximise');
 
       expect(result).toBeUndefined();
     });
@@ -241,7 +241,7 @@ describe('deriveRecommendedOption', () => {
         { option_id: 'opt_valid', win_probability: 0.3 },
       ];
 
-      const result = deriveRecommendedOption(optionComparison, undefined, mockObjectiveRanking(optionComparison), 'maximise');
+      const result = deriveRecommendedOption(optionComparison, optionComparison.map((o) => ({ id: o.option_id, interventions: {} })), mockObjectiveRanking(optionComparison), 'maximise');
 
       expect(result).toBeUndefined();
     });
@@ -252,7 +252,7 @@ describe('deriveRecommendedOption', () => {
         { option_id: 'opt_a', win_probability: 0 },
       ];
 
-      const result = deriveRecommendedOption(optionComparison, undefined, mockObjectiveRanking(optionComparison), 'maximise');
+      const result = deriveRecommendedOption(optionComparison, optionComparison.map((o) => ({ id: o.option_id, interventions: {} })), mockObjectiveRanking(optionComparison), 'maximise');
 
       expect(result).toBeUndefined();
     });
@@ -264,7 +264,7 @@ describe('deriveRecommendedOption', () => {
         { option_id: 'opt_b', win_probability: 2e-6 },
       ];
 
-      const result = deriveRecommendedOption(optionComparison, undefined, mockObjectiveRanking(optionComparison), 'maximise');
+      const result = deriveRecommendedOption(optionComparison, optionComparison.map((o) => ({ id: o.option_id, interventions: {} })), mockObjectiveRanking(optionComparison), 'maximise');
 
       expect(result?.recommended_option_id).toBe('opt_b');
     });
@@ -276,7 +276,7 @@ describe('deriveRecommendedOption', () => {
         { option_id: 'opt_a', win_probability: 1e-15 },
       ];
 
-      const result = deriveRecommendedOption(optionComparison, undefined, mockObjectiveRanking(optionComparison), 'maximise');
+      const result = deriveRecommendedOption(optionComparison, optionComparison.map((o) => ({ id: o.option_id, interventions: {} })), mockObjectiveRanking(optionComparison), 'maximise');
 
       expect(result?.recommended_option_id).toBe('opt_b');
     });

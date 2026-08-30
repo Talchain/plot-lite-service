@@ -25,6 +25,8 @@ export interface LicensedRankedOption {
 export interface LicensedObjectiveComparison {
   /** Only a validated, request-matching producer comparison licenses a rank. */
   attested: boolean;
+  /** Copied from the request-matching producer attestation. */
+  direction?: GoalDirectionType;
   rankedOptions: LicensedRankedOption[];
   permittedOptions: LicensedRankedOption[];
   recommendation?: {
@@ -63,11 +65,16 @@ export function licenseObjectiveComparison(
   const ranking: EnrichmentObjectiveRanking = parsed.data;
   if (
     ranking.status !== 'computed' || ranking.attested !== true ||
-    ranking.direction !== expectedDirection || !candidates
+    ranking.direction !== expectedDirection || !candidates || !options
   ) return withheld;
 
+  const requestedIds = new Set(options.map((o) => o.id));
   const byId = new Map(candidates.map((o) => [o.option_id, o]));
-  if (byId.size !== candidates.length || ranking.ranked_options.length !== byId.size) return withheld;
+  if (
+    requestedIds.size !== options.length || byId.size !== candidates.length ||
+    ranking.ranked_options.length !== byId.size || requestedIds.size !== byId.size ||
+    [...requestedIds].some((id) => !byId.has(id))
+  ) return withheld;
   const labels = new Map(options?.map((o) => [o.id, o.label]));
   const rankedOptions: LicensedRankedOption[] = [];
   const permittedOptions: LicensedRankedOption[] = [];
@@ -91,6 +98,7 @@ export function licenseObjectiveComparison(
     (permittedOptions[1] === undefined || permittedOptions[1].rank !== first.rank);
   return {
     attested: true,
+    direction: ranking.direction,
     rankedOptions,
     permittedOptions,
     ...(uniqueBest ? {

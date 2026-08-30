@@ -18,15 +18,26 @@ let ranking: any = COMPUTED;
 let capturedRequest: any;
 let includeShares = true;
 let allCompliant = false;
+let aliasResponseIds = false;
 const service = {
   isEnabled: () => true,
   isAvailable: async () => true,
   async callAnalysisEndpoint(_endpoint: string, body: any) {
     capturedRequest = structuredClone(body);
+    if (body.goal_direction === 'target' &&
+        (body.goal_threshold === undefined || body.goal_threshold_frame === undefined)) {
+      // ISL request validation: missing target configuration is a typed 422,
+      // whereas a valid configuration with unresolved sample context withholds.
+      return { data: null, error: {
+        status: 422, code: 'VALIDATION_ERROR', message: 'Target requires a threshold and frame',
+        critiques: [{ code: 'VALIDATION_ERROR', severity: 'error',
+          message: 'Target requires a threshold and frame', source: 'validation' }],
+      } };
+    }
     return { error: null, data: {
       ...(ranking !== undefined ? { objective_ranking: ranking } : {}),
       options: body.options.map((option: any) => ({
-        option_id: option.id, status: 'computed',
+        option_id: aliasResponseIds ? `alien_${option.id}` : option.id, status: 'computed',
         ...(includeShares ? { win_probability: option.id === 'expensive' ? 0.8 : 0.2 } : {}),
         // Deliberately opposite marginal means: they cannot decide objective rank.
         outcome: { mean: option.id === 'expensive' ? 0.2 : 0.8, std: 0.1,
@@ -82,7 +93,7 @@ describe('objective authority on the complete /v2/run boundary', () => {
     delete process.env.CEE_ORCHESTRATOR_ENABLED;
     delete process.env.BRIEF_DECISION_RECORD_SUMMARY_ENABLE;
   });
-  beforeEach(() => { ranking = structuredClone(COMPUTED); includeShares = true; allCompliant = false; capturedRequest = undefined; });
+  beforeEach(() => { ranking = structuredClone(COMPUTED); includeShares = true; allCompliant = false; aliasResponseIds = false; capturedRequest = undefined; });
   async function run(input: any) {
     const result = await app.inject({ method: 'POST', url: '/v2/run', payload: input });
     expect(result.statusCode, result.body).toBe(200);
@@ -96,7 +107,7 @@ describe('objective authority on the complete /v2/run boundary', () => {
     expect(result.robustness.recommended_option_id).toBe('affordable');
     expect(result.robustness.recommended_option_compliance).toBe('compliant');
     expect(result.option_comparison.find((o: any) => o.option_id === 'expensive').constraint_probabilities.budget).toBe(0);
-    expect(result.decision_brief.analysis_summary).toMatchObject({ leading_option: 'Affordable', win_probability: 0.2 });
+    expect(result.decision_brief.analysis_summary).toMatchObject({ leading_option: 'Affordable', win_probability: 0.2, goal_fit: 1 });
     expect(result.decision_brief.headline_banded).toBeUndefined(); // only one eligible; no invented comparison gap
     expect(result.decision_brief.headline).toBe('Analysis complete');
     expect(result.decision_brief.options.map((o: any) => [o.option_id, o.rank, o.win_probability])).toEqual([
@@ -154,16 +165,25 @@ describe('objective authority on the complete /v2/run boundary', () => {
     expect(capturedRequest.goal_constraints.some((c: any) => c.constraint_id === 'budget')).toBe(true);
   });
 
-  it('leaves an invalid target frame absent and preserves the producer refusal', async () => {
-    ranking = { direction: 'target', attested: true, status: 'withheld',
-      withheld_reason: 'target_not_resolvable_in_sample_frame', ranked_options: [] };
+  it('preserves the typed rejection for malformed target-frame configuration', async () => {
     const input = payload('target');
     Object.assign(input.graph.nodes[0], { goal_threshold: 0.6, goal_threshold_frame: 'guess' });
-    const result = await run(input);
+    const response = await app.inject({ method: 'POST', url: '/v2/run', payload: input });
     expect(capturedRequest.goal_threshold).toBe(0.6);
     expect(capturedRequest).not.toHaveProperty('goal_threshold_frame');
-    expect(result.objective_ranking).toEqual(ranking);
-    expect(result.robustness).not.toHaveProperty('recommended_option_id');
+    expect(response.statusCode).toBe(422);
+    expect(response.json().critiques.some((c: any) => c.code === 'VALIDATION_ERROR')).toBe(true);
+    expect(response.json().robustness?.recommended_option_id).toBeUndefined();
+  });
+
+  it('omits ambiguous brief goal_fit for target without deleting raw threshold attainment', async () => {
+    ranking = { ...COMPUTED, direction: 'target' };
+    const input = payload('target');
+    Object.assign(input.graph.nodes[0], { goal_threshold: 0.6, goal_threshold_frame: 'delta' });
+    const result = await run(input);
+    expect(result.decision_brief.analysis_summary).toMatchObject({ leading_option: 'Affordable', win_probability: 0.2 });
+    expect(result.decision_brief.analysis_summary).not.toHaveProperty('goal_fit');
+    expect(result.option_comparison.find((o: any) => o.option_id === 'affordable').probability_of_joint_goal).toBe(1);
   });
 
   it('changes response identity when the canonical objective changes and rejects a mismatched producer objective', async () => {
@@ -175,6 +195,17 @@ describe('objective authority on the complete /v2/run boundary', () => {
     ranking = { ...COMPUTED, direction: 'minimise' };
     const matching = await run(payload('minimise'));
     expect(matching.robustness.recommended_option_id).toBe('affordable');
+  });
+
+  it('refuses a response that consistently renames ranked and comparison IDs outside the admitted set', async () => {
+    aliasResponseIds = true;
+    ranking.ranked_options = ranking.ranked_options.map((o: any) => ({ ...o, option_id: `alien_${o.option_id}` }));
+    const result = await run(payload());
+    expect(result.objective_ranking).toEqual(ranking); // producer evidence retained
+    expect(result.robustness).not.toHaveProperty('recommended_option_id');
+    expect(result.robustness).not.toHaveProperty('near_tie');
+    expect(result.decision_brief.options).toEqual([]);
+    expect(result.decision_brief).not.toHaveProperty('analysis_summary');
   });
 
   it('preserves explicit maximise parity when both candidates satisfy their limits', async () => {
@@ -191,11 +222,12 @@ describe('objective projection refusal and ties', () => {
     { option_id: 'a', option_label: 'A', status: 'computed', win_probability: 0.5 },
     { option_id: 'b', option_label: 'B', status: 'computed', win_probability: 0.5 },
   ];
+  const admitted = [{ id: 'a' }, { id: 'b' }];
   const tied = { direction: 'maximise', attested: true, status: 'computed', ranked_options: [
     { option_id: 'a', rank: 1, win_probability: 0.5 }, { option_id: 'b', rank: 1, win_probability: 0.5 },
   ] };
   it('keeps equal ranks without choosing alphabetically or attaching a comparative headline', () => {
-    const licensed = licenseObjectiveComparison(tied, candidates, undefined, 'maximise');
+    const licensed = licenseObjectiveComparison(tied, candidates, admitted, 'maximise');
     expect(licensed.attested).toBe(true);
     expect(licensed.recommendation).toBeUndefined();
     const brief = assembleBrief({ analysis_status: 'computed', critiques: [], option_comparison: candidates as any,
@@ -205,11 +237,18 @@ describe('objective projection refusal and ties', () => {
   });
   it('rejects a mismatched identity/share join even when the order looks plausible', () => {
     const changed = [{ ...candidates[0], win_probability: 0.6 }, candidates[1]];
-    expect(licenseObjectiveComparison(tied, changed, undefined, 'maximise').attested).toBe(false);
+    expect(licenseObjectiveComparison(tied, changed, admitted, 'maximise').attested).toBe(false);
   });
+  it('refuses extra raw options, missing admitted identity, and duplicate admitted IDs', () => {
+    const extra = [...candidates, { option_id: 'extra', win_probability: 0 }];
+    expect(licenseObjectiveComparison(tied, extra, admitted, 'maximise').attested).toBe(false);
+    expect(licenseObjectiveComparison(tied, candidates, undefined, 'maximise').attested).toBe(false);
+    expect(licenseObjectiveComparison(tied, candidates, [{ id: 'a' }, { id: 'a' }], 'maximise').attested).toBe(false);
+  });
+
   it('does not mistake all-zero missing information for a tied ranking', () => {
     const zeros = candidates.map((o) => ({ ...o, win_probability: 0 }));
     const invalid = { ...tied, ranked_options: tied.ranked_options.map((o) => ({ ...o, win_probability: 0 })) };
-    expect(licenseObjectiveComparison(invalid, zeros, undefined, 'maximise').attested).toBe(false);
+    expect(licenseObjectiveComparison(invalid, zeros, admitted, 'maximise').attested).toBe(false);
   });
 });

@@ -20,5 +20,5 @@ export function mockObjectiveRanking(options: readonly { option_id: string; win_
 }
 
 export function mockLicensedComparison(options: readonly any[]) {
-  return licenseObjectiveComparison(mockObjectiveRanking(options), options, undefined, 'maximise');
+  return licenseObjectiveComparison(mockObjectiveRanking(options), options, options.map((o) => ({ id: o.option_id })), 'maximise');
 }
