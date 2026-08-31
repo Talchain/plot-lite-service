@@ -663,11 +663,61 @@ function buildBandedHeadline(
 }
 
 /**
+ * ⭐ THE MODEL-OWNED PROVENANCE LITERALS — every `value_source` string that
+ * means "the model put this number here", and NOTHING else.
+ *
+ * PROVENANCE OF THIS SET. `value_source` is ISL's verbatim echo of the
+ * `observed_state.source` CEE stamped (see types/engine-v3.ts:115-140). The
+ * classifier that OWNS the vocabulary lives in the consumer —
+ * `DecisionGuideAI src/canvas/domain/valueProvenance.ts`, `SOURCE_CLASSES`,
+ * the three literals it maps to kind `'ai'` (read at UI 4f3d85a0c695263f).
+ * `brief_extraction`/`explicit` are deliberately NOT here: they are extraction
+ * from the USER'S OWN BRIEF, and the copy this set gates says "it did not come
+ * from you or your brief".
+ *
+ * ⚠ IT IS A HAND-MAINTAINED MIRROR AND CANNOT BE ANYTHING ELSE — the owner is
+ * in another repo with no shared package for it (CLAUDE.md trap 12). So the
+ * DIRECTION of its failure is chosen rather than left to chance:
+ *
+ *   · UNKNOWN literal  → NOT model-owned → no disclosure.
+ *   · ABSENT field     → NOT model-owned → no disclosure.
+ *
+ * exactly as `classifyValueProvenance` returns `null` rather than guessing a
+ * class. A model-owned literal minted upstream and not added here therefore
+ * makes this surface UNDER-disclose (a gap, visible as an empty
+ * "What Olumi assumed"); it can never make it claim that a number the user
+ * supplied was Olumi's (a lie about the user's own input). The set is pinned,
+ * with a same-run contrast control over the non-model literals, in
+ * tests/decision-brief.value-not-stated-provenance.test.ts.
+ *
+ * ⚠ AND WHAT IT IS NOT. `value_source` is an UNVALIDATED FREE-TEXT STRING, not
+ * an attestation (engine-v3.ts:126-141). Membership here means THE LITERAL
+ * ARRIVED. That is sound for this surface, whose claim is deliberately weaker
+ * than the field's forgeability: it only ever ADDS a caveat, never suppresses
+ * a number and never weighs in the maths.
+ */
+const MODEL_OWNED_VALUE_SOURCES: ReadonlySet<string> = new Set([
+  'cee_inference',
+  'inferred',
+  'cee_repair',
+]);
+
+/** True only for a literal known to mean "the model supplied this value". */
+function isModelOwnedValueSource(value: unknown): boolean {
+  return typeof value === 'string' && MODEL_OWNED_VALUE_SOURCES.has(value);
+}
+
+/**
  * Defaulted-input disclosures:
  *   1. factor_sensitivity entries with value_defaulted === true —
  *      intervention-pinned levers EXCLUDED (a pinned lever must never appear
  *      in "check this input" framing; same A1b predicate as top_drivers).
  *      Sorted by factor_id bytewise for determinism.
+ *   1b. factor_sensitivity entries whose `value_source` is MODEL-OWNED
+ *      (see MODEL_OWNED_VALUE_SOURCES) and that arm 1 did not already emit —
+ *      same lever exclusion, same bytewise sort, emitted AFTER arm 1 so a
+ *      payload carrying no model-owned literal produces a byte-identical
+ *      array to its pre-change shape.
  *   2. inference warnings whose code contains 'DEFAULT'
  *      (e.g. ROOT_NODE_DEFAULT_VALUE) — run-level disclosures echoed
  *      verbatim (message is producer-owned wording), sorted by code.
@@ -676,7 +726,9 @@ function buildBandedHeadline(
 function buildDefaultedAssumptions(input: BriefAssemblyInput): BriefDefaultedAssumption[] {
   const out: BriefDefaultedAssumption[] = [];
 
-  const factors = filterInterventionOverrides(input.factor_sensitivity ?? [])
+  const eligible = filterInterventionOverrides(input.factor_sensitivity ?? []);
+
+  const factors = eligible
     .filter((f) => f.value_defaulted === true)
     .sort((a, b) => (a.factor_id < b.factor_id ? -1 : a.factor_id > b.factor_id ? 1 : 0));
   for (const f of factors) {
@@ -691,6 +743,30 @@ function buildDefaultedAssumptions(input: BriefAssemblyInput): BriefDefaultedAss
       // provisional_doctrine_v0
       note: `No starting value was provided for "${label}" — the analysis used a default. Setting a real value or range would make this result more trustworthy.`,
       source: 'value_defaulted',
+      doctrine: 'provisional_doctrine_v0',
+    });
+  }
+
+  // Arm 1b — the value the MODEL supplied. `value_defaulted` is ISL attesting
+  // that IT substituted a default; a value invented upstream of ISL arrives as
+  // an ordinary `observed_state.value` and is never marked, so arm 1 cannot see
+  // it. The provenance stamp can: CEE writes `observed_state.source`, ISL echoes
+  // it back as `value_source`, and PLoT already carries it verbatim.
+  //
+  // Arm 1 wins on a factor both arms match: ISL's own attestation is the
+  // stronger claim, and one factor must never produce two rows.
+  const alreadyDisclosed = new Set(factors.map((f) => f.factor_id));
+  const modelSourced = eligible
+    .filter((f) => !alreadyDisclosed.has(f.factor_id) && isModelOwnedValueSource(f.value_source))
+    .sort((a, b) => (a.factor_id < b.factor_id ? -1 : a.factor_id > b.factor_id ? 1 : 0));
+  for (const f of modelSourced) {
+    const label = f.factor_label?.trim() || f.factor_id;
+    out.push({
+      factor_id: f.factor_id,
+      factor_label: label,
+      // provisional_doctrine_v0 — factor-scoped, one action, no numbers.
+      note: `Olumi supplied the starting value for "${label}" — it did not come from you or your brief. Give it a figure or a range and this comparison will rest on your number instead.`,
+      source: 'value_not_stated',
       doctrine: 'provisional_doctrine_v0',
     });
   }
