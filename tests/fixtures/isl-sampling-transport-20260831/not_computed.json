@@ -1,0 +1,81 @@
+{
+  "producer_head": "abe1d526916a078cecc425ff3f2d869922167dac",
+  "request": {
+    "goal_node_id": "goal",
+    "graph": {
+      "edges": [
+        {
+          "exists_probability": 0.63,
+          "from": "input",
+          "strength": {
+            "mean": 1,
+            "std": 0.1
+          },
+          "to": "goal"
+        },
+        {
+          "exists_probability": 1,
+          "from": "goal",
+          "strength": {
+            "mean": 1,
+            "std": 0.1
+          },
+          "to": "input"
+        }
+      ],
+      "nodes": [
+        {
+          "id": "input",
+          "kind": "factor",
+          "label": "Input",
+          "observed_state": {
+            "value": 0.5
+          }
+        },
+        {
+          "id": "goal",
+          "kind": "outcome",
+          "label": "Goal"
+        }
+      ]
+    },
+    "n_samples": 100,
+    "options": [
+      {
+        "id": "a",
+        "interventions": {
+          "input": 0.3
+        },
+        "label": "A"
+      },
+      {
+        "id": "b",
+        "interventions": {
+          "input": 0.3
+        },
+        "label": "B"
+      }
+    ],
+    "request_id": "science-transport-current-source",
+    "seed": 42
+  },
+  "response": {
+    "analysis_status": "blocked",
+    "critiques": [
+      {
+        "affected_node_ids": null,
+        "affected_option_ids": null,
+        "code": "GRAPH_CYCLE_DETECTED",
+        "id": "critique_37271f8999d4",
+        "message": "Graph contains a cycle",
+        "severity": "blocker",
+        "source": "validation",
+        "suggestion": "Remove cyclic dependencies from the causal graph"
+      }
+    ],
+    "request_id": "science-transport-current-source",
+    "status_reason": "Graph contains a cycle"
+  },
+  "status": 422,
+  "uncommitted_source": false
+}

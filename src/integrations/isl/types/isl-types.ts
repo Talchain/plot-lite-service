@@ -1038,6 +1038,10 @@ export interface ISLDownside {
  * Full response schema when all analysis_types are requested.
  */
 export interface ISLRobustnessAnalyzeV2Response {
+  /** Exact maximum-outcome ties / requested MC draws, measured before auto-noise. Not a near-tie score. */
+  tie_rate?: number;
+  /** Realised edge inclusion frequencies, keyed by the producer's unchanged `from->to` IDs. */
+  edge_existence_rates?: Record<string, number>;
   /** Request ID echo */
   request_id?: string;
 
@@ -1299,9 +1303,10 @@ export interface ISLRobustnessAnalyzeV2Response {
 
 /**
  * Subset of ISL's `ResponseMetadataV2` that PLoT consumes today. Other
- * fields (clamp_metrics, config_fingerprint, tie_count, tie_rate,
+ * fields (clamp_metrics, config_fingerprint, tie_count,
  * seed_hash_version, n_defaulted_root_nodes, n_samples, duration_ms)
- * exist on the wire but are not currently propagated through PLoT.
+ * may exist on the internal/legacy wire but are not propagated here. Sampling
+ * rates on the enhanced public response use the top-level fields above.
  */
 export interface ISLResponseMetadataV2 {
   /**
