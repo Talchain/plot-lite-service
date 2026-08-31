@@ -8,6 +8,7 @@
  * and buildConstraintFields via an ISL-mock integration path.
  */
 
+import { mockObjectiveRanking } from './helpers/objective-fixtures.js';
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { ISL_TO_UI_CONTRACT } from '../src/contracts/isl-to-ui.contract.js';
@@ -116,6 +117,7 @@ const mockISLService = {
     const options = body.options || [];
     return {
       data: {
+        objective_ranking: mockObjectiveRanking(options.map((opt: any, idx: number) => ({ option_id: opt.id, win_probability: idx === 0 ? 0.7 : 0.3 }))),
         options: options.map((opt: any, idx: number) => ({
           option_id: opt.id,
           outcome: { mean: 0.7 + idx * 0.1, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 },
@@ -167,7 +169,7 @@ import { createServer } from '../src/createServer.js';
 
 const GRAPH = {
   nodes: [
-    { id: 'goal', kind: 'goal', goal_threshold_frame: 'delta', label: 'Revenue' },
+    { id: 'goal', kind: 'goal', goal_direction: 'maximise', goal_threshold_frame: 'delta', label: 'Revenue' },
     { id: 'factor-a', kind: 'factor', label: 'Marketing Spend', observed_state: { value: 0.6 } },
   ],
   edges: [
@@ -422,7 +424,8 @@ describe('ISL response contract — golden-path (T5a)', () => {
       const goalConstraints = body.goal_constraints || [];
       return {
         data: {
-          options: options.map((opt: any, idx: number) => ({
+          objective_ranking: mockObjectiveRanking(options.map((opt: any, idx: number) => ({ option_id: opt.id, win_probability: idx === 0 ? 0.7 : 0.3 }))),
+        options: options.map((opt: any, idx: number) => ({
             option_id: opt.id,
             outcome: { mean: 0.7 + idx * 0.05, std: 0.1, p10: 0.5, p50: 0.7, p90: 0.9 },
             win_probability: idx === 0 ? 0.7 : 0.3,
@@ -465,7 +468,8 @@ describe('ISL response contract — golden-path (T5a)', () => {
       const goalConstraints = body.goal_constraints || [];
       return {
         data: {
-          options: options.map((opt: any, idx: number) => ({
+          objective_ranking: mockObjectiveRanking(options.map((opt: any, idx: number) => ({ option_id: opt.id, win_probability: idx === 0 ? 0.65 : 0.35 }))),
+        options: options.map((opt: any, idx: number) => ({
             option_id: opt.id,
             outcome: { mean: 0.6 + idx * 0.05, std: 0.1, p10: 0.4, p50: 0.6, p90: 0.8 },
             win_probability: idx === 0 ? 0.65 : 0.35,
@@ -794,6 +798,7 @@ const mockISLThresholdOnly = {
     const goalConstraints = body.goal_constraints || [];
     return {
       data: {
+        objective_ranking: mockObjectiveRanking(options.map((opt: any, idx: number) => ({ option_id: opt.id, win_probability: idx === 0 ? 0.65 : 0.35 }))),
         options: options.map((opt: any, idx: number) => ({
           option_id: opt.id,
           outcome: { mean: 0.6 + idx * 0.05, std: 0.1, p10: 0.4, p50: 0.6, p90: 0.8, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 },

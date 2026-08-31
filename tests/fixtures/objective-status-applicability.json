@@ -1,0 +1,733 @@
+{
+  "source": {
+    "isl_head": "75d4197caf99fd31fe81188c64cb346c29547717",
+    "evidence": "Actual local HTTP ISL response captured by the PLoT route harness before status correction."
+  },
+  "cases": [
+    {
+      "name": "minimise",
+      "input": {
+        "graph": {
+          "nodes": [
+            {
+              "id": "driver",
+              "kind": "factor",
+              "label": "Investment",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5,
+                "std": 0.1
+              },
+              "state_space": {
+                "type": "continuous",
+                "range": {
+                  "min": 0,
+                  "max": 1
+                }
+              }
+            },
+            {
+              "id": "goal",
+              "kind": "goal",
+              "label": "Outcome",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5
+              },
+              "goal_direction": "minimise"
+            }
+          ],
+          "edges": [
+            {
+              "from": "driver",
+              "to": "goal",
+              "exists_probability": 1,
+              "strength": {
+                "mean": 1,
+                "std": 0.01
+              }
+            }
+          ]
+        },
+        "options": [
+          {
+            "id": "low",
+            "label": "Low",
+            "interventions": {
+              "driver": 0.1
+            }
+          },
+          {
+            "id": "middle",
+            "label": "Middle",
+            "interventions": {
+              "driver": 0.5
+            }
+          },
+          {
+            "id": "high",
+            "label": "High",
+            "interventions": {
+              "driver": 0.9
+            }
+          }
+        ],
+        "goal_node_id": "goal",
+        "seed": "42",
+        "n_samples": 400,
+        "detail_level": "quick"
+      },
+      "request": {
+        "request_id": "572f5514-0668-4502-bfc6-fd5223e34084",
+        "graph": {
+          "nodes": [
+            {
+              "id": "driver",
+              "kind": "factor",
+              "label": "Investment",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5,
+                "std": 0.1
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            },
+            {
+              "id": "goal",
+              "kind": "goal",
+              "label": "Outcome",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            }
+          ],
+          "edges": [
+            {
+              "from": "driver",
+              "to": "goal",
+              "exists_probability": 1,
+              "strength": {
+                "mean": 1,
+                "std": 0.05
+              }
+            }
+          ]
+        },
+        "options": [
+          {
+            "id": "low",
+            "label": "Low",
+            "interventions": {
+              "driver": 0.1
+            }
+          },
+          {
+            "id": "middle",
+            "label": "Middle",
+            "interventions": {
+              "driver": 0.5
+            }
+          },
+          {
+            "id": "high",
+            "label": "High",
+            "interventions": {
+              "driver": 0.9
+            }
+          }
+        ],
+        "goal_node_id": "goal",
+        "n_samples": 400,
+        "analysis_types": [
+          "comparison",
+          "sensitivity",
+          "robustness"
+        ],
+        "parameter_uncertainties": [
+          {
+            "node_id": "driver",
+            "distribution": "normal",
+            "std": 0.1
+          }
+        ],
+        "include_e_values": true,
+        "include_voi": true,
+        "include_factor_flips": true,
+        "goal_direction": "minimise",
+        "seed": "42"
+      },
+      "response": {
+        "version": "2.0",
+        "endpoint_version": "analyze/v2",
+        "engine_version": "1.0.0",
+        "build": "dev",
+        "timestamp": "2026-08-30T13:46:27.197520Z",
+        "analysis_status": "computed",
+        "robustness_status": "unavailable",
+        "factor_sensitivity_status": "computed",
+        "critiques": [],
+        "request_echo": {
+          "graph_node_count": 2,
+          "graph_edge_count": 1,
+          "options_count": 3,
+          "goal_node_id_hash": "0304523efff5",
+          "n_samples": 400,
+          "response_version_requested": 2,
+          "include_diagnostics": false
+        },
+        "objective_ranking": {
+          "direction": "minimise",
+          "attested": true,
+          "status": "computed",
+          "ranked_options": [
+            {
+              "option_id": "low",
+              "rank": 1,
+              "win_probability": 1
+            },
+            {
+              "option_id": "high",
+              "rank": 2,
+              "win_probability": 0
+            },
+            {
+              "option_id": "middle",
+              "rank": 2,
+              "win_probability": 0
+            }
+          ]
+        },
+        "options": [
+          {
+            "id": "low",
+            "label": "Low",
+            "outcome": {
+              "mean": 0.09603500659141748,
+              "std": 0.003093024349610753,
+              "p10": 0.09172974236084112,
+              "p50": 0.09670504780573096,
+              "p90": 0.09933940228050805,
+              "n_samples": 400,
+              "n_valid_samples": 400,
+              "validity_ratio": 1,
+              "percentiles_source": "samples"
+            },
+            "win_probability": 1,
+            "status": "computed"
+          },
+          {
+            "id": "middle",
+            "label": "Middle",
+            "outcome": {
+              "mean": 0.48017503295708736,
+              "std": 0.015465121748053763,
+              "p10": 0.4586487118042056,
+              "p50": 0.48352523902865474,
+              "p90": 0.49669701140254024,
+              "n_samples": 400,
+              "n_valid_samples": 400,
+              "validity_ratio": 1,
+              "percentiles_source": "samples"
+            },
+            "win_probability": 0,
+            "status": "computed"
+          },
+          {
+            "id": "high",
+            "label": "High",
+            "outcome": {
+              "mean": 0.8643150593227571,
+              "std": 0.027837219146496773,
+              "p10": 0.8255676812475701,
+              "p50": 0.8703454302515785,
+              "p90": 0.8940546205245725,
+              "n_samples": 400,
+              "n_valid_samples": 400,
+              "validity_ratio": 1,
+              "percentiles_source": "samples"
+            },
+            "win_probability": 0,
+            "status": "computed"
+          }
+        ],
+        "factor_sensitivity": [
+          {
+            "node_id": "driver",
+            "label": "Investment",
+            "sensitivity_score": 0,
+            "importance_score": 1,
+            "elasticity": 0,
+            "elasticity_display": 0,
+            "direction": "negative",
+            "confidence": 0.1,
+            "confidence_source": "bootstrap_sampling",
+            "confidence_provenance": {
+              "method_version": "stability-cv-blend-v1",
+              "calibrated": false
+            },
+            "importance_rank": 1,
+            "observed_value": 0.5,
+            "interpretation": "Decision is robust to Investment value variation",
+            "zero_reason": "intervention_override",
+            "baseline_near_zero": false,
+            "influence_score": 1,
+            "influence_rank": 1,
+            "elasticity_std": 0,
+            "attribution_stability": "negligible",
+            "rank_flip_rate": 0,
+            "stability_method": "bootstrap_20"
+          }
+        ],
+        "inference_warnings": [
+          {
+            "code": "GOAL_OBSERVED_VALUE_UNUSED",
+            "field": "nodes[goal].observed_state.value",
+            "detail": {
+              "node_id": "goal",
+              "observed_value": 0.5,
+              "reason": "non_root_goal_forward_propagation",
+              "message": "Goal node 'goal' is non-root; its distribution is the forward-propagated composition of its parents (doctrine B). The supplied observed_state.value=0.5 is not used as a base for the goal's samples. Use the node's intercept for a fixed exogenous offset."
+            },
+            "severity": "info"
+          },
+          {
+            "code": "OBJECTIVE_METRICS_UNAVAILABLE",
+            "field": "objective_ranking",
+            "detail": {
+              "reason": "objective_not_supported_or_no_unique_leader",
+              "suppressed_fields": [
+                "conditional_winners",
+                "decision_evpi",
+                "downside",
+                "edge_e_values",
+                "factor_evppi",
+                "factor_flip_values",
+                "robustness"
+              ],
+              "message": "Some additional comparison measures are unavailable for this objective or because there is no single leading option. No substitute recommendation was used."
+            },
+            "severity": "warning"
+          }
+        ],
+        "stability_thresholds": {
+          "high_moderate_boundary": 0.1,
+          "moderate_low_boundary": 0.3,
+          "version": "v1.0-operational-defaults",
+          "provisional": true
+        },
+        "p_win_sensitivity": [
+          {
+            "factor_id": "driver",
+            "p_win_delta": 0,
+            "p_win_delta_percentage_points": 0,
+            "current_metric": 1,
+            "perfect_metric": 1,
+            "metric_type": "p_win_recommended",
+            "method": "p_win_delta_at_mean_v1",
+            "n_samples": 400,
+            "status": "below_resolution",
+            "clamped": false,
+            "noise_floor": 0.069296,
+            "noise_floor_method": "z95_worst_case_bernoulli_diff",
+            "labelling_doctrine": "provisional_doctrine_v0"
+          }
+        ],
+        "sensitivity_reference_option_id": "low",
+        "auto_noise_applied": false,
+        "sample_population_provenance": {
+          "auto_scaled_noise_applied": false,
+          "calibration_status": "uncalibrated_poc_heuristic",
+          "metric_populations": {
+            "expected_regret": "model_only",
+            "win_probability": "model_only",
+            "factor_evppi": "model_only",
+            "factor_evpc": "model_only",
+            "decision_evpi": "model_only",
+            "p05": "model_only",
+            "p10": "model_only",
+            "p50": "model_only",
+            "p90": "model_only",
+            "mean": "model_only",
+            "cvar_10": "model_only",
+            "probability_of_goal": "model_only"
+          },
+          "unnoised_constraint_node_ids": []
+        },
+        "request_id": "572f5514-0668-4502-bfc6-fd5223e34084",
+        "processing_time_ms": 2159,
+        "seed_used": "42",
+        "seed_source": "client_provided"
+      }
+    },
+    {
+      "name": "target_delta",
+      "input": {
+        "graph": {
+          "nodes": [
+            {
+              "id": "driver",
+              "kind": "factor",
+              "label": "Investment",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5,
+                "std": 0.1
+              },
+              "state_space": {
+                "type": "continuous",
+                "range": {
+                  "min": 0,
+                  "max": 1
+                }
+              }
+            },
+            {
+              "id": "goal",
+              "kind": "goal",
+              "label": "Outcome",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5
+              },
+              "goal_direction": "target",
+              "goal_threshold": 0.5,
+              "goal_threshold_frame": "delta"
+            }
+          ],
+          "edges": [
+            {
+              "from": "driver",
+              "to": "goal",
+              "exists_probability": 1,
+              "strength": {
+                "mean": 1,
+                "std": 0.01
+              }
+            }
+          ]
+        },
+        "options": [
+          {
+            "id": "low",
+            "label": "Low",
+            "interventions": {
+              "driver": 0.1
+            }
+          },
+          {
+            "id": "middle",
+            "label": "Middle",
+            "interventions": {
+              "driver": 0.5
+            }
+          },
+          {
+            "id": "high",
+            "label": "High",
+            "interventions": {
+              "driver": 0.9
+            }
+          }
+        ],
+        "goal_node_id": "goal",
+        "seed": "42",
+        "n_samples": 400,
+        "detail_level": "quick"
+      },
+      "request": {
+        "request_id": "784ca3ee-8bfe-493d-9d92-1044733bba35",
+        "graph": {
+          "nodes": [
+            {
+              "id": "driver",
+              "kind": "factor",
+              "label": "Investment",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5,
+                "std": 0.1
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            },
+            {
+              "id": "goal",
+              "kind": "goal",
+              "label": "Outcome",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            }
+          ],
+          "edges": [
+            {
+              "from": "driver",
+              "to": "goal",
+              "exists_probability": 1,
+              "strength": {
+                "mean": 1,
+                "std": 0.05
+              }
+            }
+          ]
+        },
+        "options": [
+          {
+            "id": "low",
+            "label": "Low",
+            "interventions": {
+              "driver": 0.1
+            }
+          },
+          {
+            "id": "middle",
+            "label": "Middle",
+            "interventions": {
+              "driver": 0.5
+            }
+          },
+          {
+            "id": "high",
+            "label": "High",
+            "interventions": {
+              "driver": 0.9
+            }
+          }
+        ],
+        "goal_node_id": "goal",
+        "n_samples": 400,
+        "analysis_types": [
+          "comparison",
+          "sensitivity",
+          "robustness"
+        ],
+        "parameter_uncertainties": [
+          {
+            "node_id": "driver",
+            "distribution": "normal",
+            "std": 0.1
+          }
+        ],
+        "include_e_values": true,
+        "include_voi": true,
+        "include_factor_flips": true,
+        "goal_direction": "target",
+        "goal_threshold": 0.5,
+        "goal_threshold_frame": "delta",
+        "seed": "42"
+      },
+      "response": {
+        "version": "2.0",
+        "endpoint_version": "analyze/v2",
+        "engine_version": "1.0.0",
+        "build": "dev",
+        "timestamp": "2026-08-30T13:46:32.204298Z",
+        "analysis_status": "computed",
+        "robustness_status": "unavailable",
+        "factor_sensitivity_status": "computed",
+        "critiques": [],
+        "request_echo": {
+          "graph_node_count": 2,
+          "graph_edge_count": 1,
+          "options_count": 3,
+          "goal_node_id_hash": "0304523efff5",
+          "n_samples": 400,
+          "response_version_requested": 2,
+          "include_diagnostics": false
+        },
+        "objective_ranking": {
+          "direction": "target",
+          "attested": true,
+          "status": "computed",
+          "ranked_options": [
+            {
+              "option_id": "middle",
+              "rank": 1,
+              "win_probability": 1
+            },
+            {
+              "option_id": "high",
+              "rank": 2,
+              "win_probability": 0
+            },
+            {
+              "option_id": "low",
+              "rank": 2,
+              "win_probability": 0
+            }
+          ]
+        },
+        "options": [
+          {
+            "id": "low",
+            "label": "Low",
+            "outcome": {
+              "mean": 0.09603500659141748,
+              "std": 0.003093024349610753,
+              "p10": 0.09172974236084112,
+              "p50": 0.09670504780573096,
+              "p90": 0.09933940228050805,
+              "n_samples": 400,
+              "n_valid_samples": 400,
+              "validity_ratio": 1,
+              "percentiles_source": "samples"
+            },
+            "win_probability": 0,
+            "probability_of_goal": 0,
+            "status": "computed"
+          },
+          {
+            "id": "middle",
+            "label": "Middle",
+            "outcome": {
+              "mean": 0.48017503295708736,
+              "std": 0.015465121748053763,
+              "p10": 0.4586487118042056,
+              "p50": 0.48352523902865474,
+              "p90": 0.49669701140254024,
+              "n_samples": 400,
+              "n_valid_samples": 400,
+              "validity_ratio": 1,
+              "percentiles_source": "samples"
+            },
+            "win_probability": 1,
+            "probability_of_goal": 0,
+            "status": "computed"
+          },
+          {
+            "id": "high",
+            "label": "High",
+            "outcome": {
+              "mean": 0.8643150593227571,
+              "std": 0.027837219146496773,
+              "p10": 0.8255676812475701,
+              "p50": 0.8703454302515785,
+              "p90": 0.8940546205245725,
+              "n_samples": 400,
+              "n_valid_samples": 400,
+              "validity_ratio": 1,
+              "percentiles_source": "samples"
+            },
+            "win_probability": 0,
+            "probability_of_goal": 1,
+            "status": "computed"
+          }
+        ],
+        "factor_sensitivity": [
+          {
+            "node_id": "driver",
+            "label": "Investment",
+            "sensitivity_score": 0,
+            "importance_score": 1,
+            "elasticity": 0,
+            "elasticity_display": 0,
+            "direction": "negative",
+            "confidence": 0.1,
+            "confidence_source": "bootstrap_sampling",
+            "confidence_provenance": {
+              "method_version": "stability-cv-blend-v1",
+              "calibrated": false
+            },
+            "importance_rank": 1,
+            "observed_value": 0.5,
+            "interpretation": "Decision is robust to Investment value variation",
+            "zero_reason": "intervention_override",
+            "baseline_near_zero": false,
+            "influence_score": 1,
+            "influence_rank": 1,
+            "elasticity_std": 0,
+            "attribution_stability": "negligible",
+            "rank_flip_rate": 0,
+            "stability_method": "bootstrap_20"
+          }
+        ],
+        "inference_warnings": [
+          {
+            "code": "GOAL_OBSERVED_VALUE_UNUSED",
+            "field": "nodes[goal].observed_state.value",
+            "detail": {
+              "node_id": "goal",
+              "observed_value": 0.5,
+              "reason": "non_root_goal_forward_propagation",
+              "message": "Goal node 'goal' is non-root; its distribution is the forward-propagated composition of its parents (doctrine B). The supplied observed_state.value=0.5 is not used as a base for the goal's samples. Use the node's intercept for a fixed exogenous offset."
+            },
+            "severity": "info"
+          },
+          {
+            "code": "OBJECTIVE_METRICS_UNAVAILABLE",
+            "field": "objective_ranking",
+            "detail": {
+              "reason": "objective_not_supported_or_no_unique_leader",
+              "suppressed_fields": [
+                "conditional_winners",
+                "decision_evpi",
+                "downside",
+                "edge_e_values",
+                "factor_evppi",
+                "factor_flip_values",
+                "robustness"
+              ],
+              "message": "Some additional comparison measures are unavailable for this objective or because there is no single leading option. No substitute recommendation was used."
+            },
+            "severity": "warning"
+          }
+        ],
+        "stability_thresholds": {
+          "high_moderate_boundary": 0.1,
+          "moderate_low_boundary": 0.3,
+          "version": "v1.0-operational-defaults",
+          "provisional": true
+        },
+        "p_win_sensitivity": [
+          {
+            "factor_id": "driver",
+            "p_win_delta": 0,
+            "p_win_delta_percentage_points": 0,
+            "current_metric": 1,
+            "perfect_metric": 1,
+            "metric_type": "p_win_recommended",
+            "method": "p_win_delta_at_mean_v1",
+            "n_samples": 400,
+            "status": "below_resolution",
+            "clamped": false,
+            "noise_floor": 0.069296,
+            "noise_floor_method": "z95_worst_case_bernoulli_diff",
+            "labelling_doctrine": "provisional_doctrine_v0"
+          }
+        ],
+        "sensitivity_reference_option_id": "low",
+        "auto_noise_applied": false,
+        "sample_population_provenance": {
+          "auto_scaled_noise_applied": false,
+          "calibration_status": "uncalibrated_poc_heuristic",
+          "metric_populations": {
+            "expected_regret": "model_only",
+            "win_probability": "model_only",
+            "factor_evppi": "model_only",
+            "factor_evpc": "model_only",
+            "decision_evpi": "model_only",
+            "p05": "model_only",
+            "p10": "model_only",
+            "p50": "model_only",
+            "p90": "model_only",
+            "mean": "model_only",
+            "cvar_10": "model_only",
+            "probability_of_goal": "model_only"
+          },
+          "unnoised_constraint_node_ids": []
+        },
+        "request_id": "784ca3ee-8bfe-493d-9d92-1044733bba35",
+        "processing_time_ms": 2750,
+        "seed_used": "42",
+        "seed_source": "client_provided"
+      }
+    }
+  ]
+}

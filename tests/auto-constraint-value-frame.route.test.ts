@@ -122,7 +122,7 @@ function graphWithGoal(goalOverrides: Record<string, unknown> = {}) {
     nodes: [
       {
         id: 'goal_arr',
-        kind: 'goal',
+        kind: 'goal', goal_direction: 'maximise',
         label: 'Reach 6M ARR',
         observed_state: { value: 0.4, baseline: 0.35, unit: '£' },
         ...goalOverrides,
@@ -316,7 +316,7 @@ describe('ROADMAP 2.1023 — the auto-synthesised constraint carries value_frame
     const { res, isl } = await run({
       graph: {
         nodes: [
-          { id: 'goal_arr', kind: 'goal', label: 'ARR', goal_threshold_cap: 50000, goal_threshold_frame: 'delta' },
+          { id: 'goal_arr', kind: 'goal', goal_direction: 'maximise', label: 'ARR', goal_threshold_cap: 50000, goal_threshold_frame: 'delta' },
           {
             id: 'lever', kind: 'factor', label: 'MRR',
             observed_state: { value: 15000 },

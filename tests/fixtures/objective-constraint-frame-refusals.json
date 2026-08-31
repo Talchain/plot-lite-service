@@ -1,0 +1,1221 @@
+{
+  "source": {
+    "head": "75d4197caf99fd31fe81188c64cb346c29547717",
+    "path": "/private/tmp/science-objective-authority-20260830",
+    "analyzer_sha256": "32669e50b5a404b5f821c2348a1a89d6c7aba4e278aafdccc446e7aa67a433d4",
+    "transport": "FastAPI TestClient with lifespan and actual process-pool worker, no mocks",
+    "based_on": "/private/tmp/plot-objective-constraint-case.json wire[0].request",
+    "process_pool_active": true,
+    "full_capture_sha256": "f78e6b0f7ec8373d40b34eee28f866a0884b738fd7df58618fbc2593712f3f6a",
+    "response_projection": "Only receipt, status, option constraint blocks, critiques and inference warnings retained from the actual response."
+  },
+  "cases": [
+    {
+      "name": "positive",
+      "request": {
+        "request_id": "science-frame-positive",
+        "graph": {
+          "nodes": [
+            {
+              "id": "driver",
+              "kind": "factor",
+              "label": "Investment",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5,
+                "std": 0.1
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            },
+            {
+              "id": "goal",
+              "kind": "goal",
+              "label": "Outcome",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5,
+                "unit": "%",
+                "raw_value": 50,
+                "cap": 100
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            }
+          ],
+          "edges": [
+            {
+              "from": "driver",
+              "to": "goal",
+              "exists_probability": 1,
+              "strength": {
+                "mean": 1,
+                "std": 0.05
+              }
+            }
+          ]
+        },
+        "options": [
+          {
+            "id": "low",
+            "label": "Low",
+            "interventions": {
+              "driver": 0.1
+            }
+          },
+          {
+            "id": "high",
+            "label": "High",
+            "interventions": {
+              "driver": 0.9
+            }
+          }
+        ],
+        "goal_node_id": "goal",
+        "n_samples": 400,
+        "analysis_types": [
+          "comparison",
+          "sensitivity",
+          "robustness"
+        ],
+        "parameter_uncertainties": [
+          {
+            "node_id": "driver",
+            "distribution": "normal",
+            "std": 0.1
+          }
+        ],
+        "include_e_values": true,
+        "include_voi": true,
+        "include_factor_flips": true,
+        "goal_direction": "maximise",
+        "goal_constraints": [
+          {
+            "constraint_id": "budget",
+            "node_id": "goal",
+            "operator": "<=",
+            "value": 0.2,
+            "label": "Outcome ceiling",
+            "value_frame": "level"
+          }
+        ],
+        "seed": "42"
+      },
+      "status_code": 200,
+      "response": {
+        "request_id": "science-frame-positive",
+        "analysis_status": "computed",
+        "options": [
+          {
+            "id": "low",
+            "status": "computed",
+            "constraint_analysis": {
+              "constraints": [
+                {
+                  "constraint_id": "budget",
+                  "node_id": "goal",
+                  "operator": "<=",
+                  "threshold": 0.2,
+                  "label": "Outcome ceiling",
+                  "prob_satisfied": 0.81,
+                  "failure_margin_median": 0.04175578193968049,
+                  "near_miss_fraction": 0.23684210526315788,
+                  "binding": false,
+                  "value": 0.2
+                }
+              ],
+              "joint_probability": 0.81
+            }
+          },
+          {
+            "id": "high",
+            "status": "computed",
+            "constraint_analysis": {
+              "constraints": [
+                {
+                  "constraint_id": "budget",
+                  "node_id": "goal",
+                  "operator": "<=",
+                  "threshold": 0.2,
+                  "label": "Outcome ceiling",
+                  "prob_satisfied": 0.0,
+                  "failure_margin_median": 0.6802231925043613,
+                  "near_miss_fraction": 0.0,
+                  "binding": false,
+                  "value": 0.2
+                }
+              ],
+              "joint_probability": 0.0
+            }
+          }
+        ],
+        "critiques": [
+          {
+            "id": "critique_dc5964378196",
+            "code": "CONSTRAINT_NODE_DEFAULT_BASE",
+            "severity": "warning",
+            "message": "Constraint node 'goal' is the objective node and has no ParameterUncertainty \u2014 defaulted to base=0.0 as expected for a non-root objective; its constraint probability is scored from the modelled outcome distribution, not a missing-data placeholder",
+            "source": "analysis",
+            "affected_node_ids": [
+              "goal"
+            ],
+            "suggestion": "This is expected for a non-root objective node without an explicit baseline. Supply a ParameterUncertainty entry only if you intend an additive exogenous base on top of parent propagation \u2014 the sampled base is ADDED to parent contributions, it does not replace them"
+          }
+        ],
+        "inference_warnings": [
+          {
+            "code": "CONSTRAINT_NODE_DEFAULT_BASE",
+            "field": "nodes[goal].base",
+            "detail": {
+              "node_id": "goal",
+              "defaulted_to": 0.0,
+              "reason": "no_parameter_uncertainty",
+              "base_semantics": "zero_base_offset_plus_parent_propagation",
+              "ancestor_data_gap": [],
+              "message": "Node 'goal' is the objective node and has no ParameterUncertainty \u2014 defaulted to base=0.0 as expected for a non-root objective; its constraint probability is scored from the modelled outcome distribution, not a missing-data placeholder"
+            },
+            "severity": "info"
+          },
+          {
+            "code": "GOAL_OBSERVED_VALUE_UNUSED",
+            "field": "nodes[goal].observed_state.value",
+            "detail": {
+              "node_id": "goal",
+              "observed_value": 0.5,
+              "reason": "non_root_goal_forward_propagation",
+              "message": "Goal node 'goal' is non-root; its distribution is the forward-propagated composition of its parents (doctrine B). The supplied observed_state.value=0.5 is not used as a base for the goal's samples. Use the node's intercept for a fixed exogenous offset."
+            },
+            "severity": "info"
+          }
+        ]
+      },
+      "expected_resolved_ids": [
+        "budget"
+      ]
+    },
+    {
+      "name": "missing_baseline",
+      "request": {
+        "request_id": "science-frame-missing_baseline",
+        "graph": {
+          "nodes": [
+            {
+              "id": "driver",
+              "kind": "factor",
+              "label": "Investment",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5,
+                "std": 0.1
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            },
+            {
+              "id": "goal",
+              "kind": "goal",
+              "label": "Outcome",
+              "observed_state": {
+                "value": 0.5,
+                "unit": "%",
+                "raw_value": 50,
+                "cap": 100
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            }
+          ],
+          "edges": [
+            {
+              "from": "driver",
+              "to": "goal",
+              "exists_probability": 1,
+              "strength": {
+                "mean": 1,
+                "std": 0.05
+              }
+            }
+          ]
+        },
+        "options": [
+          {
+            "id": "low",
+            "label": "Low",
+            "interventions": {
+              "driver": 0.1
+            }
+          },
+          {
+            "id": "high",
+            "label": "High",
+            "interventions": {
+              "driver": 0.9
+            }
+          }
+        ],
+        "goal_node_id": "goal",
+        "n_samples": 400,
+        "analysis_types": [
+          "comparison",
+          "sensitivity",
+          "robustness"
+        ],
+        "parameter_uncertainties": [
+          {
+            "node_id": "driver",
+            "distribution": "normal",
+            "std": 0.1
+          }
+        ],
+        "include_e_values": true,
+        "include_voi": true,
+        "include_factor_flips": true,
+        "goal_direction": "maximise",
+        "goal_constraints": [
+          {
+            "constraint_id": "budget",
+            "node_id": "goal",
+            "operator": "<=",
+            "value": 0.2,
+            "label": "Outcome ceiling",
+            "value_frame": "level"
+          }
+        ],
+        "seed": "42"
+      },
+      "status_code": 200,
+      "response": {
+        "request_id": "science-frame-missing_baseline",
+        "analysis_status": "computed",
+        "options": [
+          {
+            "id": "low",
+            "status": "computed"
+          },
+          {
+            "id": "high",
+            "status": "computed"
+          }
+        ],
+        "critiques": [
+          {
+            "id": "critique_dc5964378196",
+            "code": "CONSTRAINT_NODE_DEFAULT_BASE",
+            "severity": "warning",
+            "message": "Constraint node 'goal' is the objective node and has no ParameterUncertainty \u2014 defaulted to base=0.0 as expected for a non-root objective; its constraint probability is scored from the modelled outcome distribution, not a missing-data placeholder",
+            "source": "analysis",
+            "affected_node_ids": [
+              "goal"
+            ],
+            "suggestion": "This is expected for a non-root objective node without an explicit baseline. Supply a ParameterUncertainty entry only if you intend an additive exogenous base on top of parent propagation \u2014 the sampled base is ADDED to parent contributions, it does not replace them"
+          }
+        ],
+        "inference_warnings": [
+          {
+            "code": "CONSTRAINT_NODE_DEFAULT_BASE",
+            "field": "nodes[goal].base",
+            "detail": {
+              "node_id": "goal",
+              "defaulted_to": 0.0,
+              "reason": "no_parameter_uncertainty",
+              "base_semantics": "zero_base_offset_plus_parent_propagation",
+              "ancestor_data_gap": [],
+              "message": "Node 'goal' is the objective node and has no ParameterUncertainty \u2014 defaulted to base=0.0 as expected for a non-root objective; its constraint probability is scored from the modelled outcome distribution, not a missing-data placeholder"
+            },
+            "severity": "info"
+          },
+          {
+            "code": "CONSTRAINT_NOT_CONVERTIBLE",
+            "field": "nodes[goal].observed_state.baseline",
+            "detail": {
+              "constraint_id": "budget",
+              "node_id": "goal",
+              "operator": "<=",
+              "constraint_value": 0.2,
+              "value_frame": "level",
+              "reason": "missing_target_baseline",
+              "message": "A 'level' frame requires constraint target node 'goal' to carry observed_state.baseline to convert the level into the samples' frame, but it carries an observed_state with no baseline.",
+              "observed_state_present": true
+            },
+            "severity": "warning"
+          },
+          {
+            "code": "GOAL_OBSERVED_VALUE_UNUSED",
+            "field": "nodes[goal].observed_state.value",
+            "detail": {
+              "node_id": "goal",
+              "observed_value": 0.5,
+              "reason": "non_root_goal_forward_propagation",
+              "message": "Goal node 'goal' is non-root; its distribution is the forward-propagated composition of its parents (doctrine B). The supplied observed_state.value=0.5 is not used as a base for the goal's samples. Use the node's intercept for a fixed exogenous offset."
+            },
+            "severity": "info"
+          },
+          {
+            "code": "EVPI_UNAVAILABLE",
+            "field": "p_win_sensitivity",
+            "detail": {
+              "reason": "constraints_not_convertible",
+              "elapsed_ms": 37.4,
+              "message": "Win-probability sensitivity (p_win_sensitivity) was skipped: its metric is P(joint_goal) and at least one goal constraint could not be resolved into its target's sample frame. Base analysis is unaffected."
+            },
+            "severity": "warning"
+          }
+        ]
+      },
+      "expected_resolved_ids": []
+    },
+    {
+      "name": "baseline_outside_domain",
+      "request": {
+        "request_id": "science-frame-baseline_outside_domain",
+        "graph": {
+          "nodes": [
+            {
+              "id": "driver",
+              "kind": "factor",
+              "label": "Investment",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5,
+                "std": 0.1
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            },
+            {
+              "id": "goal",
+              "kind": "goal",
+              "label": "Outcome",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 2.0,
+                "unit": "%",
+                "raw_value": 50,
+                "cap": 100
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            }
+          ],
+          "edges": [
+            {
+              "from": "driver",
+              "to": "goal",
+              "exists_probability": 1,
+              "strength": {
+                "mean": 1,
+                "std": 0.05
+              }
+            }
+          ]
+        },
+        "options": [
+          {
+            "id": "low",
+            "label": "Low",
+            "interventions": {
+              "driver": 0.1
+            }
+          },
+          {
+            "id": "high",
+            "label": "High",
+            "interventions": {
+              "driver": 0.9
+            }
+          }
+        ],
+        "goal_node_id": "goal",
+        "n_samples": 400,
+        "analysis_types": [
+          "comparison",
+          "sensitivity",
+          "robustness"
+        ],
+        "parameter_uncertainties": [
+          {
+            "node_id": "driver",
+            "distribution": "normal",
+            "std": 0.1
+          }
+        ],
+        "include_e_values": true,
+        "include_voi": true,
+        "include_factor_flips": true,
+        "goal_direction": "maximise",
+        "goal_constraints": [
+          {
+            "constraint_id": "budget",
+            "node_id": "goal",
+            "operator": "<=",
+            "value": 0.2,
+            "label": "Outcome ceiling",
+            "value_frame": "level"
+          }
+        ],
+        "seed": "42"
+      },
+      "status_code": 200,
+      "response": {
+        "request_id": "science-frame-baseline_outside_domain",
+        "analysis_status": "computed",
+        "options": [
+          {
+            "id": "low",
+            "status": "computed"
+          },
+          {
+            "id": "high",
+            "status": "computed"
+          }
+        ],
+        "critiques": [
+          {
+            "id": "critique_dc5964378196",
+            "code": "CONSTRAINT_NODE_DEFAULT_BASE",
+            "severity": "warning",
+            "message": "Constraint node 'goal' is the objective node and has no ParameterUncertainty \u2014 defaulted to base=0.0 as expected for a non-root objective; its constraint probability is scored from the modelled outcome distribution, not a missing-data placeholder",
+            "source": "analysis",
+            "affected_node_ids": [
+              "goal"
+            ],
+            "suggestion": "This is expected for a non-root objective node without an explicit baseline. Supply a ParameterUncertainty entry only if you intend an additive exogenous base on top of parent propagation \u2014 the sampled base is ADDED to parent contributions, it does not replace them"
+          }
+        ],
+        "inference_warnings": [
+          {
+            "code": "CONSTRAINT_NODE_DEFAULT_BASE",
+            "field": "nodes[goal].base",
+            "detail": {
+              "node_id": "goal",
+              "defaulted_to": 0.0,
+              "reason": "no_parameter_uncertainty",
+              "base_semantics": "zero_base_offset_plus_parent_propagation",
+              "ancestor_data_gap": [],
+              "message": "Node 'goal' is the objective node and has no ParameterUncertainty \u2014 defaulted to base=0.0 as expected for a non-root objective; its constraint probability is scored from the modelled outcome distribution, not a missing-data placeholder"
+            },
+            "severity": "info"
+          },
+          {
+            "code": "CONSTRAINT_NOT_CONVERTIBLE",
+            "field": "nodes[goal].observed_state.baseline",
+            "detail": {
+              "constraint_id": "budget",
+              "node_id": "goal",
+              "operator": "<=",
+              "constraint_value": 0.2,
+              "value_frame": "level",
+              "reason": "constraint_values_outside_normalised_domain",
+              "message": "Conversion operands ['constraint_baseline'] exceed |1.5|, so they are not in the normalised [0, 1] domain the evaluator assumes for node values. This usually means raw user units were sent where normalised values were expected; converting them would produce a wrong number rather than no number.",
+              "out_of_domain": {
+                "constraint_baseline": 2.0
+              },
+              "domain_limit": 1.5
+            },
+            "severity": "warning"
+          },
+          {
+            "code": "GOAL_OBSERVED_VALUE_UNUSED",
+            "field": "nodes[goal].observed_state.value",
+            "detail": {
+              "node_id": "goal",
+              "observed_value": 0.5,
+              "reason": "non_root_goal_forward_propagation",
+              "message": "Goal node 'goal' is non-root; its distribution is the forward-propagated composition of its parents (doctrine B). The supplied observed_state.value=0.5 is not used as a base for the goal's samples. Use the node's intercept for a fixed exogenous offset."
+            },
+            "severity": "info"
+          },
+          {
+            "code": "EVPI_UNAVAILABLE",
+            "field": "p_win_sensitivity",
+            "detail": {
+              "reason": "constraints_not_convertible",
+              "elapsed_ms": 20.7,
+              "message": "Win-probability sensitivity (p_win_sensitivity) was skipped: its metric is P(joint_goal) and at least one goal constraint could not be resolved into its target's sample frame. Base analysis is unaffected."
+            },
+            "severity": "warning"
+          }
+        ]
+      },
+      "expected_resolved_ids": []
+    },
+    {
+      "name": "target_parameter_uncertainty",
+      "request": {
+        "request_id": "science-frame-target_parameter_uncertainty",
+        "graph": {
+          "nodes": [
+            {
+              "id": "driver",
+              "kind": "factor",
+              "label": "Investment",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5,
+                "std": 0.1
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            },
+            {
+              "id": "goal",
+              "kind": "goal",
+              "label": "Outcome",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5,
+                "unit": "%",
+                "raw_value": 50,
+                "cap": 100
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            }
+          ],
+          "edges": [
+            {
+              "from": "driver",
+              "to": "goal",
+              "exists_probability": 1,
+              "strength": {
+                "mean": 1,
+                "std": 0.05
+              }
+            }
+          ]
+        },
+        "options": [
+          {
+            "id": "low",
+            "label": "Low",
+            "interventions": {
+              "driver": 0.1
+            }
+          },
+          {
+            "id": "high",
+            "label": "High",
+            "interventions": {
+              "driver": 0.9
+            }
+          }
+        ],
+        "goal_node_id": "goal",
+        "n_samples": 400,
+        "analysis_types": [
+          "comparison",
+          "sensitivity",
+          "robustness"
+        ],
+        "parameter_uncertainties": [
+          {
+            "node_id": "driver",
+            "distribution": "normal",
+            "std": 0.1
+          },
+          {
+            "node_id": "goal",
+            "distribution": "normal",
+            "std": 0.1
+          }
+        ],
+        "include_e_values": true,
+        "include_voi": true,
+        "include_factor_flips": true,
+        "goal_direction": "maximise",
+        "goal_constraints": [
+          {
+            "constraint_id": "budget",
+            "node_id": "goal",
+            "operator": "<=",
+            "value": 0.2,
+            "label": "Outcome ceiling",
+            "value_frame": "level"
+          }
+        ],
+        "seed": "42"
+      },
+      "status_code": 200,
+      "response": {
+        "request_id": "science-frame-target_parameter_uncertainty",
+        "analysis_status": "computed",
+        "options": [
+          {
+            "id": "low",
+            "status": "computed"
+          },
+          {
+            "id": "high",
+            "status": "computed"
+          }
+        ],
+        "critiques": [],
+        "inference_warnings": [
+          {
+            "code": "CONSTRAINT_NOT_CONVERTIBLE",
+            "field": "parameter_uncertainties[goal]",
+            "detail": {
+              "constraint_id": "budget",
+              "node_id": "goal",
+              "operator": "<=",
+              "constraint_value": 0.2,
+              "value_frame": "level",
+              "reason": "target_parameter_uncertainty_shifts_base",
+              "message": "Constraint target node 'goal' carries a ParameterUncertainty: each sample draws a base that is ADDED to parent propagation, so the samples' origin varies per sample and a single static conversion is not valid."
+            },
+            "severity": "warning"
+          },
+          {
+            "code": "GOAL_PU_BASE_ADDITIVE",
+            "field": "parameter_uncertainties[goal]",
+            "detail": {
+              "node_id": "goal",
+              "pu_mean_source": "observed_state.value",
+              "message": "Goal node 'goal' is non-root and has a ParameterUncertainty entry: each sample draws a base from that distribution and the parents' propagated contribution is added on top. The goal's distribution is shifted by the sampled base \u2014 it is not pinned to it."
+            },
+            "severity": "info"
+          },
+          {
+            "code": "EVPI_UNAVAILABLE",
+            "field": "p_win_sensitivity",
+            "detail": {
+              "reason": "constraints_not_convertible",
+              "elapsed_ms": 33.8,
+              "message": "Win-probability sensitivity (p_win_sensitivity) was skipped: its metric is P(joint_goal) and at least one goal constraint could not be resolved into its target's sample frame. Base analysis is unaffected."
+            },
+            "severity": "warning"
+          }
+        ]
+      },
+      "expected_resolved_ids": []
+    },
+    {
+      "name": "target_do_pinned",
+      "request": {
+        "request_id": "science-frame-target_do_pinned",
+        "graph": {
+          "nodes": [
+            {
+              "id": "driver",
+              "kind": "factor",
+              "label": "Investment",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5,
+                "std": 0.1
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            },
+            {
+              "id": "goal",
+              "kind": "goal",
+              "label": "Outcome",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5,
+                "unit": "%",
+                "raw_value": 50,
+                "cap": 100
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            }
+          ],
+          "edges": [
+            {
+              "from": "driver",
+              "to": "goal",
+              "exists_probability": 1,
+              "strength": {
+                "mean": 1,
+                "std": 0.05
+              }
+            }
+          ]
+        },
+        "options": [
+          {
+            "id": "low",
+            "label": "Low",
+            "interventions": {
+              "goal": 0.1
+            }
+          },
+          {
+            "id": "high",
+            "label": "High",
+            "interventions": {
+              "driver": 0.9
+            }
+          }
+        ],
+        "goal_node_id": "goal",
+        "n_samples": 400,
+        "analysis_types": [
+          "comparison",
+          "sensitivity",
+          "robustness"
+        ],
+        "parameter_uncertainties": [
+          {
+            "node_id": "driver",
+            "distribution": "normal",
+            "std": 0.1
+          }
+        ],
+        "include_e_values": true,
+        "include_voi": true,
+        "include_factor_flips": true,
+        "goal_direction": "maximise",
+        "goal_constraints": [
+          {
+            "constraint_id": "budget",
+            "node_id": "goal",
+            "operator": "<=",
+            "value": 0.2,
+            "label": "Outcome ceiling",
+            "value_frame": "level"
+          }
+        ],
+        "seed": "42"
+      },
+      "status_code": 200,
+      "response": {
+        "request_id": "science-frame-target_do_pinned",
+        "analysis_status": "computed",
+        "options": [
+          {
+            "id": "low",
+            "status": "computed"
+          },
+          {
+            "id": "high",
+            "status": "computed"
+          }
+        ],
+        "critiques": [
+          {
+            "id": "critique_bb9a490e92f1",
+            "code": "DEGENERATE_OPTION_ZERO_VARIANCE",
+            "severity": "warning",
+            "message": "Option 'Low' has zero variance \u2014 intervention may have no causal path to goal",
+            "source": "analysis",
+            "affected_option_ids": [
+              "low"
+            ],
+            "suggestion": "Check that intervention targets are connected to the goal with non-zero edge strengths"
+          },
+          {
+            "id": "critique_dc5964378196",
+            "code": "CONSTRAINT_NODE_DEFAULT_BASE",
+            "severity": "warning",
+            "message": "Constraint node 'goal' is the objective node and has no ParameterUncertainty \u2014 defaulted to base=0.0 as expected for a non-root objective; its constraint probability is scored from the modelled outcome distribution, not a missing-data placeholder",
+            "source": "analysis",
+            "affected_node_ids": [
+              "goal"
+            ],
+            "suggestion": "This is expected for a non-root objective node without an explicit baseline. Supply a ParameterUncertainty entry only if you intend an additive exogenous base on top of parent propagation \u2014 the sampled base is ADDED to parent contributions, it does not replace them"
+          }
+        ],
+        "inference_warnings": [
+          {
+            "code": "CONSTRAINT_NODE_DEFAULT_BASE",
+            "field": "nodes[goal].base",
+            "detail": {
+              "node_id": "goal",
+              "defaulted_to": 0.0,
+              "reason": "no_parameter_uncertainty",
+              "base_semantics": "zero_base_offset_plus_parent_propagation",
+              "ancestor_data_gap": [],
+              "message": "Node 'goal' is the objective node and has no ParameterUncertainty \u2014 defaulted to base=0.0 as expected for a non-root objective; its constraint probability is scored from the modelled outcome distribution, not a missing-data placeholder"
+            },
+            "severity": "info"
+          },
+          {
+            "code": "CONSTRAINT_NOT_CONVERTIBLE",
+            "field": "options[].interventions",
+            "detail": {
+              "constraint_id": "budget",
+              "node_id": "goal",
+              "operator": "<=",
+              "constraint_value": 0.2,
+              "value_frame": "level",
+              "reason": "target_pinned_by_intervention",
+              "message": "At least one option intervenes directly on constraint target node 'goal', pinning its samples to an absolute value. Those samples are not change-from-origin, so a level threshold cannot be converted consistently across options."
+            },
+            "severity": "warning"
+          },
+          {
+            "code": "GOAL_OBSERVED_VALUE_UNUSED",
+            "field": "nodes[goal].observed_state.value",
+            "detail": {
+              "node_id": "goal",
+              "observed_value": 0.5,
+              "reason": "non_root_goal_forward_propagation",
+              "message": "Goal node 'goal' is non-root; its distribution is the forward-propagated composition of its parents (doctrine B). The supplied observed_state.value=0.5 is not used as a base for the goal's samples. Use the node's intercept for a fixed exogenous offset."
+            },
+            "severity": "info"
+          },
+          {
+            "code": "EVPI_UNAVAILABLE",
+            "field": "p_win_sensitivity",
+            "detail": {
+              "reason": "constraints_not_convertible",
+              "elapsed_ms": 12.9,
+              "message": "Win-probability sensitivity (p_win_sensitivity) was skipped: its metric is P(joint_goal) and at least one goal constraint could not be resolved into its target's sample frame. Base analysis is unaffected."
+            },
+            "severity": "warning"
+          }
+        ]
+      },
+      "expected_resolved_ids": []
+    },
+    {
+      "name": "frame_missing",
+      "request": {
+        "request_id": "science-frame-frame_missing",
+        "graph": {
+          "nodes": [
+            {
+              "id": "driver",
+              "kind": "factor",
+              "label": "Investment",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5,
+                "std": 0.1
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            },
+            {
+              "id": "goal",
+              "kind": "goal",
+              "label": "Outcome",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5,
+                "unit": "%",
+                "raw_value": 50,
+                "cap": 100
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            }
+          ],
+          "edges": [
+            {
+              "from": "driver",
+              "to": "goal",
+              "exists_probability": 1,
+              "strength": {
+                "mean": 1,
+                "std": 0.05
+              }
+            }
+          ]
+        },
+        "options": [
+          {
+            "id": "low",
+            "label": "Low",
+            "interventions": {
+              "driver": 0.1
+            }
+          },
+          {
+            "id": "high",
+            "label": "High",
+            "interventions": {
+              "driver": 0.9
+            }
+          }
+        ],
+        "goal_node_id": "goal",
+        "n_samples": 400,
+        "analysis_types": [
+          "comparison",
+          "sensitivity",
+          "robustness"
+        ],
+        "parameter_uncertainties": [
+          {
+            "node_id": "driver",
+            "distribution": "normal",
+            "std": 0.1
+          }
+        ],
+        "include_e_values": true,
+        "include_voi": true,
+        "include_factor_flips": true,
+        "goal_direction": "maximise",
+        "goal_constraints": [
+          {
+            "constraint_id": "budget",
+            "node_id": "goal",
+            "operator": "<=",
+            "value": 0.2,
+            "label": "Outcome ceiling"
+          }
+        ],
+        "seed": "42"
+      },
+      "status_code": 200,
+      "response": {
+        "request_id": "science-frame-frame_missing",
+        "analysis_status": "computed",
+        "options": [
+          {
+            "id": "low",
+            "status": "computed"
+          },
+          {
+            "id": "high",
+            "status": "computed"
+          }
+        ],
+        "critiques": [
+          {
+            "id": "critique_dc5964378196",
+            "code": "CONSTRAINT_NODE_DEFAULT_BASE",
+            "severity": "warning",
+            "message": "Constraint node 'goal' is the objective node and has no ParameterUncertainty \u2014 defaulted to base=0.0 as expected for a non-root objective; its constraint probability is scored from the modelled outcome distribution, not a missing-data placeholder",
+            "source": "analysis",
+            "affected_node_ids": [
+              "goal"
+            ],
+            "suggestion": "This is expected for a non-root objective node without an explicit baseline. Supply a ParameterUncertainty entry only if you intend an additive exogenous base on top of parent propagation \u2014 the sampled base is ADDED to parent contributions, it does not replace them"
+          }
+        ],
+        "inference_warnings": [
+          {
+            "code": "CONSTRAINT_NODE_DEFAULT_BASE",
+            "field": "nodes[goal].base",
+            "detail": {
+              "node_id": "goal",
+              "defaulted_to": 0.0,
+              "reason": "no_parameter_uncertainty",
+              "base_semantics": "zero_base_offset_plus_parent_propagation",
+              "ancestor_data_gap": [],
+              "message": "Node 'goal' is the objective node and has no ParameterUncertainty \u2014 defaulted to base=0.0 as expected for a non-root objective; its constraint probability is scored from the modelled outcome distribution, not a missing-data placeholder"
+            },
+            "severity": "info"
+          },
+          {
+            "code": "CONSTRAINT_FRAME_UNSPECIFIED",
+            "field": "goal_constraints[0].value_frame",
+            "detail": {
+              "constraint_id": "budget",
+              "node_id": "goal",
+              "operator": "<=",
+              "constraint_value": 0.2,
+              "value_frame": null,
+              "reason": "frame_not_stamped",
+              "message": "constraint value=0.2 was supplied without goal_constraints[0].value_frame, so the frame it is expressed in is unknown. A level threshold compared against the target's change-from-origin samples yields a structurally impossible probability, so constraint_analysis is omitted rather than guessed. Stamp 'level' or 'delta'."
+            },
+            "severity": "warning"
+          },
+          {
+            "code": "GOAL_OBSERVED_VALUE_UNUSED",
+            "field": "nodes[goal].observed_state.value",
+            "detail": {
+              "node_id": "goal",
+              "observed_value": 0.5,
+              "reason": "non_root_goal_forward_propagation",
+              "message": "Goal node 'goal' is non-root; its distribution is the forward-propagated composition of its parents (doctrine B). The supplied observed_state.value=0.5 is not used as a base for the goal's samples. Use the node's intercept for a fixed exogenous offset."
+            },
+            "severity": "info"
+          },
+          {
+            "code": "EVPI_UNAVAILABLE",
+            "field": "p_win_sensitivity",
+            "detail": {
+              "reason": "constraints_not_convertible",
+              "elapsed_ms": 19.4,
+              "message": "Win-probability sensitivity (p_win_sensitivity) was skipped: its metric is P(joint_goal) and at least one goal constraint could not be resolved into its target's sample frame. Base analysis is unaffected."
+            },
+            "severity": "warning"
+          }
+        ]
+      },
+      "expected_resolved_ids": []
+    },
+    {
+      "name": "target_epsilon",
+      "request": {
+        "request_id": "science-frame-target_epsilon",
+        "graph": {
+          "nodes": [
+            {
+              "id": "driver",
+              "kind": "factor",
+              "label": "Investment",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5,
+                "std": 0.1
+              },
+              "intercept": 0,
+              "epsilon_std": 0
+            },
+            {
+              "id": "goal",
+              "kind": "goal",
+              "label": "Outcome",
+              "observed_state": {
+                "value": 0.5,
+                "baseline": 0.5,
+                "unit": "%",
+                "raw_value": 50,
+                "cap": 100
+              },
+              "intercept": 0,
+              "epsilon_std": 0.1
+            }
+          ],
+          "edges": [
+            {
+              "from": "driver",
+              "to": "goal",
+              "exists_probability": 1,
+              "strength": {
+                "mean": 1,
+                "std": 0.05
+              }
+            }
+          ]
+        },
+        "options": [
+          {
+            "id": "low",
+            "label": "Low",
+            "interventions": {
+              "driver": 0.1
+            }
+          },
+          {
+            "id": "high",
+            "label": "High",
+            "interventions": {
+              "driver": 0.9
+            }
+          }
+        ],
+        "goal_node_id": "goal",
+        "n_samples": 400,
+        "analysis_types": [
+          "comparison",
+          "sensitivity",
+          "robustness"
+        ],
+        "parameter_uncertainties": [
+          {
+            "node_id": "driver",
+            "distribution": "normal",
+            "std": 0.1
+          }
+        ],
+        "include_e_values": true,
+        "include_voi": true,
+        "include_factor_flips": true,
+        "goal_direction": "maximise",
+        "goal_constraints": [
+          {
+            "constraint_id": "budget",
+            "node_id": "goal",
+            "operator": "<=",
+            "value": 0.2,
+            "label": "Outcome ceiling",
+            "value_frame": "level"
+          }
+        ],
+        "seed": "42"
+      },
+      "status_code": 200,
+      "response": {
+        "request_id": "science-frame-target_epsilon",
+        "analysis_status": "computed",
+        "options": [
+          {
+            "id": "low",
+            "status": "computed"
+          },
+          {
+            "id": "high",
+            "status": "computed"
+          }
+        ],
+        "critiques": [
+          {
+            "id": "critique_dc5964378196",
+            "code": "CONSTRAINT_NODE_DEFAULT_BASE",
+            "severity": "warning",
+            "message": "Constraint node 'goal' is the objective node and has no ParameterUncertainty \u2014 defaulted to base=0.0 as expected for a non-root objective; its constraint probability is scored from the modelled outcome distribution, not a missing-data placeholder",
+            "source": "analysis",
+            "affected_node_ids": [
+              "goal"
+            ],
+            "suggestion": "This is expected for a non-root objective node without an explicit baseline. Supply a ParameterUncertainty entry only if you intend an additive exogenous base on top of parent propagation \u2014 the sampled base is ADDED to parent contributions, it does not replace them"
+          }
+        ],
+        "inference_warnings": [
+          {
+            "code": "CONSTRAINT_NODE_DEFAULT_BASE",
+            "field": "nodes[goal].base",
+            "detail": {
+              "node_id": "goal",
+              "defaulted_to": 0.0,
+              "reason": "no_parameter_uncertainty",
+              "base_semantics": "zero_base_offset_plus_parent_propagation",
+              "ancestor_data_gap": [],
+              "message": "Node 'goal' is the objective node and has no ParameterUncertainty \u2014 defaulted to base=0.0 as expected for a non-root objective; its constraint probability is scored from the modelled outcome distribution, not a missing-data placeholder"
+            },
+            "severity": "info"
+          },
+          {
+            "code": "CONSTRAINT_NOT_CONVERTIBLE",
+            "field": "nodes[goal].epsilon_std",
+            "detail": {
+              "constraint_id": "budget",
+              "node_id": "goal",
+              "operator": "<=",
+              "constraint_value": 0.2,
+              "value_frame": "level",
+              "reason": "epsilon_breaks_status_quo_reference",
+              "message": "Nodes ['goal'] carry epsilon_std > 0 and can influence 'goal'. A level threshold is resolved by differencing each option's sample against a status-quo sample from the same draw, but epsilon is drawn per evaluation and clamped to [0, 1], so that difference would carry noise no option caused. constraint_analysis is omitted rather than widened by fabricated variance.",
+              "constraint_baseline": 0.5,
+              "constraint_intercept": 0.0,
+              "noisy_node_ids": [
+                "goal"
+              ]
+            },
+            "severity": "warning"
+          },
+          {
+            "code": "GOAL_OBSERVED_VALUE_UNUSED",
+            "field": "nodes[goal].observed_state.value",
+            "detail": {
+              "node_id": "goal",
+              "observed_value": 0.5,
+              "reason": "non_root_goal_forward_propagation",
+              "message": "Goal node 'goal' is non-root; its distribution is the forward-propagated composition of its parents (doctrine B). The supplied observed_state.value=0.5 is not used as a base for the goal's samples. Use the node's intercept for a fixed exogenous offset."
+            },
+            "severity": "info"
+          },
+          {
+            "code": "EVPI_UNAVAILABLE",
+            "field": "p_win_sensitivity",
+            "detail": {
+              "reason": "constraints_not_convertible",
+              "elapsed_ms": 20.9,
+              "message": "Win-probability sensitivity (p_win_sensitivity) was skipped: its metric is P(joint_goal) and at least one goal constraint could not be resolved into its target's sample frame. Base analysis is unaffected."
+            },
+            "severity": "warning"
+          }
+        ]
+      },
+      "expected_resolved_ids": []
+    }
+  ]
+}

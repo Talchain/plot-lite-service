@@ -9,6 +9,7 @@ import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { mockLicensedComparison } from './helpers/objective-fixtures.js';
 import { assembleBrief, type BriefAssemblyInput } from '../src/assembly/decision-brief.js';
 import type { DecisionBriefV1 } from '../src/types/decision-brief.js';
 
@@ -66,7 +67,7 @@ describe('assembleBrief — golden fixtures', () => {
     expectBriefMatches(result, expected);
   });
 
-  it('assembles correctly when M2 unavailable (falls back to M1 headline)', () => {
+  it('assembles the licensed headline when M2 is unavailable', () => {
     const { input, expected } = loadFixture('m2-unavailable.json');
     const result = assembleBrief(input);
     expectBriefMatches(result, expected);
@@ -132,7 +133,7 @@ describe('assembleBrief — null returns', () => {
 // Headline Resolution
 // =============================================================================
 
-describe('assembleBrief — headline fallback chain', () => {
+describe('assembleBrief — no unlicensed narrative fallback', () => {
   const base: BriefAssemblyInput = {
     analysis_status: 'computed',
     critiques: [],
@@ -141,7 +142,7 @@ describe('assembleBrief — headline fallback chain', () => {
     meta: { seed_used: '1' },
   };
 
-  it('uses M2 narrative_summary when available', () => {
+  it('does not crown an M2 narrative without objective authority', () => {
     const result = assembleBrief({
       ...base,
       m1_review: {
@@ -166,10 +167,10 @@ describe('assembleBrief — headline fallback chain', () => {
         computed_at: '2026-01-01T00:00:00Z',
       },
     });
-    expect(result?.headline).toBe('M2 headline text');
+    expect(result?.headline).toBe('Analysis complete');
   });
 
-  it('falls back to M1 executive_summary.summary when M2 unavailable', () => {
+  it('does not crown an M1 summary without objective authority', () => {
     const result = assembleBrief({
       ...base,
       m1_coaching: {
@@ -184,7 +185,7 @@ describe('assembleBrief — headline fallback chain', () => {
         computed_at: '2026-01-01T00:00:00Z',
       },
     });
-    expect(result?.headline).toBe('M1 summary headline');
+    expect(result?.headline).toBe('Analysis complete');
   });
 
   it('falls back to "Analysis complete" when both M1 and M2 headlines missing', () => {
@@ -223,15 +224,17 @@ describe('assembleBrief — options', () => {
     meta: { seed_used: '1' },
   };
 
-  it('sorts options by win_probability descending, rank is 1-indexed', () => {
-    const result = assembleBrief({
+  it('copies producer-ordered options and ranks', () => {
+    const input: BriefAssemblyInput = {
       ...base,
       option_comparison: [
         { option_id: 'c', option_label: 'C', id: 'c', label: 'C', win_probability: 0.1 },
         { option_id: 'a', option_label: 'A', id: 'a', label: 'A', win_probability: 0.6 },
         { option_id: 'b', option_label: 'B', id: 'b', label: 'B', win_probability: 0.3 },
       ] as any[],
-    });
+    };
+    input.licensed_comparison = mockLicensedComparison(input.option_comparison!);
+    const result = assembleBrief(input);
     expect(result?.options).toEqual([
       { option_id: 'a', label: 'A', win_probability: 0.6, rank: 1 },
       { option_id: 'b', label: 'B', win_probability: 0.3, rank: 2 },
@@ -239,19 +242,21 @@ describe('assembleBrief — options', () => {
     ]);
   });
 
-  it('uses option_id as deterministic tie-breaker when win_probability is equal', () => {
-    const result = assembleBrief({
+  it('preserves stable producer order and equal dense ranks for ties', () => {
+    const input: BriefAssemblyInput = {
       ...base,
       option_comparison: [
-        { option_id: 'z_option', option_label: 'Z', id: 'z_option', label: 'Z', win_probability: 0.5 },
-        { option_id: 'a_option', option_label: 'A', id: 'a_option', label: 'A', win_probability: 0.5 },
-        { option_id: 'm_option', option_label: 'M', id: 'm_option', label: 'M', win_probability: 0.5 },
+        { option_id: 'z_option', option_label: 'Z', id: 'z_option', label: 'Z', win_probability: 0.3 },
+        { option_id: 'a_option', option_label: 'A', id: 'a_option', label: 'A', win_probability: 0.3 },
+        { option_id: 'm_option', option_label: 'M', id: 'm_option', label: 'M', win_probability: 0.3 },
       ] as any[],
-    });
+    };
+    input.licensed_comparison = mockLicensedComparison(input.option_comparison!);
+    const result = assembleBrief(input);
     // Equal probabilities → sorted by option_id ascending
     expect(result?.options.map(o => o.option_id)).toEqual(['a_option', 'm_option', 'z_option']);
     expect(result?.options[0].rank).toBe(1);
-    expect(result?.options[2].rank).toBe(3);
+    expect(result?.options[2].rank).toBe(1);
   });
 });
 

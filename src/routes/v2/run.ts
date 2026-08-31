@@ -80,12 +80,14 @@ import {
   detectCategoricalIssues,
   type CategoricalDetectionResult,
 } from '../../validation/categorical-detector.js';
+import { licenseObjectiveComparison, validateObjectiveComparison, isCrownableCandidate, type ObjectiveComparisonCandidate } from '../../lib/objective-recommendation.js';
+import type { GoalDirectionType } from '@talchain/schemas';
 import { compileConstraintNodes } from '../../normalisation/constraint-compiler.js';
 import { filterTemporalConstraints } from '../../normalisation/constraint-filter.js';
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, InternalMetadata } from '../../types/engine-v3.js';
-import { toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, parseGoalThresholdFrame } from '../../integrations/isl/translator-v3.js';
+import { toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
@@ -168,6 +170,7 @@ import { buildDriverOrder, readIslSuppressedAttributions } from '../../lib/drive
 import {
   detectUnreliableConstraintTargets,
   detectUnanchoredSampleFrameTargets,
+  collectResolvedConstraintFrameIds,
   detectUnitMismatchedConstraintTargets,
   mergeUnreliableConstraintTargets,
   collectDirectedEdgeTargets,
@@ -181,7 +184,6 @@ import {
 } from '../../lib/constraint-reliability.js';
 import { NEAR_TIE_THRESHOLD } from '../../trust/result-coherence.js';
 import {
-  isCrownPermittedByConstraints,
   classifyCrownCompliance,
   isUserStatedLimit,
   CROWN_COMPLIANCE_REASONS,
@@ -1578,6 +1580,30 @@ const runV3Schema = {
 // Status Mapping
 // -----------------------------------------------------------------------------
 
+/** Actual V2 driver data, before graph-derived rows can mask an upstream defect. */
+function hasCompleteIslDriverData(raw: unknown, nodes: readonly { id: string }[]): boolean {
+  if (!Array.isArray(raw) || raw.length === 0) return false;
+  const nodeIds = new Set(nodes.map(n => n.id));
+  const seen = new Set<string>();
+  const positiveRank = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 1;
+  return raw.every((row: any) => {
+    if (!row || !nodeIds.has(row.node_id) || seen.has(row.node_id) ||
+        prob01(row.sensitivity_score) === undefined ||
+        (row.direction !== 'positive' && row.direction !== 'negative')) return false;
+    seen.add(row.node_id);
+    // Optional V2 carriers stay optional, but malformed supplied values cannot
+    // establish a complete driver computation. Zero sensitivity is valid.
+    return (row.elasticity === undefined || finiteNum(row.elasticity) !== undefined) &&
+      (row.importance_rank === undefined || positiveRank(row.importance_rank)) &&
+      (row.influence_rank === undefined || positiveRank(row.influence_rank)) &&
+      (row.importance_score === undefined || prob01(row.importance_score) !== undefined) &&
+      (row.influence_score === undefined || prob01(row.influence_score) !== undefined) &&
+      (row.confidence === undefined || prob01(row.confidence) !== undefined) &&
+      (row.elasticity_std === undefined || nonNeg(row.elasticity_std) !== undefined) &&
+      (row.rank_flip_rate === undefined || prob01(row.rank_flip_rate) !== undefined);
+  });
+}
+
 /**
  * Map ISL status to UI vocabulary per-feature status.
  *
@@ -1604,7 +1630,7 @@ function mapToPerFeatureStatus(islStatus: string | undefined, hasData: boolean):
  * Determine top-level analysis status from per-feature statuses.
  *
  * Semantics:
- * - computed: ALL features computed successfully
+ * - computed: ALL applicable features computed successfully
  * - partial: Options computed with usable outcomes; some secondary features degraded
  * - failed: No usable option outcomes (primary deliverable missing)
  *
@@ -1625,7 +1651,8 @@ function determineTopLevelStatus(
   robustnessStatus: PerFeatureStatus,
   driversStatus: PerFeatureStatus,
   hasUsableOptionComparison: boolean,
-  islAnalysisStatus?: string
+  islAnalysisStatus?: string,
+  robustnessNotApplicable = false,
 ): TopLevelAnalysisStatus {
   // No usable option outcomes → the primary deliverable is missing → failed,
   // regardless of how many secondary features computed.
@@ -1633,7 +1660,9 @@ function determineTopLevelStatus(
     return 'failed';
   }
 
-  const statuses = [optionStatus, robustnessStatus, driversStatus];
+  const statuses = robustnessNotApplicable
+    ? [optionStatus, driversStatus]
+    : [optionStatus, robustnessStatus, driversStatus];
 
   // Everything computed → computed
   if (statuses.every(s => s === 'computed')) {
@@ -1963,26 +1992,6 @@ interface SensitivityData {
 }
 
 /**
- * Codex F2: THE single crowning/near-tie candidate predicate.
- *
- * An option is a valid win-probability candidate ONLY when its ISL status is
- * 'computed' (absent status = legacy shape, treated as computed) AND
- * win_probability is a present, finite number. `deriveRecommendedOption` and
- * `computeNearTie` MUST share this one predicate so their eligibility can
- * never drift apart again — the drift is exactly how an errored option
- * (status 'error', win_probability 0.9) got crowned while near-tie correctly
- * excluded it.
- */
-function isCrownableCandidate(o: { win_probability?: number; status?: string }): boolean {
-  return (
-    (o.status === undefined || o.status === 'computed') &&
-    o.win_probability !== undefined &&
-    o.win_probability !== null &&
-    Number.isFinite(o.win_probability)
-  );
-}
-
-/**
  * ROADMAP 2.744 — THE single predicate for "ISL says this option genuinely failed".
  *
  * PRODUCER SEMANTICS (derived from ISL's determine_option_status(n_valid,
@@ -2132,109 +2141,14 @@ export function computeNearTie(
   };
 }
 
-/**
- * Derive recommended option from win_probability values.
- *
- * Winner definition: argmax(option_comparison[].win_probability)
- *
- * Tie-break rules (for determinism):
- * - If multiple options have win_probability within epsilon (1e-9), use lexicographic sort on option_id
- *
- * Codex F2: candidacy uses the SAME predicate as computeNearTie
- * (isCrownableCandidate) — an option whose ISL status is not 'computed'
- * (errored/skipped) is never crowned, exactly as it is never counted in a
- * near-tie. When NO option qualifies the function returns undefined (the
- * existing no-valid-candidates result), same as the no-finite-win_probability
- * path.
- *
- * @param optionComparison Array of option comparison results with win_probability
- * @param options Original options array for label lookup
- * @returns Recommended option ID and label, or undefined if no valid winner
- *
- * @public Exported for unit testing
- */
+/** Projection of the request-matching ISL ranking through existing crown eligibility. */
 export function deriveRecommendedOption(
-  optionComparison: Array<{
-    option_id: string;
-    option_label?: string;
-    win_probability?: number;
-    status?: string;
-    constraint_probabilities?: Record<string, number>;
-    constraints_decision_grade?: boolean;
-  }> | undefined,
-  options: OptionV3[] | undefined
+  optionComparison: readonly ObjectiveComparisonCandidate[] | undefined,
+  options: OptionV3[] | undefined,
+  objectiveRanking?: unknown,
+  goalDirection?: GoalDirectionType,
 ): { recommended_option_id: string; recommended_option_label: string } | undefined {
-  if (!optionComparison || optionComparison.length === 0) {
-    return undefined;
-  }
-
-  // Filter via the SHARED candidate predicate (status 'computed' + finite win_probability)
-  const validOptions = optionComparison.filter(isCrownableCandidate);
-
-  if (validOptions.length === 0) {
-    return undefined;
-  }
-
-  // STEP 5 — ELIGIBILITY CONSUMES THE CONSTRAINT VERDICT.
-  //
-  // A SECOND filter, deliberately NOT folded into `isCrownableCandidate`.
-  // That predicate answers *"did ISL compute a usable result?"* and is SHARED
-  // with `computeNearTie` so the two cannot drift; this one answers *"is this
-  // option permitted to be badged as leading, given the user's stated
-  // limits?"*. Two questions under one name is the defect trap 21 describes —
-  // and merging them would silently change near-tie, which has no business
-  // consulting constraint compliance (it asks only whether two win
-  // probabilities are close).
-  //
-  // An option is removed ONLY when the scale is trustworthy AND some
-  // constraint was satisfied in no sampled draw. See `crown-eligibility.ts`
-  // for why `prob_satisfied === 0` is the one place binarisation is
-  // legitimate, and why `binding` must never be read as a breach flag.
-  const permittedOptions = validOptions.filter(isCrownPermittedByConstraints);
-
-  // Every candidate breaches ⇒ there is no eligible leader. The crown is
-  // WITHHELD rather than handed to the least-bad breach — but the route emits
-  // `no_eligible_option` alongside, so this is a statement, not a silence.
-  if (permittedOptions.length === 0) {
-    return undefined;
-  }
-
-  // Find max win_probability — over the PERMITTED set. Using `validOptions`
-  // here would compute the crown from an option the eligibility filter has
-  // just excluded, which is the whole defect wearing a different shape.
-  const maxWinProbability = Math.max(...permittedOptions.map((o) => o.win_probability!));
-
-  // Epsilon for floating point comparison (1e-9 as specified)
-  const EPSILON = 1e-9;
-
-  // Find all options within epsilon of max (potential ties)
-  const topOptions = permittedOptions.filter(
-    (o) => Math.abs(o.win_probability! - maxWinProbability) < EPSILON
-  );
-
-  // Tie-breaker: lexicographic sort on option_id
-  topOptions.sort((a, b) => a.option_id.localeCompare(b.option_id));
-
-  const winner = topOptions[0];
-  const winnerId = winner.option_id;
-
-  // Label fallback chain:
-  // 1. Graph node label where node.id === winner_option_id (preferred)
-  // 2. option_comparison[].label or option_comparison[].option_label if present
-  // 3. option_id as final fallback
-  const graphOption = options?.find((o) => o.id === winnerId);
-  const winnerLabel = graphOption?.label ?? winner.option_label ?? winnerId;
-
-  // RETURN SHAPE DELIBERATELY UNCHANGED. The crowned option's constraint facts
-  // are NOT threaded back through here — the route already holds
-  // `optionComparison` and looks the winner up by id. Widening this return
-  // would have broken three existing unit pins for no gain, and a second
-  // carrier for facts that already exist one scope up is the kind of parallel
-  // structure that later drifts from its source.
-  return {
-    recommended_option_id: winnerId,
-    recommended_option_label: winnerLabel,
-  };
+  return licenseObjectiveComparison(objectiveRanking, optionComparison, options, goalDirection).recommendation;
 }
 
 /**
@@ -2946,9 +2860,11 @@ function buildResponse(
   // L63: the producer's per-node `goal_threshold_frame` stamps, read off the RAW
   // upstream nodes (the canonical EngineNodeV3 drops them, so `graph` above
   // cannot carry them). Appended rather than inserted for the same reason 2.258
-  // gave: the call sites pass these positionally. Feeds the ONE limb of the
-  // sample-frame gate that a producer can open — an attested 'delta' target.
-  goalThresholdFrameByNodeId?: ReadonlyMap<string, string>
+  // gave: the call sites pass these positionally. Feeds the legacy graph-frame
+  // evidence; current per-constraint resolution is request-bound below.
+  goalThresholdFrameByNodeId?: ReadonlyMap<string, string>,
+  goalDirection?: GoalDirectionType,
+  forwardedConstraintRequest?: Parameters<typeof collectResolvedConstraintFrameIds>[0]
 ): RunResponseV3 {
   // Producer honesty (lane PLoT-H item A): detect goal constraints whose
   // targets are NOT decision-grade — threshold normalisation fell back to the
@@ -2979,6 +2895,9 @@ function buildResponse(
   // so no absolute threshold can be compared against them, and the near-zero
   // that comes back is arithmetic, not a finding. Derivation + the measured
   // 2.286 counter-example: src/lib/constraint-reliability.ts.
+  // Current ISL resolves declared level frames itself (2.798). A complete,
+  // matching result proves that resolution without repeating its arithmetic;
+  // the historical graph-only detector remains the fallback when proof is absent.
   //
   // THE UNIT COLLISION: a THIRD, DERIVED detection, and neither sibling can
   // reach it. The witnessed capture (`l60-artefacts/scenario-people.json` +
@@ -3000,6 +2919,7 @@ function buildResponse(
       collectDirectedEdgeTargets(graph?.edges),
       options,
       goalThresholdFrameByNodeId,
+      collectResolvedConstraintFrameIds(forwardedConstraintRequest, islResult),
     ),
     detectUnitMismatchedConstraintTargets(
       goalConstraints,
@@ -3620,8 +3540,11 @@ function buildResponse(
     };
   }
 
-  // Derive recommended option from win_probability (after optionComparison is built)
-  const recommendedOption = deriveRecommendedOption(optionComparison, options);
+  // License the producer objective order once after optionComparison is built.
+  const licensedComparison = licenseObjectiveComparison(
+    islResult?.objective_ranking, optionComparison, options, goalDirection,
+  );
+  const recommendedOption = licensedComparison.recommendation;
 
   // Add recommended_option_id and recommended_option_label to robustness if derived
   if (recommendedOption) {
@@ -3636,9 +3559,12 @@ function buildResponse(
   // no comparison at all", which are otherwise byte-identical to a consumer
   // reading only `recommended_option_id`.
   //
-  // `anyCandidate` is derived from the SAME shared status predicate the crown
-  // uses, so the two can never disagree about what a candidate is.
-  const anyCrownableCandidate = (optionComparison ?? []).some(isCrownableCandidate);
+  // An absent objective or tied best rank does not establish that every
+  // candidate breached. Only the empty permitted set establishes that.
+  const anyCrownableCandidate = licensedComparison.rankedOptions.length > 0;
+  // No recommendation can also mean a genuine tie or absent objective. Neither
+  // says that every option breached a constraint.
+  const noPermittedOption = anyCrownableCandidate && licensedComparison.permittedOptions.length === 0;
   const crownedEntry = recommendedOption
     ? (optionComparison ?? []).find(
         (o: { option_id: string }) => o.option_id === recommendedOption.recommended_option_id,
@@ -3666,14 +3592,14 @@ function buildResponse(
     // `_internal.source` test is exact rather than heuristic.
     (goalConstraints ?? []).filter(isUserStatedLimit).length,
     withheldConstraintCount,
-    anyCrownableCandidate,
+    noPermittedOption,
   );
   robustness.recommended_option_compliance = crownCompliance;
   robustness.recommended_option_compliance_reason = CROWN_COMPLIANCE_REASONS[crownCompliance];
 
   // Compute near-tie detection (after optionComparison is built)
   //
-  // ⚠ WITHHELD ON `no_eligible_option`, AND ONLY THERE. `near_tie` answers a
+  // Withheld without objective attestation or on `no_eligible_option`. `near_tie` answers a
   // different question from the crown — *are the top two close on
   // win_probability?* — and it keeps consuming the ISL-status predicate alone,
   // exactly as `isCrownableCandidate`'s contract requires. But it carries
@@ -3688,7 +3614,7 @@ function buildResponse(
   // including `unverified` and `uncertain`, where the crown stands — keeps
   // near-tie unchanged.
   const nearTie = computeNearTie(optionComparison);
-  if (nearTie && crownCompliance !== 'no_eligible_option') {
+  if (nearTie && licensedComparison.attested && crownCompliance !== 'no_eligible_option') {
     robustness.near_tie = nearTie;
   }
 
@@ -3998,6 +3924,7 @@ function buildResponse(
     analysis_status: analysisStatus,
     critiques,
     option_comparison: optionComparison,
+    licensed_comparison: licensedComparison,
     factor_sensitivity: factorSensitivity,
     // Family-4 S1b: the SAME object the response publishes, so
     // decision_brief.top_drivers[0] and driver_order.ranked_factor_ids[0]
@@ -5758,6 +5685,21 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           typeof v === 'number' && Number.isFinite(v) ? v : undefined;
         const nodeGoalThreshold = asFiniteNumber(rawGoalNode?.goal_threshold);
         const nodeGoalThresholdRaw = asFiniteNumber(rawGoalNode?.goal_threshold_raw);
+        // The selected canonical goal owns what better means. A label, another
+        // goal, or a missing field must never supply a direction.
+        const nodeGoalDirection = parseGoalDirection(rawGoalNode?.goal_direction);
+        if (rawGoalNode?.goal_direction !== undefined && nodeGoalDirection === undefined) {
+          return reply.status(422).send(buildBlockedResponse(
+            'Invalid selected-goal objective direction',
+            [{
+              id: randomUUID(), code: 'INVALID_GOAL_DIRECTION', severity: 'error',
+              message: 'The selected goal node goal_direction must be maximise, minimise, or target.',
+              source: 'validation', blocks_analysis: true,
+            }],
+            normalizedGraph, normalizedOptions, requestId, requestComputedAt,
+          ));
+        }
+
         /**
          * ROADMAP 2.258 — the producer's FRAME attestation for the goal target.
          *
@@ -5927,7 +5869,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Reading the POST-filter set fires in a strict superset of the previous
         // cases (post-filter-empty ⊇ pre-filter-empty): the only new case is
         // "non-empty before the filter, empty after" — exactly the defect.
-        if (constraintCompilation.constraints.length === 0) {
+        // A >= target expresses maximisation only. It must never become a
+        // hidden eligibility limit for minimise, nearest-target, or unknown aims.
+        // Explicit user constraints retain their own operators unchanged.
+        if (constraintCompilation.constraints.length === 0 && nodeGoalDirection === 'maximise') {
           // Resolve threshold: prefer request-level goal_threshold (already parsed),
           // fall back to goal_threshold on the raw upstream goal node (CEE may set
           // it on the node even if the request root field is absent).
@@ -6149,7 +6094,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             event: 'plot.auto_constraint_from_threshold',
             goal_node_id: body.goal_node_id,
             action: 'skipped',
-            reason: 'constraints_present',
+            reason: constraintCompilation.constraints.length > 0
+              ? 'constraints_present'
+              : 'objective_not_explicit_maximise',
             constraint_count: constraintCompilation.constraints.length,
           });
         }
@@ -7391,14 +7338,17 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           body.goal_node_id,
           requestId,
           nSamples,
-          effectiveGoalThreshold,  // Use effective threshold (undefined if multi-constraint)
+          // Target distance is independent of eligibility limits. Existing
+          // constraint precedence must not erase the canonical objective target.
+          nodeGoalDirection === 'target' ? nodeGoalThreshold : effectiveGoalThreshold,
           constraintsForISL,       // Normalised constraint values (undefined if not using multi-constraint)
           plotSeedUsed,  // Always forward PLoT's seed (PLoT is seed authority)
           body.include_path_decomposition === true,  // Lane PLoT-W4: request-gated opt-in, forwarded only on explicit true
           factorParameterUncertainties,  // Reuse the factor PUs already built for the admission plan (same nodes → byte-identical)
           body.factor_correlations,  // Capability #100 (D-23.4): forward client-supplied factor correlations verbatim (request-gated omit inside the translator)
           nodeGoalThresholdFrame,  // ROADMAP 2.258: producer-stamped frame, forwarded if present; never minted (see below)
-          body.user_stated_ranges  // ROADMAP 2.720 (P4): the user's own stated ranges, projected onto ISL's declared members inside the translator (request-gated omit)
+          body.user_stated_ranges,  // ROADMAP 2.720: unchanged range transport
+          nodeGoalDirection  // Explicit canonical selected-goal objective; absent stays absent
         );
 
         req.log.info(
@@ -8344,6 +8294,33 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // it here from the stale V1 field `expected_outcome`, which the V2
         // wire never carries — so the check was vacuously false and the
         // 'partial' fallback in determineTopLevelStatus did the (wrong) work.
+        // A completed min/target comparison intentionally omits max-only
+        // robustness. Recognise only the request-bound producer contract, not
+        // generic missing data or warning prose. All real degradation remains.
+        const statusComparison = validateObjectiveComparison(
+          islResult.objective_ranking,
+          Array.isArray(optionComparisonData) ? optionComparisonData.map((r: any) => ({
+            option_id: r?.option_id ?? r?.id,
+            win_probability: r?.win_probability,
+            status: r?.status,
+          })) : undefined,
+          optionsForISL,
+          islRequest.goal_direction,
+        );
+        const robustnessNotApplicable =
+          (islRequest.goal_direction === 'minimise' || islRequest.goal_direction === 'target') &&
+          statusComparison !== undefined &&
+          islAnalysisStatus === 'computed' &&
+          islResult.request_id === islRequest.request_id &&
+          robustnessStatus === 'unavailable' && islResult.robustness_status === 'unavailable' &&
+          islResult.factor_sensitivity_status === 'computed' &&
+          hasCompleteIslDriverData(islResult.factor_sensitivity, islRequest.graph.nodes) &&
+          hasUsableOptionComparison && usableOptionData.every((r: any) =>
+            r?.status === 'computed' && isOptionUsable(r) &&
+            !(r.id !== undefined && r.option_id !== undefined && r.id !== r.option_id)) &&
+          Array.isArray(islResult.inference_warnings) && islResult.inference_warnings.some((w: any) =>
+            w?.code === 'OBJECTIVE_METRICS_UNAVAILABLE' && w.field === 'objective_ranking' &&
+            Array.isArray(w.detail?.suppressed_fields) && w.detail.suppressed_fields.includes('robustness'));
         const topLevelStatus = determineTopLevelStatus(
           optionStatus,
           robustnessStatus,
@@ -8351,7 +8328,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           hasUsableOptionComparison,
           // 2.744: ISL's own verdict on the run, so PLoT cannot report it
           // healthier than the producer declared it.
-          islAnalysisStatus
+          islAnalysisStatus,
+          robustnessNotApplicable,
         );
 
         // =================================================================
@@ -9020,7 +8998,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           optionClampDirectionByFactor,  // 1d + Codex F1: per-option clamp DIRECTION map for margin_precision
           optionDiagnosedFactors,  // Codex F1: factors with a recorded diagnostic (exact vs unknown)
           constraintScaleProvenanceByConstraintId,  // A3 trust marker: scale_provenance + constraints_decision_grade (also carries F2a threshold_clamped)
-          goalThresholdFrameByNodeId  // L63: constraint sample-frame gate input (producer 'delta' attestation)
+          goalThresholdFrameByNodeId,  // L63: legacy graph-frame evidence
+          nodeGoalDirection,  // Bind recommendation to the objective actually sent to ISL
+          islRequest  // Current per-constraint frame result must match the actual forwarded request
         ));
       } catch (err) {
         req.log.error({

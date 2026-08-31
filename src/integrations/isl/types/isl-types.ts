@@ -1,3 +1,4 @@
+import type { EnrichmentObjectiveRanking } from '@talchain/schemas/boundary';
 /**
  * ISL (Inference Service Layer) Response Types
  *
@@ -1038,6 +1039,8 @@ export interface ISLDownside {
  * Full response schema when all analysis_types are requested.
  */
 export interface ISLRobustnessAnalyzeV2Response {
+  /** Objective-aware ordered producer comparison; no legacy fallback. */
+  objective_ranking?: EnrichmentObjectiveRanking;
   /** Request ID echo */
   request_id?: string;
 

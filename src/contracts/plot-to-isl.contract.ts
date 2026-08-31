@@ -159,6 +159,12 @@ export const PLOT_TO_ISL_CONTRACT: BoundaryContract = {
 
   transforms: [
     {
+      kind: 'reshape',
+      from: 'graph.nodes[id=goal_node_id].goal_direction',
+      to: 'goal_direction',
+      why: 'Forward the explicit selected-goal objective only; no label inference or request override',
+    },
+    {
       kind: 'flatten',
       from: 'options[].interventions (Record<string, InterventionValueV3>)',
       to: 'options[].interventions (Record<string, number>)',

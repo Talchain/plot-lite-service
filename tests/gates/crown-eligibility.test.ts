@@ -18,6 +18,7 @@
  * option's NORMALISED intervention on the constraint node — the exact cross-scale
  * comparison the real ISL does).
  */
+import { mockObjectiveRanking } from '../helpers/objective-fixtures.js';
 import { makeOptionResultV2 } from '../helpers/isl-option-fixture.js';
 import { CROWN_COMPLIANCE_REASONS } from '../../src/routes/v2/crown-eligibility.js';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
@@ -114,6 +115,7 @@ const mockISLService = {
     return {
       data: {
         options: buildSurrogateOptions(body),
+        objective_ranking: mockObjectiveRanking(buildSurrogateOptions(body).map((o: any) => ({ ...o, option_id: o.id }))),
         edges: [], factors: [], value_of_information: [], overall_robustness: 'robust', robustness_score: 0.8, fragile_edges: [], robust_edges: [],
       } as T,
       error: null,
@@ -132,7 +134,7 @@ const { createServer } = await import('../../src/createServer.js');
 // churn: monetary factor, observed value 10000, NEVER intervened → chain
 //        deriveRange → inferred_value [0,20000].
 const NODES = [
-  { id: 'goal', kind: 'goal', label: 'Programme value', observed_state: { value: 0.4 } },
+  { id: 'goal', kind: 'goal', goal_direction: 'maximise', label: 'Programme value', observed_state: { value: 0.4 } },
   { id: 'cost', kind: 'factor', label: 'First-year cost', observed_state: { value: 30000 } },
   { id: 'churn', kind: 'factor', label: 'Churn count', observed_state: { value: 10000 } },
 ];
@@ -169,7 +171,7 @@ function topLevelConstraint(body: any, cid: string): any {
 //   the only question is compliance.
 // ---------------------------------------------------------------------------
 const CAP_NODES = [
-  { id: 'goal', kind: 'goal', label: 'Programme value', observed_state: { value: 0.4 } },
+  { id: 'goal', kind: 'goal', goal_direction: 'maximise', label: 'Programme value', observed_state: { value: 0.4 } },
   { id: 'cost', kind: 'factor', label: 'First-year cost', observed_state: { value: 60000 } },
   // A SECOND target, so a multi-constraint case has two DISTINCT nodes. Two
   // `<=` constraints on one node resolve to the same (node_id, operator) pair

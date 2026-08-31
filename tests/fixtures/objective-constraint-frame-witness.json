@@ -1,0 +1,489 @@
+{
+  "producer_head": "75d4197caf99fd31fe81188c64cb346c29547717",
+  "source_evidence": "real HTTP ISL through actual PLoT route; no browser or deployment claim",
+  "input": {
+    "graph": {
+      "nodes": [
+        {
+          "id": "driver",
+          "kind": "factor",
+          "label": "Investment",
+          "observed_state": {
+            "value": 0.5,
+            "baseline": 0.5,
+            "std": 0.1
+          },
+          "state_space": {
+            "type": "continuous",
+            "range": {
+              "min": 0,
+              "max": 1
+            }
+          }
+        },
+        {
+          "id": "goal",
+          "kind": "goal",
+          "label": "Outcome",
+          "observed_state": {
+            "value": 0.5,
+            "baseline": 0.5,
+            "raw_value": 50,
+            "cap": 100,
+            "unit": "%"
+          },
+          "goal_direction": "maximise"
+        }
+      ],
+      "edges": [
+        {
+          "from": "driver",
+          "to": "goal",
+          "exists_probability": 1,
+          "strength": {
+            "mean": 1,
+            "std": 0.01
+          }
+        }
+      ]
+    },
+    "options": [
+      {
+        "id": "low",
+        "label": "Low",
+        "interventions": {
+          "driver": 0.1
+        }
+      },
+      {
+        "id": "high",
+        "label": "High",
+        "interventions": {
+          "driver": 0.9
+        }
+      }
+    ],
+    "goal_node_id": "goal",
+    "seed": "42",
+    "n_samples": 400,
+    "detail_level": "quick",
+    "goal_constraints": [
+      {
+        "constraint_id": "budget",
+        "node_id": "goal",
+        "operator": "<=",
+        "value": 20,
+        "value_frame": "level",
+        "unit": "%",
+        "label": "Outcome ceiling"
+      }
+    ]
+  },
+  "request": {
+    "request_id": "78102052-5730-43ad-845b-e6ed46071bed",
+    "graph": {
+      "nodes": [
+        {
+          "id": "driver",
+          "kind": "factor",
+          "label": "Investment",
+          "observed_state": {
+            "value": 0.5,
+            "baseline": 0.5,
+            "std": 0.1
+          },
+          "intercept": 0,
+          "epsilon_std": 0
+        },
+        {
+          "id": "goal",
+          "kind": "goal",
+          "label": "Outcome",
+          "observed_state": {
+            "value": 0.5,
+            "baseline": 0.5,
+            "unit": "%",
+            "raw_value": 50,
+            "cap": 100
+          },
+          "intercept": 0,
+          "epsilon_std": 0
+        }
+      ],
+      "edges": [
+        {
+          "from": "driver",
+          "to": "goal",
+          "exists_probability": 1,
+          "strength": {
+            "mean": 1,
+            "std": 0.05
+          }
+        }
+      ]
+    },
+    "options": [
+      {
+        "id": "low",
+        "label": "Low",
+        "interventions": {
+          "driver": 0.1
+        }
+      },
+      {
+        "id": "high",
+        "label": "High",
+        "interventions": {
+          "driver": 0.9
+        }
+      }
+    ],
+    "goal_node_id": "goal",
+    "n_samples": 400,
+    "analysis_types": [
+      "comparison",
+      "sensitivity",
+      "robustness"
+    ],
+    "parameter_uncertainties": [
+      {
+        "node_id": "driver",
+        "distribution": "normal",
+        "std": 0.1
+      }
+    ],
+    "include_e_values": true,
+    "include_voi": true,
+    "include_factor_flips": true,
+    "goal_direction": "maximise",
+    "goal_constraints": [
+      {
+        "constraint_id": "budget",
+        "node_id": "goal",
+        "operator": "<=",
+        "value": 0.2,
+        "label": "Outcome ceiling",
+        "value_frame": "level"
+      }
+    ],
+    "seed": "42"
+  },
+  "response": {
+    "version": "2.0",
+    "endpoint_version": "analyze/v2",
+    "engine_version": "1.0.0",
+    "build": "dev",
+    "timestamp": "2026-08-30T13:20:41.090597Z",
+    "analysis_status": "computed",
+    "robustness_status": "computed",
+    "factor_sensitivity_status": "computed",
+    "critiques": [
+      {
+        "id": "critique_dc5964378196",
+        "code": "CONSTRAINT_NODE_DEFAULT_BASE",
+        "severity": "warning",
+        "message": "Constraint node 'goal' is the objective node and has no ParameterUncertainty \u2014 defaulted to base=0.0 as expected for a non-root objective; its constraint probability is scored from the modelled outcome distribution, not a missing-data placeholder",
+        "source": "analysis",
+        "affected_node_ids": [
+          "goal"
+        ],
+        "suggestion": "This is expected for a non-root objective node without an explicit baseline. Supply a ParameterUncertainty entry only if you intend an additive exogenous base on top of parent propagation \u2014 the sampled base is ADDED to parent contributions, it does not replace them"
+      }
+    ],
+    "request_echo": {
+      "graph_node_count": 2,
+      "graph_edge_count": 1,
+      "options_count": 2,
+      "goal_node_id_hash": "0304523efff5",
+      "n_samples": 400,
+      "response_version_requested": 2,
+      "include_diagnostics": false
+    },
+    "objective_ranking": {
+      "direction": "maximise",
+      "attested": true,
+      "status": "computed",
+      "ranked_options": [
+        {
+          "option_id": "high",
+          "rank": 1,
+          "win_probability": 1
+        },
+        {
+          "option_id": "low",
+          "rank": 2,
+          "win_probability": 0
+        }
+      ]
+    },
+    "options": [
+      {
+        "id": "low",
+        "label": "Low",
+        "outcome": {
+          "mean": 0.09603500659141748,
+          "std": 0.003093024349610753,
+          "p10": 0.09172974236084112,
+          "p50": 0.09670504780573096,
+          "p90": 0.09933940228050805,
+          "n_samples": 400,
+          "n_valid_samples": 400,
+          "validity_ratio": 1,
+          "percentiles_source": "samples"
+        },
+        "downside": {
+          "cvar_10": 0.08947805349310467,
+          "p05": 0.09002042021223501,
+          "expected_regret": 0.7682800527313398
+        },
+        "win_probability": 0,
+        "constraint_analysis": {
+          "constraints": [
+            {
+              "constraint_id": "budget",
+              "node_id": "goal",
+              "operator": "<=",
+              "threshold": 0.2,
+              "label": "Outcome ceiling",
+              "prob_satisfied": 0.81,
+              "failure_margin_median": 0.04175578193968049,
+              "near_miss_fraction": 0.23684210526315788,
+              "binding": false,
+              "value": 0.2
+            }
+          ],
+          "joint_probability": 0.81
+        },
+        "status": "computed"
+      },
+      {
+        "id": "high",
+        "label": "High",
+        "outcome": {
+          "mean": 0.8643150593227571,
+          "std": 0.027837219146496773,
+          "p10": 0.8255676812475701,
+          "p50": 0.8703454302515785,
+          "p90": 0.8940546205245725,
+          "n_samples": 400,
+          "n_valid_samples": 400,
+          "validity_ratio": 1,
+          "percentiles_source": "samples"
+        },
+        "downside": {
+          "cvar_10": 0.8053024814379419,
+          "p05": 0.8101837819101151,
+          "expected_regret": 0
+        },
+        "win_probability": 1,
+        "constraint_analysis": {
+          "constraints": [
+            {
+              "constraint_id": "budget",
+              "node_id": "goal",
+              "operator": "<=",
+              "threshold": 0.2,
+              "label": "Outcome ceiling",
+              "prob_satisfied": 0,
+              "failure_margin_median": 0.6802231925043613,
+              "near_miss_fraction": 0,
+              "binding": false,
+              "value": 0.2
+            }
+          ],
+          "joint_probability": 0
+        },
+        "status": "computed"
+      }
+    ],
+    "robustness": {
+      "level": "high",
+      "confidence": 1,
+      "confidence_basis": "recommendation_stability_uncalibrated",
+      "fragile_edges": [
+        {
+          "edge_id": "driver->goal",
+          "from_id": "driver",
+          "to_id": "goal",
+          "switch_probability": 0,
+          "marginal_switch_probability": 0
+        }
+      ],
+      "is_robust": true,
+      "fragile_edges_v1": [
+        "driver->goal"
+      ],
+      "robust_edges": [],
+      "recommendation_stability": 1,
+      "edge_e_values": [
+        {
+          "edge_id": "driver->goal",
+          "from_id": "driver",
+          "to_id": "goal",
+          "e_value": 1,
+          "is_unflippable": false,
+          "flip_direction": "decrease",
+          "current_mean": 1,
+          "flip_mean": -2e-06,
+          "alternative_winner_id": "low",
+          "baseline_winner_id": "high",
+          "stability": {
+            "n_seeds": 10,
+            "n_seeds_flipped": 10,
+            "band_min": -2e-06,
+            "band_median": -2e-06,
+            "band_max": -2e-06,
+            "band_width": 0,
+            "seed_flip_means": [
+              -2e-06,
+              -2e-06,
+              -2e-06,
+              -2e-06,
+              -2e-06,
+              -2e-06,
+              -2e-06,
+              -2e-06,
+              -2e-06,
+              -2e-06
+            ]
+          }
+        }
+      ],
+      "edge_sensitivity": [
+        {
+          "edge_id": "driver->goal",
+          "from_id": "driver",
+          "to_id": "goal",
+          "sensitivity_type": "existence",
+          "sensitivity_score": 1,
+          "direction": "positive",
+          "elasticity": 0.9983624291947646,
+          "importance_rank": 1,
+          "interpretation": "Decision is highly sensitive to driver->goal existence - consider validating this relationship"
+        },
+        {
+          "edge_id": "driver->goal",
+          "from_id": "driver",
+          "to_id": "goal",
+          "sensitivity_type": "magnitude",
+          "sensitivity_score": 0.021104778104336096,
+          "direction": "positive",
+          "elasticity": 0.021070217535861465,
+          "importance_rank": 2,
+          "interpretation": "Decision is robust to effect size variation in driver->goal"
+        }
+      ]
+    },
+    "factor_sensitivity": [
+      {
+        "node_id": "driver",
+        "label": "Investment",
+        "sensitivity_score": 0,
+        "importance_score": 1,
+        "elasticity": 0,
+        "elasticity_display": 0,
+        "direction": "negative",
+        "confidence": 0.1,
+        "confidence_source": "bootstrap_sampling",
+        "confidence_provenance": {
+          "method_version": "stability-cv-blend-v1",
+          "calibrated": false
+        },
+        "importance_rank": 1,
+        "observed_value": 0.5,
+        "interpretation": "Decision is robust to Investment value variation",
+        "zero_reason": "intervention_override",
+        "baseline_near_zero": false,
+        "influence_score": 1,
+        "influence_rank": 1,
+        "elasticity_std": 0,
+        "attribution_stability": "negligible",
+        "rank_flip_rate": 0,
+        "stability_method": "bootstrap_20"
+      }
+    ],
+    "inference_warnings": [
+      {
+        "code": "CONSTRAINT_NODE_DEFAULT_BASE",
+        "field": "nodes[goal].base",
+        "detail": {
+          "node_id": "goal",
+          "defaulted_to": 0,
+          "reason": "no_parameter_uncertainty",
+          "base_semantics": "zero_base_offset_plus_parent_propagation",
+          "ancestor_data_gap": [],
+          "message": "Node 'goal' is the objective node and has no ParameterUncertainty \u2014 defaulted to base=0.0 as expected for a non-root objective; its constraint probability is scored from the modelled outcome distribution, not a missing-data placeholder"
+        },
+        "severity": "info"
+      },
+      {
+        "code": "GOAL_OBSERVED_VALUE_UNUSED",
+        "field": "nodes[goal].observed_state.value",
+        "detail": {
+          "node_id": "goal",
+          "observed_value": 0.5,
+          "reason": "non_root_goal_forward_propagation",
+          "message": "Goal node 'goal' is non-root; its distribution is the forward-propagated composition of its parents (doctrine B). The supplied observed_state.value=0.5 is not used as a base for the goal's samples. Use the node's intercept for a fixed exogenous offset."
+        },
+        "severity": "info"
+      }
+    ],
+    "stability_thresholds": {
+      "high_moderate_boundary": 0.1,
+      "moderate_low_boundary": 0.3,
+      "version": "v1.0-operational-defaults",
+      "provisional": true
+    },
+    "p_win_sensitivity": [
+      {
+        "factor_id": "driver",
+        "p_win_delta": 0,
+        "p_win_delta_percentage_points": 0,
+        "current_metric": 0,
+        "perfect_metric": 0,
+        "metric_type": "p_joint_goal",
+        "method": "p_win_delta_at_mean_v1",
+        "n_samples": 400,
+        "status": "below_resolution",
+        "clamped": false,
+        "noise_floor": 0.069296,
+        "noise_floor_method": "z95_worst_case_bernoulli_diff",
+        "labelling_doctrine": "provisional_doctrine_v0"
+      }
+    ],
+    "decision_evpi": 0,
+    "factor_flip_values": [
+      {
+        "factor_id": "driver",
+        "current_value": 0.5,
+        "flip_reason": "structurally_invariant",
+        "baseline_winner_id": "high"
+      }
+    ],
+    "sensitivity_reference_option_id": "low",
+    "auto_noise_applied": false,
+    "sample_population_provenance": {
+      "auto_scaled_noise_applied": false,
+      "calibration_status": "uncalibrated_poc_heuristic",
+      "metric_populations": {
+        "expected_regret": "model_only",
+        "win_probability": "model_only",
+        "factor_evppi": "model_only",
+        "factor_evpc": "model_only",
+        "decision_evpi": "model_only",
+        "p05": "model_only",
+        "p10": "model_only",
+        "p50": "model_only",
+        "p90": "model_only",
+        "mean": "model_only",
+        "cvar_10": "model_only",
+        "probability_of_goal": "model_only"
+      },
+      "unnoised_constraint_node_ids": []
+    },
+    "request_id": "78102052-5730-43ad-845b-e6ed46071bed",
+    "processing_time_ms": 4378,
+    "seed_used": "42",
+    "seed_source": "client_provided"
+  }
+}
