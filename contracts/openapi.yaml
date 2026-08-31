@@ -5770,6 +5770,24 @@ components:
       type: object
       required: [request_schema_version, endpoint_version, preflight_version, request_id, analysis_status, option_comparison_status, robustness_status, drivers_status, critiques, meta, review_cards, fact_objects]
       properties:
+        tie_rate:
+          type: number
+          minimum: 0
+          maximum: 1
+          description: >-
+            ISL's fraction of requested Monte Carlo draws with exactly tied
+            maximum outcomes, before auto-noise. Not a near-tie score or a
+            recommendation. Absent when unavailable; zero is a measured value.
+        edge_existence_rates:
+          type: object
+          additionalProperties:
+            type: number
+            minimum: 0
+            maximum: 1
+          description: >-
+            ISL's realised edge inclusion frequencies, keyed by unchanged
+            from->to edge IDs. Absent when unavailable; an empty map is a
+            computed empty population. No scientific interpretation is added.
         request_schema_version:
           type: string
           enum: ['v3']

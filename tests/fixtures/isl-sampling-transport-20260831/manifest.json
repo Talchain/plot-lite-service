@@ -1,0 +1,12 @@
+{
+  "fixture_sha256": {
+    "frequent_ties.json": "c9bf981761a1d7f4e8095a3d551a2d4f5973093c4e05afef2ad550cdff631134",
+    "no_ties.json": "f3de98b37db6648aa5967aac5f8d415430eebb75928dc54e3358de8cd3905dbd",
+    "not_computed.json": "1ab17e645fbd65d703465b6d4a0d02b1986b18dac254c6839ec1b63ee1873dd3",
+    "old_producer.json": "42e86f04fc6ef3f8051e140237ca500ee8ccf94445fa2720bf18df403bd82257",
+    "rare_ties.json": "3e437db7f8ebdac3bb118ba83195a218f7afd760151feec40e525c1e859cd35e"
+  },
+  "producer_head": "abe1d526916a078cecc425ff3f2d869922167dac",
+  "source_diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+  "uncommitted_source": false
+}

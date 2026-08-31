@@ -1150,6 +1150,17 @@ export interface V2RunError {
  * V2 Run Response with explicit status flags.
  */
 export interface RunResponseV3 {
+  /**
+   * ISL's fraction of requested Monte Carlo draws with exactly tied maximum
+   * outcomes, before auto-noise. Not a near-tie score or recommendation signal.
+   * Absent when the producer did not supply a valid measurement; zero is real.
+   */
+  tie_rate?: number;
+  /**
+   * ISL's realised edge inclusion frequencies, keyed by unchanged `from->to`
+   * IDs. A computed empty map is distinct from an unavailable/absent map.
+   */
+  edge_existence_rates?: Record<string, number>;
   /** Request schema version */
   request_schema_version: 'v3';
   /** Endpoint version */
@@ -2634,6 +2645,8 @@ export interface StabilityThresholds {
 
 /** Valid inference warning codes (PLoT-originated) */
 export const INFERENCE_WARNING_CODES = {
+  /** Optional enhanced-ISL sampling measurement rejected without fabricating a replacement. */
+  ISL_SAMPLING_DIAGNOSTICS_INVALID: 'ISL_SAMPLING_DIAGNOSTICS_INVALID',
   /** ISL returned factor-level 3C fields but stability_thresholds was absent or malformed */
   STABILITY_THRESHOLDS_MISSING: 'STABILITY_THRESHOLDS_MISSING',
   /**

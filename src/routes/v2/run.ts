@@ -106,7 +106,7 @@ import {
 import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js';
 import type { RobustnessDataForCee } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue } from '../../integrations/isl/types/isl-types.js';
-import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures } from '../../integrations/isl/v2-envelope.js';
+import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures, getIslSamplingDiagnostics } from '../../integrations/isl/v2-envelope.js';
 import { V2_RUN_ALLOWED_KEYS, islEnrichmentPassthrough } from './run-contract-keys.js';
 import { assessIslWireGeneration, logIslWireGenerationUnverified } from '../../integrations/isl/wire-generation.js';
 import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
@@ -3718,6 +3718,15 @@ function buildResponse(
   const stabilityThresholdsExtracted = extractStabilityThresholds(islResult);
   const inferenceWarnings: InferenceWarning[] = [];
 
+  const samplingDiagnostics = getIslSamplingDiagnostics(islResult);
+  if (samplingDiagnostics.invalid_fields.length > 0) {
+    inferenceWarnings.push({
+      code: INFERENCE_WARNING_CODES.ISL_SAMPLING_DIAGNOSTICS_INVALID,
+      message: `ISL sampling measurements unavailable: invalid ${samplingDiagnostics.invalid_fields.join(', ')}`,
+      severity: 'warning',
+    });
+  }
+
   // Emit warning when ISL returned factor-level 3C fields but stability_thresholds
   // was absent or malformed — helps diagnose missing threshold classification context.
   if (!stabilityThresholdsExtracted) {
@@ -4125,6 +4134,10 @@ function buildResponse(
   const downstreamCallsForLog = getDownstreamCallsForLog(requestId);
 
   const response: RunResponseV3 = {
+    // Enhanced ISL measurements, validated without defaulting or interpretation.
+    // Top-level content participates in response_content_hash; request hashing
+    // and scientific/recommendation policy are unchanged.
+    ...samplingDiagnostics.values,
     request_schema_version: 'v3',
     endpoint_version: 'v2/run',
     preflight_version: PREFLIGHT_VERSION_VALUE,
