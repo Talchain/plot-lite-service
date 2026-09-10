@@ -70,8 +70,8 @@ describe('defaulted_assumptions[].factor_id — join key', () => {
     expect(row.source).toBe('value_defaulted');
     expect(row.doctrine).toBe('provisional_doctrine_v0');
     expect(row.note).toBe(
-      'No starting value was provided for "Market Size" — the analysis used a default. ' +
-        'Setting a real value or range would make this result more trustworthy.',
+      'No starting value was provided for "Market Size", so the analysis used a default. ' +
+        'Setting a real value or range would make this more trustworthy.',
     );
     // The label is NOT silently replaced by the id.
     expect(row.factor_label).not.toBe(row.factor_id);

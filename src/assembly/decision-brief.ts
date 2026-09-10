@@ -47,6 +47,7 @@ import { filterInterventionOverrides, interventionOverrideFactorIds, filterLever
 // — the caveat's flip claim derives its status here, never re-reads
 // flip_reason strings (the hand-maintained-mirror defect class).
 import { classifyFlipThresholdsStatus } from '../lib/flip-threshold-status.js';
+import { GOAL_FIT_PHRASE } from '../constants/result-voice.js';
 
 // =============================================================================
 // Constants
@@ -689,7 +690,7 @@ function buildDefaultedAssumptions(input: BriefAssemblyInput): BriefDefaultedAss
       factor_id: f.factor_id,
       factor_label: label,
       // provisional_doctrine_v0
-      note: `No starting value was provided for "${label}" — the analysis used a default. Setting a real value or range would make this result more trustworthy.`,
+      note: `No starting value was provided for "${label}", so the analysis used a default. Setting a real value or range would make this more trustworthy.`,
       source: 'value_defaulted',
       doctrine: 'provisional_doctrine_v0',
     });
@@ -729,11 +730,11 @@ const FLIP_EVIDENCE_CLAIMS: Record<
   string
 > = {
   all_no_effect:
-    'None of the factors we could test changed which option leads on its own.',
+    `Varying any one of the factors we could test did not change ${GOAL_FIT_PHRASE}.`,
   computed:
-    'Changing at least one tested factor on its own could change which option leads.',
+    `Changing at least one tested factor on its own could change ${GOAL_FIT_PHRASE}.`,
   partial_no_effect:
-    'Changing at least one tested factor on its own could change which option leads; the other factors we could test could not.',
+    `Changing at least one tested factor on its own could change ${GOAL_FIT_PHRASE}. The other factors we could test could not.`,
 };
 
 /**
@@ -754,12 +755,18 @@ const FLIP_EVIDENCE_CLAIMS: Record<
  *                               that classifier exists to prevent).
  *
  * The caveat was previously composed from marginals ALONE, so a payload whose
- * flip evidence attested "no tested factor can flip the leader" could carry a
- * caveat claiming "small changes … could change which option leads" — the
- * self-contradiction the display verdict's reason fixed in ROADMAP 2.278.
- * The fix here is the same shape: on an ATTESTED no-flip, claim 1 keeps its
- * marginal verdict but drops the flip language its own payload refutes; the
- * flip statement lives only in claim 2, scoped to the probed set.
+ * flip evidence attested "no tested factor can flip the answer" could carry a
+ * caveat claiming "small changes ... could change" it, the self-contradiction
+ * the display verdict's reason fixed in ROADMAP 2.278. The fix here is the same
+ * shape: on an ATTESTED no-flip, claim 1 keeps its marginal verdict but drops
+ * the change language its own payload refutes; the change statement lives only
+ * in claim 2, scoped to the probed set.
+ *
+ * ⚠ VOICE (2026-09-10, Paul's ruling). Both claims are stated about THIS RUN
+ * and THIS RUN'S DATA, never as a verdict on a contest between the options.
+ * Where a sentence has to say the answer could move, it names {@link
+ * GOAL_FIT_PHRASE} rather than a leader, and no sentence on this surface uses
+ * an em dash.
  */
 function buildRobustnessCaveat(input: BriefAssemblyInput): BriefRobustnessCaveat {
   const robustness = input.robustness;
@@ -774,32 +781,32 @@ function buildRobustnessCaveat(input: BriefAssemblyInput): BriefRobustnessCaveat
   const attestedNoFlip = flipStatus === 'all_no_effect';
 
   // provisional_doctrine_v0 wording matrix for claim 1. The two branches that
-  // used to assert "small changes to assumptions could change which option
-  // leads" switch to flip-free stability wording when this run's own evidence
-  // attests no tested factor can flip the leader. The verdict itself ("did
+  // assert "small changes to your assumptions could change ${GOAL_FIT_PHRASE}"
+  // switch to change-free stability wording when this run's own evidence
+  // attests no tested factor can move the answer. The verdict itself ("did
   // not pass" / "fragile") is a marginal claim and NEVER moves on flip
   // evidence (same invariant as the display verdict).
   let text: string;
   if (basis === 'absent') {
-    text = 'Robustness was not assessed for this run — treat the ranking as unverified against perturbations.';
+    text = 'We did not stress-test this run. Nothing here has been checked against changes in your inputs.';
   } else if (isRobust === true || (isRobust === undefined && level === 'high')) {
-    text = 'This ranking held up under the perturbations tested. That is not a guarantee — defaulted or uncertain inputs can still change the result.';
+    text = 'This run held up under the changes we tested. That is not a guarantee. Defaulted or uncertain inputs could still change it.';
   } else if (isRobust === false && level === undefined) {
     text = attestedNoFlip
-      ? 'This ranking did not pass the robustness checks — it scored low on the stability measures tested.'
-      : 'This ranking did not pass the robustness checks — small changes to assumptions could change which option leads.';
+      ? 'This run did not pass our stability checks. It scored low on the measures we tested.'
+      : `This run did not pass our stability checks. Small changes to your assumptions could change ${GOAL_FIT_PHRASE}.`;
   } else if (level === 'medium' || level === 'moderate') {
-    text = 'This ranking was only moderately stable under the perturbations tested — treat the lead as provisional.';
+    text = 'This run was only moderately stable under the changes we tested. Treat it as provisional.';
   } else if (level === 'low' || level === 'very_low') {
     text = attestedNoFlip
-      ? 'This ranking was fragile under the perturbations tested — it scored low on the stability measures tested.'
-      : 'This ranking was fragile under the perturbations tested — small changes to assumptions could change which option leads.';
+      ? 'This run was fragile under the changes we tested. It scored low on the stability measures.'
+      : `This run was fragile under the changes we tested. Small changes to your assumptions could change ${GOAL_FIT_PHRASE}.`;
   } else {
     // is_robust === false with a level that is not low/very_low, or an
-    // unrecognised level value — state the weaker of the two signals.
+    // unrecognised level value: state the weaker of the two signals.
     text = attestedNoFlip
-      ? 'This ranking did not pass the robustness checks — it scored low on the stability measures tested.'
-      : 'This ranking did not pass the robustness checks — small changes to assumptions could change which option leads.';
+      ? 'This run did not pass our stability checks. It scored low on the measures we tested.'
+      : `This run did not pass our stability checks. Small changes to your assumptions could change ${GOAL_FIT_PHRASE}.`;
   }
 
   // Claim 2 — present ONLY when the probes support a claim.

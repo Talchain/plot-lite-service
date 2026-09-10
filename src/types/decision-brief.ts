@@ -202,15 +202,21 @@ export interface BriefDefaultedAssumption {
 
 export interface BriefRobustnessCaveat {
   /**
-   * CLAIM 1 — aggregate stability under the perturbations tested, derived
+   * CLAIM 1 — aggregate stability under the changes tested, derived
    * from the robustness MARGINALS (is_robust / level). provisional_doctrine_v0
    * wording — honest, no invented certainty.
    *
    * ROADMAP 2.1247: when the same run's flip evidence ATTESTS that no tested
-   * factor flips the leader (`all_no_effect`), this claim keeps its marginal
-   * verdict but drops the flip language ("small changes … could change which
-   * option leads") that the payload's own evidence refutes — the same
-   * correction `display_verdict_reason` received in ROADMAP 2.278.
+   * factor can move the answer (`all_no_effect`), this claim keeps its marginal
+   * verdict but drops the change language ("small changes ... could change
+   * which option is most likely to achieve your goal") that the payload's own
+   * evidence refutes — the same correction `display_verdict_reason` received in
+   * ROADMAP 2.278.
+   *
+   * ⚠ VOICE (2026-09-10): the phrase is `GOAL_FIT_PHRASE`
+   * (`src/constants/result-voice.ts`) and is INTERPOLATED, never retyped. It
+   * anchors the claim to the user's goal rather than to a contest between the
+   * options, and it is not a rename of the `band` wire enum.
    */
   text: string;
   /**

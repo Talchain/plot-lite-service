@@ -42,6 +42,7 @@
 
 import type { DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
 import { classifyFlipThresholdsStatus } from '../../lib/flip-threshold-status.js';
+import { GOAL_FIT_PHRASE } from '../../constants/result-voice.js';
 
 /** The four display-safe verdict values. Additive /v2/run wire enum. */
 export type RobustnessDisplayVerdict =
@@ -97,10 +98,32 @@ export const ROBUSTNESS_DISPLAY_VERDICT_REASONS: Record<
  * factor in the graph. ISL emits flip-threshold rows only for ELIGIBLE ROOT
  * factors carrying observed values/uncertainty (robustness_analyzer_v2.py
  * factor-eligibility selection, ISL tip f35975dc), so a non-root or unobserved
- * factor was never probed and may still flip the leading option. The
- * attestation is real but its scope is the PROBED SET; the copy now says
- * "the factors we could test" so the claim matches the measurement. Same
- * claim-safety rules as every reason here: one short phrase, no numbers.
+ * factor was never probed and may still move the answer. The attestation is
+ * real but its scope is the PROBED SET; the copy says "the factors we could
+ * test" so the claim matches the measurement. Same claim-safety rules as every
+ * reason here: one short phrase, no numbers.
+ *
+ * ⚠ 2.292's scoping SURVIVES the 2026-09-10 voice change below, deliberately.
+ * The natural phrasing for the new voice is "no single factor we tested", and
+ * `S3`/`S4` in `robustness-display-verdict.flip-evidence.test.ts` RED on a bare
+ * "no single factor" because that regex cannot tell the universal claim from a
+ * scoped one. Two rulings, two questions (trap 21): 2.292 governs the SCOPE of
+ * the attestation, the ruling below governs WHAT THE CLAIM IS ABOUT. Changing
+ * the scope wording to suit the voice would silently reopen an overclaim that
+ * was measured and closed.
+ *
+ * ⚠ VOICE (2026-09-10, Paul's ruling). Both strings named the leading option's
+ * position: "changed WHICH OPTION LEADS" states the analysis as a contest with
+ * a front-runner, and there is never a winner. They now name the same fact
+ * against the user's goal: "changed which option is most likely to achieve your
+ * goal". This is not a banned-words substitution (renaming `leads` to `ahead`
+ * would keep the race) — it re-anchors the claim from option-versus-option to
+ * option-versus-the-user's-goal, which is what they asked and what the model
+ * can honestly speak to. The `display_verdict` WIRE ENUM is untouched.
+ *
+ * ⚠ These strings are rendered VERBATIM as a "·"-separated meta segment (UI
+ * `postAnalysisFooter.ts`), so they stay LOWERCASE, unterminated fragments and
+ * carry no em dash.
  *
  * `robust` and `not_assessed` are intentionally absent — neither original
  * carries flip language, so neither has anything to correct, and restating
@@ -110,9 +133,9 @@ export const ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP: Partial<
   Record<RobustnessDisplayVerdict, string>
 > = {
   fragile:
-    'none of the factors we could test changed which option leads on its own, but this result scored low on our other robustness checks',
+    `varying any one of the factors we could test did not change ${GOAL_FIT_PHRASE}, but this result scored low on our other robustness checks`,
   moderate:
-    'none of the factors we could test changed which option leads on its own, and this result mostly held up under the other changes we tested',
+    `varying any one of the factors we could test did not change ${GOAL_FIT_PHRASE}, and this result mostly held up under the other changes we tested`,
 };
 
 /**

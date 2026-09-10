@@ -1290,13 +1290,13 @@
       {
         "factor_id": "fac_team_maturity",
         "factor_label": "Team Technical Maturity",
-        "note": "No starting value was provided for \"Team Technical Maturity\" — the analysis used a default. Setting a real value or range would make this result more trustworthy.",
+        "note": "No starting value was provided for \"Team Technical Maturity\", so the analysis used a default. Setting a real value or range would make this more trustworthy.",
         "source": "value_defaulted",
         "doctrine": "provisional_doctrine_v0"
       }
     ],
     "robustness_caveat": {
-      "text": "This ranking was fragile under the perturbations tested — small changes to assumptions could change which option leads.",
+      "text": "This run was fragile under the changes we tested. Small changes to your assumptions could change which option is most likely to achieve your goal.",
       "basis": "is_robust",
       "doctrine": "provisional_doctrine_v0"
     },
