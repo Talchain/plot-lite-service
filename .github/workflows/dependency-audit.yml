@@ -22,5 +22,12 @@ jobs:
         run: npm ci
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # Runs BEFORE the audit on purpose. `npm audit` only notices a broken override once an
+      # advisory happens to exist for whatever got resolved instead; this gate notices the moment
+      # an override stops applying, or is pinned to a shape that cannot absorb a patched release.
+      # `--self-test` runs its own discriminating controls first, so a gate that has silently
+      # stopped discriminating fails here rather than passing quietly.
+      - name: Assert security overrides are in effect
+        run: node tools/ci/overrides-effective-gate.mjs --self-test && node tools/ci/overrides-effective-gate.mjs
       - name: Audit production dependencies
         run: npm audit --omit=dev --audit-level=high
