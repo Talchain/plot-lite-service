@@ -788,7 +788,13 @@ function buildRobustnessCaveat(input: BriefAssemblyInput): BriefRobustnessCaveat
   // evidence (same invariant as the display verdict).
   let text: string;
   if (basis === 'absent') {
-    text = 'We did not stress-test this run. Nothing here has been checked against changes in your inputs.';
+    // ⚠ KEEP THE LITERAL "not assessed". `decision-brief.claim-safety.test.ts`
+    // pins it as an HONESTY invariant: the absent-basis branch must SAY
+    // robustness was not assessed rather than implying stability. A first
+    // draft of the 2026-09-10 voice change reworded this to "We did not
+    // stress-test this run" and RED that guard — correctly. This branch never
+    // carried race framing; only the em dash and "the ranking" needed to go.
+    text = 'Robustness was not assessed for this run. Nothing here has been checked against changes in your inputs.';
   } else if (isRobust === true || (isRobust === undefined && level === 'high')) {
     text = 'This run held up under the changes we tested. That is not a guarantee. Defaulted or uncertain inputs could still change it.';
   } else if (isRobust === false && level === undefined) {

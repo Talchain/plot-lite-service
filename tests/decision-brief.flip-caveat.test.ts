@@ -34,7 +34,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { assembleBrief, GOAL_FIT_PHRASE, type BriefAssemblyInput } from '../src/assembly/decision-brief.js';
+import { assembleBrief, type BriefAssemblyInput } from '../src/assembly/decision-brief.js';
+import { GOAL_FIT_PHRASE } from '../src/constants/result-voice.js';
 import { classifyFlipThresholdsStatus } from '../src/lib/flip-threshold-status.js';
 import type { DenormalisedFlipThreshold } from '../src/lib/flip-threshold-denormaliser.js';
 
