@@ -153,7 +153,12 @@ function makeOptions(gap: number) {
   ];
 }
 
-function makeInputs(gap: number, robustLevel: 'high' | 'moderate' | 'low' | 'very_low' | undefined, isRobust: boolean | undefined): CoachingInputs {
+function makeInputs(
+  gap: number,
+  robustLevel: 'high' | 'moderate' | 'low' | 'very_low' | undefined,
+  isRobust: boolean | undefined,
+  stability = 0.6,
+): CoachingInputs {
   return {
     factorSensitivity: [
       {
@@ -164,7 +169,7 @@ function makeInputs(gap: number, robustLevel: 'high' | 'moderate' | 'low' | 'ver
     fragileEdges: [],
     options: makeOptions(gap),
     graph: { nodes: [], edges: [] } as any,
-    robustness: { level: robustLevel, recommendationStability: 0.6, isRobust },
+    robustness: { level: robustLevel, recommendationStability: stability, isRobust },
     interventionTargetIds: new Set<string>(),
   } as CoachingInputs;
 }
@@ -175,8 +180,8 @@ const HEADLINE_TYPES: HeadlineType[] = [
 const READINESSES: Readiness[] = ['ready', 'close_call', 'needs_evidence', 'needs_framing'];
 const TONES: ReadinessTone[] = ['confident', 'tempered', 'caution'];
 
-function tone(t: ReadinessTone): ReadinessToneResult {
-  return { tone: t, reasons: t === 'confident' ? [] : ['EVIDENCE_GAPS'] };
+function tone(t: ReadinessTone, withReasons = true): ReadinessToneResult {
+  return { tone: t, reasons: t === 'confident' || !withReasons ? [] : ['EVIDENCE_GAPS'] };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -259,26 +264,93 @@ describe('emitted copy carries no race framing', () => {
 
   // ─── generateNextActions: headlineType × tone × gap ───
   describe('generateNextActions', () => {
+    // ⭐ `withReasons` is a MEASURED necessity, not thoroughness. The priority-7
+    // rationale has two shapes — one interpolating a reason summary and one
+    // bare fallback for when there is none. A matrix that always supplies a
+    // reason NEVER EXECUTES the fallback: proven by mutant M3, which restored
+    // "currently leads by N points" at exactly that site and SURVIVED.
     for (const ht of HEADLINE_TYPES) {
       for (const t of TONES) {
-        it(`${ht} / ${t}`, () => {
-          const actions = generateNextActions(
-            makeInputs(0.04, 'high', true), ht, [], [], tone(t),
-          );
-          assertNoRaceFraming(collectProse(actions, 'next_actions'), `${ht}/${t}`);
-        });
+        for (const withReasons of [true, false]) {
+          it(`${ht} / ${t} / reasons=${withReasons}`, () => {
+            const actions = generateNextActions(
+              makeInputs(0.04, 'high', true), ht, [], [], tone(t, withReasons),
+            );
+            assertNoRaceFraming(collectProse(actions, 'next_actions'), `${ht}/${t}/${withReasons}`);
+          });
+        }
       }
     }
+
+    // COVERAGE PIN: the bare fallback rationale must actually be produced by
+    // this matrix. Without it the sweep above could stop reaching that site
+    // and stay green — the exact way M3 survived.
+    it('COVERAGE: the matrix reaches the bare (no-reason-summary) rationale', () => {
+      const rationales: string[] = [];
+      for (const ht of HEADLINE_TYPES) {
+        for (const t of TONES) {
+          for (const withReasons of [true, false]) {
+            for (const a of generateNextActions(makeInputs(0.04, 'high', true), ht, [], [], tone(t, withReasons))) {
+              rationales.push(a.rationale);
+            }
+          }
+        }
+      }
+      expect(
+        rationales.some((r) => /produce the best outcome by \d+ points$/.test(r)),
+        'the bare priority-7 rationale must be reached, or its emission site is unswept',
+      ).toBe(true);
+    });
   });
 
   // ─── generateHeadlines: across gaps that select each template ───
   describe('generateHeadlines', () => {
-    for (const gap of [0.6, 0.3, 0.12, 0.02]) {
-      it(`gap ${gap}`, () => {
-        const headlines = generateHeadlines(makeInputs(gap, 'high', true));
-        assertNoRaceFraming(collectProse(headlines, 'headlines'), `gap ${gap}`);
+    // ⭐ STABILITY IS A SELECTOR, NOT DECORATION. `clear_winner` requires
+    // winProbDelta >= 0.20 AND stability >= 0.70 (thresholds.ts). A matrix
+    // pinned at stability 0.6 NEVER SELECTS IT — proven by mutant M4, which
+    // restored "{option} outperforms by ..." and SURVIVED. Each row below
+    // names the template it is there to reach.
+    const SHAPES: Array<{ gap: number; stability: number; reaches: string }> = [
+      { gap: 0.6, stability: 0.9, reaches: 'clear_winner' },
+      { gap: 0.3, stability: 0.9, reaches: 'clear_winner' },
+      { gap: 0.3, stability: 0.6, reaches: 'moderate_winner' },
+      { gap: 0.12, stability: 0.6, reaches: 'moderate_winner' },
+      { gap: 0.02, stability: 0.9, reaches: 'close_call' },
+      { gap: 0.02, stability: 0.6, reaches: 'close_call' },
+    ];
+    for (const sh of SHAPES) {
+      it(`gap ${sh.gap} / stability ${sh.stability} (${sh.reaches})`, () => {
+        const headlines = generateHeadlines(makeInputs(sh.gap, 'high', true, sh.stability));
+        assertNoRaceFraming(collectProse(headlines, 'headlines'), `gap ${sh.gap}/${sh.stability}`);
       });
     }
+
+    // COVERAGE PIN, by the templates' own distinctive tails. A template this
+    // matrix stops selecting is an unswept emission site, and this fails first.
+    it('COVERAGE: the matrix reaches every headline template', () => {
+      const seen = new Set<string>();
+      const MARKERS: Array<[string, RegExp]> = [
+        ['clear_winner', /with high confidence$/],
+        ['moderate_winner', /though some uncertainty remains$/],
+        ['close_call', /margin is within uncertainty$/],
+        ['high_uncertainty', /could swing the outcome to /],
+      ];
+      const fragile = {
+        edgeId: 'e1', fromId: 'f1', toId: 'goal', fromLabel: 'Cost', toLabel: 'Goal',
+        displayLabel: 'Cost → Goal', switchProb: 0.4, altWinnerId: 'opt-b', altWinnerLabel: 'Option B',
+      };
+      const shapes = [
+        ...SHAPES.map((sh) => makeInputs(sh.gap, 'high', true, sh.stability)),
+        { ...makeInputs(0.3, 'high', true, 0.9), fragileEdges: [fragile] } as CoachingInputs,
+      ];
+      for (const inputs of shapes) {
+        for (const text of Object.values(generateHeadlines(inputs))) {
+          for (const [name, rx] of MARKERS) if (typeof text === 'string' && rx.test(text)) seen.add(name);
+        }
+      }
+      expect([...seen].sort(), 'every headline template must be reached by this matrix')
+        .toEqual(['clear_winner', 'close_call', 'high_uncertainty', 'moderate_winner']);
+    });
   });
 
   // ─── assembleBrief: band × robustness × flip evidence ───
