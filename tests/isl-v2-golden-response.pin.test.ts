@@ -564,6 +564,37 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //                                   change exists to clean.
     //                                   `response_hash` is UNMOVED (the REQUEST
     //                                   did not change).)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:46811083e96c4b1e');
+    //  voice-  rch_v2:7808417f1dad7883 (Result voice re-anchored to the
+    //  2026-                           user's goal, 2026-09-10 — a COPY move
+    //  09-10                           and nothing else. Paul's ruling: the
+    //                                  analysis is never a race, so no
+    //                                  user-facing string may name a leader;
+    //                                  and no em dashes. Producer copy IS
+    //                                  hashed content, so the derived hash
+    //                                  moves. The golden diff is EXACTLY two
+    //                                  string values plus this hash —
+    //                                  `decision_brief.robustness_caveat.text`
+    //                                  and one `defaulted_assumptions[].note`
+    //                                  (em dash). No option row, probability,
+    //                                  label, factor id, ordering or key
+    //                                  moved, and `response_hash` is UNMOVED
+    //                                  (the REQUEST did not change).)
+    //  voice-  rch_v2:a37066d3dad670d9 (SECOND regeneration for the same
+    //  base-   ruling, 2026-09-10, after review found the first pass had
+    //  record  moved the ATTESTED-no-flip reasons and the brief while
+    //  2026-   leaving `ROBUSTNESS_DISPLAY_VERDICT_REASONS` untouched. That
+    //  09-10   base record is the `??` fallback for every non-attested run,
+    //          i.e. the majority branch and the one the deployed footer
+    //          renders, and this golden is exactly such a run. The golden diff
+    //          is EXACTLY ONE string value plus this hash:
+    //          `robustness.display_verdict_reason`, fragile branch,
+    //          'small changes could flip this result' →
+    //          'small changes to your assumptions could change which option is
+    //          most likely to achieve your goal'. No option row, probability,
+    //          label, factor id, ordering or key moved; the four ISL captures
+    //          in this fixture directory are byte-unchanged (sha256 verified
+    //          before and after regeneration); and `response_hash` is UNMOVED
+    //          (the REQUEST did not change).)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:a37066d3dad670d9');
   });
 });

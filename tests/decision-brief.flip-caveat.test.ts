@@ -3,14 +3,21 @@
  *
  * The caveat used to be composed from robustness MARGINALS alone
  * (is_robust / level); per-factor flip evidence in the SAME response could
- * attest that no tested factor flips the leader while the caveat claimed
- * "small changes to assumptions could change which option leads" — the same
+ * attest that no tested factor can move the answer while the caveat claimed
+ * "small changes to your assumptions could change" it, the same
  * self-contradiction the display verdict fixed for its reason string
  * (ROADMAP 2.278, witness-2267-onscreen-flip.md).
  *
+ * ⚠ The copy was re-anchored to the user's goal on 2026-09-10 (Paul's ruling:
+ * the analysis is never a race and there is never a winner, so no sentence may
+ * frame it as one). The INVARIANTS here are unchanged — they are about which
+ * claim may be made, not about how it is worded — but `FLIP_CLAIM` is now
+ * derived from the exported copy so it cannot go vacuous when the wording moves
+ * again.
+ *
  * SPEC (what the consumer of the brief is entitled to): the caveat is TWO
  * NAMED CLAIMS that cannot contradict each other —
- *   claim 1 (`text`)          — aggregate stability under the perturbations
+ *   claim 1 (`text`)          — aggregate stability under the changes
  *                               tested (marginals scope);
  *   claim 2 (`flip_evidence`) — what this run's per-factor flip probes
  *                               attest (probed-set scope). Present ONLY when
@@ -28,6 +35,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { assembleBrief, type BriefAssemblyInput } from '../src/assembly/decision-brief.js';
+import { GOAL_FIT_PHRASE } from '../src/constants/result-voice.js';
 import { classifyFlipThresholdsStatus } from '../src/lib/flip-threshold-status.js';
 import type { DenormalisedFlipThreshold } from '../src/lib/flip-threshold-denormaliser.js';
 
@@ -92,8 +100,56 @@ function buildInput(
   } as BriefAssemblyInput;
 }
 
-/** The flip-language predicate claim 1 must never use against an attested no-flip. */
-const FLIP_CLAIM = /change which option leads|flip/i;
+/**
+ * The change-language predicate claim 1 must never use against an attested
+ * no-flip.
+ *
+ * ⚠ DERIVED FROM THE COPY, NOT MIRRORED (trap 12b). This used to read
+ * `/change which option leads|flip/i`, hand-typed beside the strings it
+ * polices. When the 2026-09-10 voice ruling re-anchored those strings to the
+ * user's goal, a hand-typed regex would have kept passing while testing
+ * nothing: `not.toMatch(/which option leads/)` is trivially true of copy that
+ * no longer contains the phrase, so every attestation invariant below would
+ * have gone vacuous silently. Building the predicate from the exported
+ * `GOAL_FIT_PHRASE` means the guard cannot survive a wording change it did not
+ * follow.
+ */
+const FLIP_CLAIM = new RegExp(
+  `change ${GOAL_FIT_PHRASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|flip`,
+  'i',
+);
+
+/**
+ * ⇄ THE OTHER DIRECTION, and why `FLIP_CLAIM` alone could never see it.
+ *
+ * `FLIP_CLAIM` stops claim 1 ASSERTING a change this payload's own evidence
+ * refutes. It says nothing about claim 1 DENYING that anything was tested, and
+ * `basis` (marginals) and the flip status (per-factor probes) are derived
+ * INDEPENDENTLY — so the absent-basis branch can ship in the same object as a
+ * claim 2 attesting that factors were varied and probed. The domain sweep below
+ * generates that exact cell (`is_robust` absent × `level` absent ×
+ * `all_attested`) and it PASSED, because a guard watching one door reports the
+ * room clear (CLAUDE.md trap 22b).
+ *
+ * A universal "nothing was checked" is the forbidden class. It cannot be
+ * derived from the emitted copy — there is no constant for a sentence we refuse
+ * to say — so it is written as a corpus predicate and PINNED BY A POSITIVE
+ * CONTROL against the exact sentence that shipped on this branch before the
+ * repair. Loosen the predicate until it stops seeing that sentence and the
+ * control REDs (trap 13: an absence assertion with no positive control is
+ * vacuous).
+ */
+const NO_TESTING_CLAIM =
+  /\bnothing\b[^.]*\b(?:has been|have been|was|were)\s+(?:checked|tested|assessed|measured)\b/i;
+
+/**
+ * HISTORIC RECORD, append-only (CLAUDE.md trap 14b). The absent-basis sentence
+ * as it stood at `fdded64e`, before this repair. It exists here as the positive
+ * control for `NO_TESTING_CLAIM` and must never be edited to track new copy —
+ * editing it would falsify the record AND hollow out the control in one move.
+ */
+const HISTORIC_ABSENT_BASIS_TEXT_FDDED64E =
+  'Robustness was not assessed for this run. Nothing here has been checked against changes in your inputs.';
 
 // =============================================================================
 // The witnessed contradiction class (named cases)
@@ -109,7 +165,7 @@ describe('robustness_caveat — attested no-flip evidence (2.1247)', () => {
     // Claim 1 keeps its marginal-scoped verdict but must not assert the flip
     // this same payload's evidence refutes.
     expect(caveat!.text).not.toMatch(FLIP_CLAIM);
-    expect(caveat!.text).toContain('perturbations tested');
+    expect(caveat!.text).toContain('changes we tested');
     // Claim 2 carries the attestation, scoped to the probed set (2.292 scoping).
     expect(caveat!.flip_evidence).toBeDefined();
     expect(caveat!.flip_evidence!.status).toBe('all_no_effect');
@@ -130,34 +186,58 @@ describe('robustness_caveat — attested no-flip evidence (2.1247)', () => {
     const caveat = brief?.robustness_caveat;
     expect(caveat!.flip_evidence).toBeDefined();
     expect(caveat!.flip_evidence!.status).toBe('computed');
-    expect(caveat!.flip_evidence!.text).toMatch(/change which option leads/);
+    expect(caveat!.flip_evidence!.text).toContain(`change ${GOAL_FIT_PHRASE}`);
     // Aggregate claim keeps its original wording — consistent with the evidence.
-    expect(caveat!.text).toContain('fragile under the perturbations tested');
+    expect(caveat!.text).toContain('fragile under the changes we tested');
   });
 
   it('partial no-effect (computed + attested rest) carries its own claim', () => {
     const brief = assembleBrief(buildInput({ level: 'medium' }, [computedFlipRow('f1'), attestedNoFlipRow('f2')]));
     const caveat = brief?.robustness_caveat;
     expect(caveat!.flip_evidence!.status).toBe('partial_no_effect');
-    expect(caveat!.flip_evidence!.text).toMatch(/change which option leads/);
+    expect(caveat!.flip_evidence!.text).toContain(`change ${GOAL_FIT_PHRASE}`);
   });
 
   it('unresolved probes attest nothing: no flip_evidence claim, wording unchanged', () => {
     const brief = assembleBrief(buildInput({ is_robust: false, level: 'low' }, [attestedNoFlipRow('f1'), unresolvedRow('f2')]));
     const caveat = brief?.robustness_caveat;
     expect(caveat!.flip_evidence).toBeUndefined();
-    expect(caveat!.text).toContain('small changes to assumptions could change which option leads');
+    expect(caveat!.text).toContain(`Small changes to your assumptions could change ${GOAL_FIT_PHRASE}`);
   });
 
   it('absent flip evidence: caveat byte-identical to the pre-2.1247 shape (no flip_evidence key)', () => {
     const brief = assembleBrief(buildInput({ is_robust: false, level: 'low' }));
     const caveat = brief?.robustness_caveat;
     expect(caveat).toEqual({
-      text: 'This ranking was fragile under the perturbations tested — small changes to assumptions could change which option leads.',
+      text: `This run was fragile under the changes we tested. Small changes to your assumptions could change ${GOAL_FIT_PHRASE}.`,
       basis: 'is_robust',
       doctrine: 'provisional_doctrine_v0',
     });
     expect(Object.keys(caveat as object)).not.toContain('flip_evidence');
+  });
+
+  it('POSITIVE CONTROL: NO_TESTING_CLAIM can see the sentence that shipped before the repair', () => {
+    // Without this, `not.toMatch(NO_TESTING_CLAIM)` below would pass on copy the
+    // predicate is simply blind to.
+    expect(HISTORIC_ABSENT_BASIS_TEXT_FDDED64E).toMatch(NO_TESTING_CLAIM);
+  });
+
+  it('CONTRADICTION KILL (other direction): absent marginals + attested no-flip → claim 1 must not deny that anything was tested', () => {
+    const brief = assembleBrief(buildInput({}, [attestedNoFlipRow('f1'), attestedNoFlipRow('f2')]));
+    const caveat = brief?.robustness_caveat;
+    expect(caveat).toBeDefined();
+    // Bound by IDENTITY, not by a value predicate another branch could satisfy:
+    // this is the absent-basis branch AND claim 2 is the attestation.
+    expect(caveat!.basis).toBe('absent');
+    expect(caveat!.flip_evidence).toBeDefined();
+    expect(caveat!.flip_evidence!.status).toBe('all_no_effect');
+    expect(caveat!.flip_evidence!.text).toContain('factors we could test');
+    // Claim 1 must STILL say robustness was not assessed — that is the honesty
+    // pin in decision-brief.claim-safety.test.ts and it is not being relaxed.
+    expect(caveat!.text).toContain('not assessed');
+    // What it may not do is deny that anything was checked, while claim 2 in the
+    // same object says factors were varied and probed.
+    expect(caveat!.text).not.toMatch(NO_TESTING_CLAIM);
   });
 
   it('empty flip array is unavailable, not an attestation: no flip_evidence claim', () => {
@@ -214,8 +294,15 @@ describe('robustness_caveat — domain-wide consistency invariants (2.1247)', ()
             expect(caveat!.flip_evidence.text, label).not.toMatch(/\d/);
             // No self-contradiction inside claim 2 either.
             if (caveat!.flip_evidence.status === 'all_no_effect') {
-              expect(caveat!.flip_evidence.text, label).not.toMatch(/could change which option leads(?! on its own)/);
+              expect(caveat!.flip_evidence.text, label).not.toContain(`could change ${GOAL_FIT_PHRASE}`);
             }
+            // ⇄ THE OTHER DIRECTION (the door the one-sided check left open).
+            // Claim 2 is present, so factors WERE probed on this run. Claim 1
+            // may not carry a universal denial that anything was checked.
+            expect(
+              caveat!.text,
+              `claim-1 denies any testing while claim 2 attests it: ${label}`,
+            ).not.toMatch(NO_TESTING_CLAIM);
           } else {
             // Absence of claim 2 is only honest when nothing was attested.
             expect(['unavailable', 'unresolved'], label).toContain(status);

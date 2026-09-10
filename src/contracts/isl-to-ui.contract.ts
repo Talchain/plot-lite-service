@@ -303,7 +303,7 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     // error shapes. Mapping + wording provisional_doctrine_v0 — see
     // src/routes/v2/robustness-display-verdict.ts.
     'robustness.display_verdict',        // enum: robust | moderate | fragile | not_assessed
-    'robustness.display_verdict_reason', // claim-safe producer phrase, no numbers (e.g. fragile → 'small changes could flip this result')
+    'robustness.display_verdict_reason', // claim-safe producer phrase, no numbers, goal-anchored (e.g. fragile → 'small changes to your assumptions could change which option is most likely to achieve your goal')
     'confidence_tier',                   // B1: derived from m1_coaching.readiness (ready→strong, close_call→fair, else→needs_work)
     'dominant_factor',                   // B1: detected from factor_sensitivity (influence >0.5 AND ratio >2:1)
     'factor_sensitivity[].evpi_percentage_points', // F3: VOI×win-prob-spread HEURISTIC only (the removed ISL factor_evpi[] counterfactual source is withdrawn; factor_evppi withheld pending S5). Source disclosed via evpi_method.

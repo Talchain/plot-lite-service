@@ -10,8 +10,10 @@ import { describe, it, expect } from 'vitest';
 import {
   deriveRobustnessDisplayVerdict,
   ROBUSTNESS_DISPLAY_VERDICT_REASONS,
+  ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP,
   type RobustnessDisplayVerdict,
 } from '../src/routes/v2/robustness-display-verdict.js';
+import { GOAL_FIT_PHRASE } from '../src/constants/result-voice.js';
 
 const derive = (facts: { is_robust?: unknown; level?: unknown } | undefined, computed: boolean) =>
   deriveRobustnessDisplayVerdict(facts, computed).display_verdict;
@@ -95,7 +97,83 @@ describe('display_verdict_reason — claim safety', () => {
     }
   });
 
-  it("fragile reason carries the doctrine phrase 'small changes could flip this result'", () => {
-    expect(ROBUSTNESS_DISPLAY_VERDICT_REASONS.fragile).toBe('small changes could flip this result');
+  it('fragile reason is the goal-anchored change phrase, built from GOAL_FIT_PHRASE', () => {
+    // Byte pin, but built from the shared constant rather than retyped: the two
+    // emitters (this record and the brief's robustness_caveat) must say the same
+    // thing, and a hand-typed copy here is the mirror that drifts (trap 12).
+    expect(ROBUSTNESS_DISPLAY_VERDICT_REASONS.fragile).toBe(
+      `small changes to your assumptions could change ${GOAL_FIT_PHRASE}`,
+    );
+  });
+});
+
+// =============================================================================
+// VOICE (Paul's ruling, 2026-09-10) — applied to BOTH reason records in this
+// module, not just the one a PR happened to edit.
+//
+// WHY THIS EXISTS. PR #355 re-anchored `..._ATTESTED_NO_FLIP` and the decision
+// brief to the user's goal and left the BASE record untouched — and the base
+// record is the `??` fallback for every non-attested run, i.e. the majority
+// branch and the one the deployed footer renders. Three of its four entries
+// still spoke of "this result" while the brief said "this run", so the two
+// emitters `result-voice.ts` exists to keep aligned had different subjects, and
+// `fragile` still said the answer could "flip" with nothing anchoring it to
+// what the user asked for.
+//
+// The guard iterates BOTH records by KEY so a failure names the offending
+// entry (identity binding), and it covers records added later by construction.
+// =============================================================================
+
+describe('display_verdict_reason — result voice (2026-09-10 ruling)', () => {
+  const ALL_REASONS: Array<[string, string]> = [
+    ...Object.entries(ROBUSTNESS_DISPLAY_VERDICT_REASONS).map(
+      ([k, v]) => [`base.${k}`, v] as [string, string],
+    ),
+    ...Object.entries(ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP).map(
+      ([k, v]) => [`attested_no_flip.${k}`, v as string] as [string, string],
+    ),
+  ];
+
+  it('the guard actually has reasons to look at (precondition, not a tautology)', () => {
+    // A zero-length iteration would make every assertion below pass by testing
+    // nothing (trap 13). Six today: four base + two attested.
+    expect(ALL_REASONS.length).toBe(6);
+    expect(ALL_REASONS.every(([, v]) => typeof v === 'string' && v.length > 0)).toBe(true);
+  });
+
+  it('no reason speaks of "this result" — the subject is THIS RUN and its data', () => {
+    for (const [key, reason] of ALL_REASONS) {
+      expect(reason, `${key}: "${reason}"`).not.toMatch(/\bthis result\b/i);
+    }
+  });
+
+  it('no reason frames the analysis as a contest', () => {
+    // There is never a winner. Renaming `leads` to `ahead` would keep the race,
+    // so the predicate covers the framing, not one token.
+    const RACE_FRAMING =
+      /\b(?:winner|winners|leader|leaders|leads|leading|ahead|beats|wins|ranking|rankings|front[- ]runner|top\s+(?:choice|option)|out\s+in\s+front|comes?\s+out\s+on\s+top)\b/i;
+    // Positive control: the predicate can see the wording this surface actually
+    // shipped before ROADMAP 2.278 / the 2026-09-10 ruling. HISTORIC, append-only.
+    expect('none of the factors we could test changed which option leads on its own')
+      .toMatch(RACE_FRAMING);
+    for (const [key, reason] of ALL_REASONS) {
+      expect(reason, `${key}: "${reason}"`).not.toMatch(RACE_FRAMING);
+    }
+  });
+
+  it('no reason carries an em dash (ruling D) and none carries a number', () => {
+    for (const [key, reason] of ALL_REASONS) {
+      expect(reason, `${key}: "${reason}"`).not.toMatch(/\u2014/);
+      expect(reason, `${key}: "${reason}"`).not.toMatch(/\d/);
+    }
+  });
+
+  it('every reason that names the run uses the same subject as the brief ("this run")', () => {
+    const namesTheRun = ALL_REASONS.filter(([, r]) => /\bthis (?:run|result|ranking)\b/i.test(r));
+    // Precondition: some reason names the run, or the invariant below is vacuous.
+    expect(namesTheRun.length).toBeGreaterThan(0);
+    for (const [key, reason] of namesTheRun) {
+      expect(reason, `${key}: "${reason}"`).toMatch(/\bthis run\b/);
+    }
   });
 });

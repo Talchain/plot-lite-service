@@ -1186,7 +1186,7 @@
       "threshold": 0.1
     },
     "display_verdict": "fragile",
-    "display_verdict_reason": "small changes could flip this result"
+    "display_verdict_reason": "small changes to your assumptions could change which option is most likely to achieve your goal"
   },
   "robustness_synthesis": null,
   "cee_status": "skipped",
@@ -1290,13 +1290,13 @@
       {
         "factor_id": "fac_team_maturity",
         "factor_label": "Team Technical Maturity",
-        "note": "No starting value was provided for \"Team Technical Maturity\" — the analysis used a default. Setting a real value or range would make this result more trustworthy.",
+        "note": "No starting value was provided for \"Team Technical Maturity\", so the analysis used a default. Setting a real value or range would make this more trustworthy.",
         "source": "value_defaulted",
         "doctrine": "provisional_doctrine_v0"
       }
     ],
     "robustness_caveat": {
-      "text": "This ranking was fragile under the perturbations tested — small changes to assumptions could change which option leads.",
+      "text": "This run was fragile under the changes we tested. Small changes to your assumptions could change which option is most likely to achieve your goal.",
       "basis": "is_robust",
       "doctrine": "provisional_doctrine_v0"
     },
@@ -1611,7 +1611,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:46811083e96c4b1e"
+    "response_content_hash": "rch_v2:a37066d3dad670d9"
   },
   "meta": {
     "seed_used": "2034401427",
