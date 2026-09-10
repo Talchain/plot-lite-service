@@ -89,9 +89,43 @@ const FRAGILE_FACTS = { is_robust: false, level: 'low' };
 const MODERATE_FACTS = { is_robust: true, level: 'medium' };
 const ROBUST_FACTS = { is_robust: true, level: 'high' };
 
-const FLIP_PHRASE = 'small changes could flip this result';
+/**
+ * The BASE fragile reason — the string the attested-no-flip wording replaces.
+ *
+ * ⚠ DERIVED, NOT RETYPED (trap 12b). This was hand-typed as
+ * 'small changes could flip this result'. When the 2026-09-10 voice ruling
+ * re-anchored that string to the user's goal, a hand-typed copy would have
+ * pinned a sentence the product no longer emits, and the `not.toMatch(CHANGE_CLAIM)`
+ * assertions beside it would have gone from a real discrimination to a
+ * tautology in the same move: the new base string contains no "flip" either, so
+ * "the attested reason does not say flip" becomes trivially true of BOTH.
+ */
+const BASE_FRAGILE_REASON = ROBUSTNESS_DISPLAY_VERDICT_REASONS.fragile;
+
+/**
+ * What the attested-no-flip reason may never claim: that the answer could move.
+ * Built from the shared phrase, so it tracks the copy rather than mirroring it.
+ *
+ * The POSITIVE CONTROL below is the load-bearing part — it asserts the predicate
+ * can still SEE the base reason it exists to distinguish from. Without it, a
+ * later wording change could leave every `not.toMatch(CHANGE_CLAIM)` passing on
+ * copy the predicate is simply blind to (trap 13).
+ */
+const CHANGE_CLAIM = new RegExp(
+  `could change ${GOAL_FIT_PHRASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|flip`,
+  'i',
+);
 
 describe('ROADMAP 2.278 — flip evidence informs the verdict REASON', () => {
+  it('POSITIVE CONTROL: CHANGE_CLAIM can see the base fragile reason it must exclude', () => {
+    // The attested-no-flip assertions below all say "this reason does not claim
+    // the answer could move". That is only evidence if the predicate can see the
+    // claim in the reason it REPLACES. It also pins the pair apart: same verdict,
+    // different reason, and the difference is exactly the change claim.
+    expect(BASE_FRAGILE_REASON).toMatch(CHANGE_CLAIM);
+    expect(ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP.fragile).not.toMatch(CHANGE_CLAIM);
+  });
+
   // -------------------------------------------------------------------------
   // THE WITNESSED CASE. 19/19 structurally_invariant + fragile.
   // -------------------------------------------------------------------------
@@ -103,8 +137,8 @@ describe('ROADMAP 2.278 — flip evidence informs the verdict REASON', () => {
     // assessment.
     expect(out.display_verdict).toBe('fragile');
 
-    expect(out.display_verdict_reason).not.toBe(FLIP_PHRASE);
-    expect(out.display_verdict_reason).not.toMatch(/flip/i);
+    expect(out.display_verdict_reason).not.toBe(BASE_FRAGILE_REASON);
+    expect(out.display_verdict_reason).not.toMatch(CHANGE_CLAIM);
     expect(out.display_verdict_reason).toBe(
       ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP.fragile,
     );
@@ -126,7 +160,7 @@ describe('ROADMAP 2.278 — flip evidence informs the verdict REASON', () => {
   it('W2: `no_effect_within_bounds` is equally an attestation', () => {
     const rows = [noFlipRow('a', 'no_effect_within_bounds'), noFlipRow('b')];
     const out = deriveRobustnessDisplayVerdict(FRAGILE_FACTS, true, rows);
-    expect(out.display_verdict_reason).not.toMatch(/flip/i);
+    expect(out.display_verdict_reason).not.toMatch(CHANGE_CLAIM);
   });
 
   it('W3: attested no-flip + moderate — reason reworded, verdict unchanged', () => {
@@ -135,7 +169,7 @@ describe('ROADMAP 2.278 — flip evidence informs the verdict REASON', () => {
     expect(out.display_verdict_reason).toBe(
       ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP.moderate,
     );
-    expect(out.display_verdict_reason).not.toMatch(/flip/i);
+    expect(out.display_verdict_reason).not.toMatch(CHANGE_CLAIM);
   });
 
   // -------------------------------------------------------------------------
@@ -147,7 +181,7 @@ describe('ROADMAP 2.278 — flip evidence informs the verdict REASON', () => {
     const rows = [realFlipRow('fac_buy_indicator'), noFlipRow('fac_build_indicator')];
     const out = deriveRobustnessDisplayVerdict(FRAGILE_FACTS, true, rows);
     expect(out.display_verdict).toBe('fragile');
-    expect(out.display_verdict_reason).toBe(FLIP_PHRASE);
+    expect(out.display_verdict_reason).toBe(BASE_FRAGILE_REASON);
   });
 
   // -------------------------------------------------------------------------
@@ -157,27 +191,27 @@ describe('ROADMAP 2.278 — flip evidence informs the verdict REASON', () => {
   it('C2: one unresolved row blocks the no-flip wording (a timeout attests nothing)', () => {
     const rows = [noFlipRow('a'), noFlipRow('b'), unresolvedRow('c', 'timeout')];
     const out = deriveRobustnessDisplayVerdict(FRAGILE_FACTS, true, rows);
-    expect(out.display_verdict_reason).toBe(FLIP_PHRASE);
+    expect(out.display_verdict_reason).toBe(BASE_FRAGILE_REASON);
   });
 
   it('C2b: an UNKNOWN flip_reason is treated as unresolved, never as an attestation', () => {
     const rows = [noFlipRow('a'), unresolvedRow('b', 'some_future_isl_token')];
     const out = deriveRobustnessDisplayVerdict(FRAGILE_FACTS, true, rows);
-    expect(out.display_verdict_reason).toBe(FLIP_PHRASE);
+    expect(out.display_verdict_reason).toBe(BASE_FRAGILE_REASON);
   });
 
   it('C3: an EMPTY array is "nobody measured", not "nothing can flip"', () => {
     expect(deriveRobustnessDisplayVerdict(FRAGILE_FACTS, true, []).display_verdict_reason)
-      .toBe(FLIP_PHRASE);
+      .toBe(BASE_FRAGILE_REASON);
   });
 
   it('C4: legacy payloads are not blinded — omitted/undefined/null keep current copy', () => {
     expect(deriveRobustnessDisplayVerdict(FRAGILE_FACTS, true).display_verdict_reason)
-      .toBe(FLIP_PHRASE);
+      .toBe(BASE_FRAGILE_REASON);
     expect(deriveRobustnessDisplayVerdict(FRAGILE_FACTS, true, undefined).display_verdict_reason)
-      .toBe(FLIP_PHRASE);
+      .toBe(BASE_FRAGILE_REASON);
     expect(deriveRobustnessDisplayVerdict(FRAGILE_FACTS, true, null).display_verdict_reason)
-      .toBe(FLIP_PHRASE);
+      .toBe(BASE_FRAGILE_REASON);
   });
 
   // -------------------------------------------------------------------------
@@ -249,7 +283,7 @@ describe('ROADMAP 2.292 — the no-flip reason claims only what was tested', () 
     // the other robustness checks.
     expect(out.display_verdict_reason).toMatch(/robustness checks/i);
     // And it still never claims a flip.
-    expect(out.display_verdict_reason).not.toMatch(/flip/i);
+    expect(out.display_verdict_reason).not.toMatch(CHANGE_CLAIM);
   });
 
   it('S4: no universal-scope wording anywhere in the attested-no-flip reason set', () => {
@@ -393,7 +427,7 @@ describe('ROADMAP 2.278 — the corrected reason reaches the CEE-visible wire', 
     const body = await runWithFlips(undefined);
     expect(body.robustness.display_verdict).toBe('fragile');
     // No flip block from ISL → 'unavailable' → original wording preserved.
-    expect(body.robustness.display_verdict_reason).toBe(FLIP_PHRASE);
+    expect(body.robustness.display_verdict_reason).toBe(BASE_FRAGILE_REASON);
   });
 
   it('R2: all rows structurally_invariant — the WIRE no longer claims a flip', async () => {
@@ -416,14 +450,14 @@ describe('ROADMAP 2.278 — the corrected reason reaches the CEE-visible wire', 
 
     // ...and the verdict copy on the same payload agrees with it.
     expect(body.robustness.display_verdict).toBe('fragile');
-    expect(body.robustness.display_verdict_reason).not.toMatch(/flip/i);
+    expect(body.robustness.display_verdict_reason).not.toMatch(CHANGE_CLAIM);
     expect(body.robustness.display_verdict_reason).toBe(
       ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP.fragile,
     );
 
     // The contradiction the witness caught must be gone from the whole payload
     // surface CEE transports.
-    expect(JSON.stringify(body.robustness)).not.toContain(FLIP_PHRASE);
+    expect(JSON.stringify(body.robustness)).not.toContain(BASE_FRAGILE_REASON);
   });
 
   it('R3: a real flip on the wire keeps the flip wording', async () => {
@@ -441,7 +475,7 @@ describe('ROADMAP 2.278 — the corrected reason reaches the CEE-visible wire', 
     ]);
 
     expect(body.flip_thresholds_status).not.toBe('all_no_effect');
-    expect(body.robustness.display_verdict_reason).toBe(FLIP_PHRASE);
+    expect(body.robustness.display_verdict_reason).toBe(BASE_FRAGILE_REASON);
   });
 
   it('R4: an unresolved row on the wire keeps the flip wording (fail-closed)', async () => {
@@ -452,6 +486,6 @@ describe('ROADMAP 2.278 — the corrected reason reaches the CEE-visible wire', 
     ]);
 
     expect(body.flip_thresholds_status).not.toBe('all_no_effect');
-    expect(body.robustness.display_verdict_reason).toBe(FLIP_PHRASE);
+    expect(body.robustness.display_verdict_reason).toBe(BASE_FRAGILE_REASON);
   });
 });

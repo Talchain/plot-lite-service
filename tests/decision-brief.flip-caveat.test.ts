@@ -119,6 +119,38 @@ const FLIP_CLAIM = new RegExp(
   'i',
 );
 
+/**
+ * ⇄ THE OTHER DIRECTION, and why `FLIP_CLAIM` alone could never see it.
+ *
+ * `FLIP_CLAIM` stops claim 1 ASSERTING a change this payload's own evidence
+ * refutes. It says nothing about claim 1 DENYING that anything was tested, and
+ * `basis` (marginals) and the flip status (per-factor probes) are derived
+ * INDEPENDENTLY — so the absent-basis branch can ship in the same object as a
+ * claim 2 attesting that factors were varied and probed. The domain sweep below
+ * generates that exact cell (`is_robust` absent × `level` absent ×
+ * `all_attested`) and it PASSED, because a guard watching one door reports the
+ * room clear (CLAUDE.md trap 22b).
+ *
+ * A universal "nothing was checked" is the forbidden class. It cannot be
+ * derived from the emitted copy — there is no constant for a sentence we refuse
+ * to say — so it is written as a corpus predicate and PINNED BY A POSITIVE
+ * CONTROL against the exact sentence that shipped on this branch before the
+ * repair. Loosen the predicate until it stops seeing that sentence and the
+ * control REDs (trap 13: an absence assertion with no positive control is
+ * vacuous).
+ */
+const NO_TESTING_CLAIM =
+  /\bnothing\b[^.]*\b(?:has been|have been|was|were)\s+(?:checked|tested|assessed|measured)\b/i;
+
+/**
+ * HISTORIC RECORD, append-only (CLAUDE.md trap 14b). The absent-basis sentence
+ * as it stood at `fdded64e`, before this repair. It exists here as the positive
+ * control for `NO_TESTING_CLAIM` and must never be edited to track new copy —
+ * editing it would falsify the record AND hollow out the control in one move.
+ */
+const HISTORIC_ABSENT_BASIS_TEXT_FDDED64E =
+  'Robustness was not assessed for this run. Nothing here has been checked against changes in your inputs.';
+
 // =============================================================================
 // The witnessed contradiction class (named cases)
 // =============================================================================
@@ -184,6 +216,30 @@ describe('robustness_caveat — attested no-flip evidence (2.1247)', () => {
     expect(Object.keys(caveat as object)).not.toContain('flip_evidence');
   });
 
+  it('POSITIVE CONTROL: NO_TESTING_CLAIM can see the sentence that shipped before the repair', () => {
+    // Without this, `not.toMatch(NO_TESTING_CLAIM)` below would pass on copy the
+    // predicate is simply blind to.
+    expect(HISTORIC_ABSENT_BASIS_TEXT_FDDED64E).toMatch(NO_TESTING_CLAIM);
+  });
+
+  it('CONTRADICTION KILL (other direction): absent marginals + attested no-flip → claim 1 must not deny that anything was tested', () => {
+    const brief = assembleBrief(buildInput({}, [attestedNoFlipRow('f1'), attestedNoFlipRow('f2')]));
+    const caveat = brief?.robustness_caveat;
+    expect(caveat).toBeDefined();
+    // Bound by IDENTITY, not by a value predicate another branch could satisfy:
+    // this is the absent-basis branch AND claim 2 is the attestation.
+    expect(caveat!.basis).toBe('absent');
+    expect(caveat!.flip_evidence).toBeDefined();
+    expect(caveat!.flip_evidence!.status).toBe('all_no_effect');
+    expect(caveat!.flip_evidence!.text).toContain('factors we could test');
+    // Claim 1 must STILL say robustness was not assessed — that is the honesty
+    // pin in decision-brief.claim-safety.test.ts and it is not being relaxed.
+    expect(caveat!.text).toContain('not assessed');
+    // What it may not do is deny that anything was checked, while claim 2 in the
+    // same object says factors were varied and probed.
+    expect(caveat!.text).not.toMatch(NO_TESTING_CLAIM);
+  });
+
   it('empty flip array is unavailable, not an attestation: no flip_evidence claim', () => {
     const brief = assembleBrief(buildInput({ level: 'low' }, []));
     expect(brief?.robustness_caveat?.flip_evidence).toBeUndefined();
@@ -240,6 +296,13 @@ describe('robustness_caveat — domain-wide consistency invariants (2.1247)', ()
             if (caveat!.flip_evidence.status === 'all_no_effect') {
               expect(caveat!.flip_evidence.text, label).not.toContain(`could change ${GOAL_FIT_PHRASE}`);
             }
+            // ⇄ THE OTHER DIRECTION (the door the one-sided check left open).
+            // Claim 2 is present, so factors WERE probed on this run. Claim 1
+            // may not carry a universal denial that anything was checked.
+            expect(
+              caveat!.text,
+              `claim-1 denies any testing while claim 2 attests it: ${label}`,
+            ).not.toMatch(NO_TESTING_CLAIM);
           } else {
             // Absence of claim 2 is only honest when nothing was attested.
             expect(['unavailable', 'unresolved'], label).toContain(status);

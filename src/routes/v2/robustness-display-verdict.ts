@@ -55,14 +55,47 @@ export type RobustnessDisplayVerdict =
  * Producer-owned display reason per verdict (provisional_doctrine_v0 wording).
  * Claim-safe: one short phrase, no numbers, no re-derivable statistics.
  * Single source of truth — the route emits these verbatim.
+ *
+ * ⚠ THIS IS THE MAJORITY BRANCH, not a fallback nobody sees. It is the `??`
+ * default for every run whose flip evidence does NOT attest a no-flip, which is
+ * most of them, and the UI renders it verbatim in the post-analysis footer.
+ *
+ * ⚠ VOICE (2026-09-10, Paul's ruling) — applied here on 2026-09-10 after review
+ * found the record untouched while its sibling and the decision brief had both
+ * moved. Two things changed:
+ *
+ *  1. THE SUBJECT IS THIS RUN AND ITS DATA, never "the result". The analysis is
+ *     a tool for helping a team think, not an oracle handing down an answer, and
+ *     "this result held up" states a verdict about the world where "this run
+ *     held up under the changes we tested" states what was measured. The brief's
+ *     `robustness_caveat` says "this run"; when this record still said "this
+ *     result" the two emitters `constants/result-voice.ts` exists to align were
+ *     using different subjects on the same screen.
+ *  2. `fragile` NO LONGER SAYS THE ANSWER COULD "FLIP". It says what could
+ *     change and relative to what the user asked: {@link GOAL_FIT_PHRASE}. The
+ *     old phrase asserted the answer could move while anchoring that movement to
+ *     nothing at all, which is precisely what the ruling forbids, and it is now
+ *     word-for-word the lowercase fragment of the brief's fragile sentence.
+ *
+ * `not_assessed` is unchanged: it already named the run, made no claim about a
+ * contest, and its "not assessed" literal is pinned as an honesty invariant.
+ *
+ * ⚠ These strings are rendered VERBATIM as a "·"-separated meta segment (UI
+ * `postAnalysisFooter.ts`), so they stay LOWERCASE, unterminated fragments and
+ * carry no em dash and no numbers.
+ *
+ * ⚠ The historical wording is deliberately preserved where this repo RECORDS
+ * what shipped (the ROADMAP 2.278 account below, the flip-evidence test's
+ * header, `docs/lanes/LANE18-*`). Those are evidence of sentences the product
+ * actually emitted on dated builds; rewriting them would falsify the record.
  */
 export const ROBUSTNESS_DISPLAY_VERDICT_REASONS: Record<
   RobustnessDisplayVerdict,
   string
 > = {
-  robust: 'this result held up under the changes we tested',
-  moderate: 'this result mostly held up, but could shift under some changes',
-  fragile: 'small changes could flip this result',
+  robust: 'this run held up under the changes we tested',
+  moderate: 'this run was only moderately stable under the changes we tested',
+  fragile: `small changes to your assumptions could change ${GOAL_FIT_PHRASE}`,
   not_assessed: 'robustness was not assessed for this run',
 };
 
@@ -133,9 +166,9 @@ export const ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP: Partial<
   Record<RobustnessDisplayVerdict, string>
 > = {
   fragile:
-    `varying any one of the factors we could test did not change ${GOAL_FIT_PHRASE}, but this result scored low on our other robustness checks`,
+    `varying any one of the factors we could test did not change ${GOAL_FIT_PHRASE}, but this run scored low on our other robustness checks`,
   moderate:
-    `varying any one of the factors we could test did not change ${GOAL_FIT_PHRASE}, and this result mostly held up under the other changes we tested`,
+    `varying any one of the factors we could test did not change ${GOAL_FIT_PHRASE}, and this run mostly held up under the other changes we tested`,
 };
 
 /**

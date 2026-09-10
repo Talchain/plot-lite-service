@@ -579,6 +579,22 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //                                  label, factor id, ordering or key
     //                                  moved, and `response_hash` is UNMOVED
     //                                  (the REQUEST did not change).)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:7808417f1dad7883');
+    //  voice-  rch_v2:a37066d3dad670d9 (SECOND regeneration for the same
+    //  base-   ruling, 2026-09-10, after review found the first pass had
+    //  record  moved the ATTESTED-no-flip reasons and the brief while
+    //  2026-   leaving `ROBUSTNESS_DISPLAY_VERDICT_REASONS` untouched. That
+    //  09-10   base record is the `??` fallback for every non-attested run,
+    //          i.e. the majority branch and the one the deployed footer
+    //          renders, and this golden is exactly such a run. The golden diff
+    //          is EXACTLY ONE string value plus this hash:
+    //          `robustness.display_verdict_reason`, fragile branch,
+    //          'small changes could flip this result' →
+    //          'small changes to your assumptions could change which option is
+    //          most likely to achieve your goal'. No option row, probability,
+    //          label, factor id, ordering or key moved; the four ISL captures
+    //          in this fixture directory are byte-unchanged (sha256 verified
+    //          before and after regeneration); and `response_hash` is UNMOVED
+    //          (the REQUEST did not change).)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:a37066d3dad670d9');
   });
 });

@@ -794,7 +794,24 @@ function buildRobustnessCaveat(input: BriefAssemblyInput): BriefRobustnessCaveat
     // draft of the 2026-09-10 voice change reworded this to "We did not
     // stress-test this run" and RED that guard — correctly. This branch never
     // carried race framing; only the em dash and "the ranking" needed to go.
-    text = 'Robustness was not assessed for this run. Nothing here has been checked against changes in your inputs.';
+    //
+    // ⚠ SCOPED TO THE MARGINALS, and it has to be. The second sentence used to
+    // read "Nothing here has been checked against changes in your inputs." That
+    // is a UNIVERSAL absence claim, and `basis` and the flip status are derived
+    // INDEPENDENTLY — so it could ship in the same object as a claim 2 attesting
+    // "Varying any one of the factors we could test did not change ...", i.e.
+    // this run denying it checked anything while its own sibling claim reports
+    // what the checks found. The domain sweep in
+    // `tests/decision-brief.flip-caveat.test.ts` generates that exact cell and
+    // PASSED, because the contradiction check only looked for claim 1
+    // ASSERTING a change and never for claim 1 DENYING the testing. Both
+    // directions are now guarded there.
+    //
+    // What was genuinely not assessed on this branch is the AGGREGATE stability
+    // measure (the robustness marginals `is_robust` / `level`), which is exactly
+    // claim 1's scope. Per-factor probes are claim 2's scope and may well have
+    // run. Two named claims, two named scopes, no overlap (trap 21).
+    text = 'Robustness was not assessed for this run. We did not measure its overall stability under changes to your inputs.';
   } else if (isRobust === true || (isRobust === undefined && level === 'high')) {
     text = 'This run held up under the changes we tested. That is not a guarantee. Defaulted or uncertain inputs could still change it.';
   } else if (isRobust === false && level === undefined) {
