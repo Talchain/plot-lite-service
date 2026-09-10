@@ -262,6 +262,35 @@ describe('emitted copy carries no race framing', () => {
     }
   });
 
+  // ⭐ THE DEFENSIVE `default:` BRANCH. Every member of the HeadlineType union
+  // is handled by an explicit case, so the switch default is unreachable
+  // through the TYPE — and mutant M9 proved it: "is the top option on the
+  // current model" could be restored there with the whole matrix green.
+  // It is NOT unreachable at RUNTIME: headlineType arrives from a payload, and
+  // an unrecognised value falls through to exactly this branch. So it is copy a
+  // user can see, and it is swept here with an out-of-union value.
+  describe('generateDecisionStatement defensive default branch', () => {
+    for (const rd of READINESSES) {
+      for (const t of TONES) {
+        it(`unrecognised headline type / ${rd} / ${t}`, () => {
+          const summary = generateExecutiveSummary(
+            makeInputs(0.3, 'high', true), rd,
+            'an_unrecognised_headline_type' as unknown as HeadlineType,
+            [], [], tone(t),
+          );
+          // PRECONDITION PIN: prove we actually landed on the default branch,
+          // so a future refactor that stops reaching it fails HERE rather than
+          // leaving an unswept emission site behind a green sweep.
+          expect(
+            summary.decision_statement,
+            'this case must exercise the switch default',
+          ).toMatch(/on the current model\.$/);
+          assertNoRaceFraming(collectProse(summary, 'executive_summary'), `default/${rd}/${t}`);
+        });
+      }
+    }
+  });
+
   // ─── generateNextActions: headlineType × tone × gap ───
   describe('generateNextActions', () => {
     // ⭐ `withReasons` is a MEASURED necessity, not thoroughness. The priority-7
