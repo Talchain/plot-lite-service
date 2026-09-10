@@ -115,11 +115,11 @@
   "overrides": {
     "fast-uri@3": "^3.1.6",
     "fast-uri@4": "^4.1.3",
-    "find-my-way@9": "9.7.0"
+    "find-my-way@9": "^9.7.0"
   },
   "//overrides-provenance": {
-    "_comment": "Security overrides for the CI audit gate (dependency-audit / audit). Each entry pins a transitive dep to a patched range. The fast-uri pins are CARET ranges, never exact versions: an exact pin cannot float forward when an advisory floor moves, which is exactly how 3.1.4/4.1.1 went stale below while still reading as correct. Provenance:",
+    "_comment": "Security overrides for the CI audit gate (dependency-audit / audit). Each entry pins a transitive dep to a patched range. Pins are CARET ranges, never exact versions: an exact pin cannot float forward when an advisory floor moves, which is exactly how 3.1.4/4.1.1 went stale while still reading as correct. `tools/ci/overrides-effective-gate.mjs` fails loud when a pin goes stale in shape, or when a selector stops matching the resolved tree. Provenance:",
     "fast-uri": "GHSA-7p8r-x3mc-p8w7 (host confusion, backslash authority introducer) moved the floor to 3.1.5; on 2026-09-10 four more highs moved it again and BOTH previously-pinned versions fell inside their ranges (advisory range 3.0.0 - 3.1.5 || 4.0.0 - 4.1.2): GHSA-5jgf-p345-68v8 (host confusion, skipped IDN canonicalisation on scheme-relative refs), GHSA-f65p-4m7j-42xc (SSRF, malformed IPv6 normalisation), GHSA-fph4-wmhf-6fwf (SSRF, repeated hostname percent-decoding), GHSA-jqff-g426-hqxp (host confusion, percent-encoded scheme normalisation). Patched >=3.1.6 and >=4.1.3. Two majors are pinned because the tree resolves both: ajv/@fastify/ajv-compiler/fast-json-stringify@6 declare ^3.x, fast-json-stringify@7 declares ^4.x. All are PRODUCTION paths, so `npm audit --omit=dev` sees them. Remove each entry once every dependent ships a fixed range natively.",
-    "find-my-way": "GHSA-3crj-w4f5-gwh4 (DDoS via HTTP2) via fastify. Patched >=9.7.0. No live advisory moved this floor; the pin is untouched here. Note it is still an EXACT pin and therefore carries the same latent staleness as the fast-uri pins did - that is handled in the drift-guard follow-up, not in this security fix."
+    "find-my-way": "GHSA-3crj-w4f5-gwh4 (DDoS via HTTP2) via fastify. Patched >=9.7.0. No live advisory has moved this floor; only the pin SHAPE changed here, from the exact `9.7.0` to `^9.7.0`, so a future patched 9.x is absorbed without a human edit. fastify declares ^9.6.0, so the override stays inside 9.x. Remove when fastify raises its own floor past 9.7.0."
   }
 }
