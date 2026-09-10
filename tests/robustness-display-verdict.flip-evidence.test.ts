@@ -116,7 +116,7 @@ describe('ROADMAP 2.278 — flip evidence informs the verdict REASON', () => {
     // phrasing this pin used to assert: ISL probes only eligible root factors
     // with observed values/uncertainty, so the universal claim overclaimed).
     expect(out.display_verdict_reason).toMatch(/factors we could test/i);
-    expect(out.display_verdict_reason).toMatch(/which option leads/i);
+    expect(out.display_verdict_reason).toMatch(/which option the model favours/i);
     // ...and still disclose that the run scored badly on the OTHER checks,
     // so the corrected copy cannot read as an all-clear.
     expect(out.display_verdict_reason).toMatch(/robustness checks/i);
@@ -243,7 +243,7 @@ describe('ROADMAP 2.292 — the no-flip reason claims only what was tested', () 
   it('S3: the scoped copy still says what was measured and does not read as an all-clear', () => {
     const out = deriveRobustnessDisplayVerdict(FRAGILE_FACTS, true, [noFlipRow('f')]);
     // What was measured: the probed factors did not change the leading option.
-    expect(out.display_verdict_reason).toMatch(/which option leads/i);
+    expect(out.display_verdict_reason).toMatch(/which option the model favours/i);
     // Not an all-clear: the fragile variant still discloses the low score on
     // the other robustness checks.
     expect(out.display_verdict_reason).toMatch(/robustness checks/i);

@@ -605,7 +605,7 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
   // --- Results quality (warnings) ---
 
   DEGENERATE_OUTCOMES:
-    'Every option produced almost the same outcome, so there is no meaningful winner to report. Check that your options really do set different values, and that what they change is connected to the goal.',
+    'Every option produced almost the same outcome, so the model cannot meaningfully separate them. Check that your options really do set different values, and that what they change is connected to the goal.',
 
   DEGENERATE_OPTION_ZERO_VARIANCE:
     'One option produced no variation at all, which usually means what it changes never reaches the goal. Check that its changes connect through to the goal, then re-run.',

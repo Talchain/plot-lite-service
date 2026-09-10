@@ -564,6 +564,22 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //                                   change exists to clean.
     //                                   `response_hash` is UNMOVED (the REQUEST
     //                                   did not change).)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:46811083e96c4b1e');
+    //                                   ⭐ RACE-FRAMING COPY REPAIR (2026-09-10):
+    //                                   moved to rch_v2:8dd464bb8eb8f24e. The
+    //                                   regenerated golden diff is EXACTLY 8
+    //                                   changed prose lines (story_headlines
+    //                                   incl. the dropped Runner-up rank label,
+    //                                   executive_summary.summary +
+    //                                   .decision_statement, decision_brief
+    //                                   .headline, headline_banded.text,
+    //                                   robustness_caveat.text) plus this
+    //                                   derived hash. NO option row,
+    //                                   probability, label, factor id, band
+    //                                   enum or ordering moved — and
+    //                                   `response_hash` is UNMOVED at
+    //                                   0745a6e63dc5d0d0, which is the pin
+    //                                   that would have caught a semantic
+    //                                   change smuggled in as a copy edit.
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:8dd464bb8eb8f24e');
   });
 });

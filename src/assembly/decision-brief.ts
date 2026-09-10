@@ -637,16 +637,16 @@ function buildBandedHeadline(
   if (gap < NEAR_TIE_THRESHOLD) {
     band = 'very_close';
     // provisional_doctrine_v0
-    text = `${leader.label} leads, but the top options are very close.`;
+    text = `${leader.label} is most likely to produce the best outcome, but the top options are very close.`;
   } else if (gap >= CLEARLY_AHEAD_GAP_THRESHOLD && robust) {
     band = 'clearly_ahead';
     // provisional_doctrine_v0 — strongest claim requires decisive gap AND robustness
-    text = `${leader.label} is clearly ahead.`;
+    text = `${leader.label} is clearly the option most likely to produce the best outcome.`;
   } else {
     band = 'slightly_ahead';
     robustnessGated = gap >= CLEARLY_AHEAD_GAP_THRESHOLD && !robust;
     // provisional_doctrine_v0
-    text = `${leader.label} is slightly ahead.`;
+    text = `${leader.label} is most likely to produce the best outcome, but not by much.`;
   }
 
   return {
@@ -729,11 +729,11 @@ const FLIP_EVIDENCE_CLAIMS: Record<
   string
 > = {
   all_no_effect:
-    'None of the factors we could test changed which option leads on its own.',
+    'None of the factors we could test changed which option the model favours on its own.',
   computed:
-    'Changing at least one tested factor on its own could change which option leads.',
+    'Changing at least one tested factor on its own could change which option the model favours.',
   partial_no_effect:
-    'Changing at least one tested factor on its own could change which option leads; the other factors we could test could not.',
+    'Changing at least one tested factor on its own could change which option the model favours; the other factors we could test could not.',
 };
 
 /**
@@ -787,19 +787,19 @@ function buildRobustnessCaveat(input: BriefAssemblyInput): BriefRobustnessCaveat
   } else if (isRobust === false && level === undefined) {
     text = attestedNoFlip
       ? 'This ranking did not pass the robustness checks — it scored low on the stability measures tested.'
-      : 'This ranking did not pass the robustness checks — small changes to assumptions could change which option leads.';
+      : 'This ranking did not pass the robustness checks — small changes to assumptions could change which option the model favours.';
   } else if (level === 'medium' || level === 'moderate') {
-    text = 'This ranking was only moderately stable under the perturbations tested — treat the lead as provisional.';
+    text = 'This ranking was only moderately stable under the perturbations tested — treat the current ranking as provisional.';
   } else if (level === 'low' || level === 'very_low') {
     text = attestedNoFlip
       ? 'This ranking was fragile under the perturbations tested — it scored low on the stability measures tested.'
-      : 'This ranking was fragile under the perturbations tested — small changes to assumptions could change which option leads.';
+      : 'This ranking was fragile under the perturbations tested — small changes to assumptions could change which option the model favours.';
   } else {
     // is_robust === false with a level that is not low/very_low, or an
     // unrecognised level value — state the weaker of the two signals.
     text = attestedNoFlip
       ? 'This ranking did not pass the robustness checks — it scored low on the stability measures tested.'
-      : 'This ranking did not pass the robustness checks — small changes to assumptions could change which option leads.';
+      : 'This ranking did not pass the robustness checks — small changes to assumptions could change which option the model favours.';
   }
 
   // Claim 2 — present ONLY when the probes support a claim.

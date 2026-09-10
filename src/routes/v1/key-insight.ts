@@ -295,7 +295,7 @@ function generateFallbackInsight(
   } else {
     const margin = winner.expected_outcome - runnerUp.expected_outcome;
     const marginPct = Math.round((margin / runnerUp.expected_outcome) * 100);
-    insight = `${winner.label} outperforms ${runnerUp.label} by ${marginPct}% (${margin.toFixed(2)} units). ${rankingConfidence === 'high' ? 'This ranking is stable.' : 'Consider refining beliefs for more confidence.'}`;
+    insight = `${winner.label} has the highest expected outcome, ${marginPct}% above ${runnerUp.label} (${margin.toFixed(2)} units). ${rankingConfidence === 'high' ? 'This ranking is stable.' : 'Consider refining beliefs for more confidence.'}`;
   }
 
   return {

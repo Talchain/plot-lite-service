@@ -81,25 +81,25 @@ function generateDecisionStatement(
   switch (headlineType) {
     case 'clear_winner':
       if (tone === 'confident') {
-        return `${winner.label} has a strong current lead with a ${marginPoints}-point advantage.`;
+        return `${winner.label} is clearly most likely to produce the best outcome, by ${marginPoints} points on the current model.`;
       }
       if (tone === 'caution') {
-        return `${winner.label} currently leads by ${marginPoints} points, but the model is not yet strong enough for an unqualified decision.`;
+        return `${winner.label} is most likely to produce the best outcome by ${marginPoints} points, but the model is not yet strong enough for an unqualified decision.`;
       }
-      return `${winner.label} currently leads by ${marginPoints} points on the current model.`;
+      return `${winner.label} is most likely to produce the best outcome by ${marginPoints} points on the current model.`;
     case 'moderate_winner':
       if (tone === 'caution') {
-        return `${winner.label} currently leads by ${marginPoints} points, but the model is not yet strong enough for an unqualified decision.`;
+        return `${winner.label} is most likely to produce the best outcome by ${marginPoints} points, but the model is not yet strong enough for an unqualified decision.`;
       }
-      return `${winner.label} currently leads by ${marginPoints} points on the current model.`;
+      return `${winner.label} is most likely to produce the best outcome by ${marginPoints} points on the current model.`;
     case 'close_call':
-      return `${winner.label} edges ahead by ${marginPoints} points.`;
+      return `${winner.label} is most likely to produce the best outcome, but only by ${marginPoints} points.`;
     case 'high_uncertainty':
-      return `${winner.label} currently leads, but the outcome is highly uncertain.`;
+      return `${winner.label} is most likely to produce the best outcome, but that result is highly uncertain.`;
     case 'needs_evidence':
       return 'The decision is unclear based on current evidence.';
     default:
-      return `${winner.label} is the top option on the current model.`;
+      return `${winner.label} is the option most likely to produce the best outcome on the current model.`;
   }
 }
 
@@ -129,9 +129,9 @@ function generateKeyQualifier(
         return 'The current model favours this option on the strongest combination of signals.';
       }
       if (tone === 'caution') {
-        return 'Treat this as a provisional lead until the fragile assumptions are checked.';
+        return 'Treat this as provisional until the fragile assumptions are checked.';
       }
-      return 'This option leads on the current model, with important caveats.';
+      return 'This option is most likely to produce the best outcome on the current model, with important caveats.';
 
     case 'close_call':
       // Keeps BOTH halves of what the figure-bearing sentence conveyed — that
