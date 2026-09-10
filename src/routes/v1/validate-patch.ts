@@ -481,6 +481,105 @@ function fullSchemaValidation(graph: GraphState): ViolationV3[] {
 // Phase 5: Compute Graph Hash
 // =============================================================================
 
+/**
+ * The node fields `graph_hash` is computed over.
+ *
+ * ⚠ THIS LIST IS HAND-WRITTEN, AND SAYING SO IS THE POINT — a hand-maintained
+ * mirror is this estate's dominant defect and it always reads green when it
+ * drifts. It is hand-written because the CLASSIFICATION it encodes does not
+ * exist anywhere to derive from: nothing in the contract marks a field as
+ * "semantic" versus "a producer's claim about a field". The three sibling
+ * canonicalisers (`canonicaliseEdge` in `normalisation/canonicalise.ts`,
+ * `toISLEdge` in `isl/translator-v3.ts`, `canonicalEdge` in
+ * `sampling/graph-hash.ts`) all hand-write theirs too, and none of the three
+ * is reusable here: each answers a DIFFERENT question (request identity, ISL
+ * wire shape, sampling determinism) and each drops fields this route's hash
+ * must keep — `canonicaliseEdge` alone would drop `label` and `edge_type`, so
+ * a directed and a bidirected edge would hash alike.
+ *
+ * What makes it safe is that its COMPLETENESS is derived rather than
+ * remembered: `tests/validate-patch-graph-hash-determinism.test.ts` extracts
+ * the declared members of `EngineNodeV3`/`EngineEdgeV3` from the contract's own
+ * AST and REDs unless every one of them appears in exactly one of the two lists
+ * below. A new contract field therefore cannot join or skip the hash silently —
+ * it has to be classified. Same mechanism as
+ * `tests/util/structural-keys-drift.test.ts`.
+ *
+ * ORDER IS LOAD-BEARING: it matches the literal `normaliseNode` returns, so the
+ * projection serialises byte-identically to the pre-allowlist `JSON.stringify`
+ * for every graph that could reach here before the producer claims were
+ * carried. Reordering these entries changes `graph_hash` for every caller.
+ *
+ * Nothing is excluded on the node side — CEE stamps no node-level equivalent of
+ * the edge claims, so the node hash is unchanged in both content and bytes.
+ */
+export const HASHED_NODE_FIELDS: readonly (keyof EngineNodeV3)[] = [
+  'id',
+  'kind',
+  'label',
+  'description',
+  'intercept',
+  'epsilon_std',
+  'observed_state',
+  'state_space',
+  'category',
+  'prior',
+];
+
+/** Node fields deliberately kept OUT of `graph_hash`. Empty by design — see above. */
+export const HASH_EXCLUDED_NODE_FIELDS: readonly (keyof EngineNodeV3)[] = [];
+
+/**
+ * The edge fields `graph_hash` is computed over — the six that existed before
+ * `normaliseEdge` began carrying the producer claims, in `normaliseEdge`'s own
+ * literal order.
+ */
+export const HASHED_EDGE_FIELDS: readonly (keyof EngineEdgeV3)[] = [
+  'from',
+  'to',
+  'exists_probability',
+  'strength',
+  'label',
+  'edge_type',
+];
+
+/**
+ * Edge fields deliberately kept OUT of `graph_hash`: the producer's claims
+ * ABOUT the edge, as opposed to the edge.
+ *
+ * `graph_hash` is declared in both OpenAPI specs as *"Deterministic SHA-256
+ * hash of the normalised graph"*, and none of these three can keep that
+ * promise. `provenance` is `EdgeProvenanceClaim`, which carries
+ * `[key: string]: unknown` and which CEE declares `.passthrough()`: its key
+ * ORDER is the producer's, and `computeGraphHash` sorts nodes and edges but
+ * cannot sort inside a nested object, so two byte-different serialisations of
+ * one logical claim would hash differently. `provenance.reasoning` is free
+ * text, so rewording a sentence would move the hash of an unchanged graph.
+ * `defaulted` and `origin` are statements about where a number came from, and
+ * a graph does not become a different graph because its producer said so.
+ *
+ * They are also unvalidated passthrough — no enum, no membership check — so
+ * admitting them to the hash would let a producer move it arbitrarily.
+ */
+export const HASH_EXCLUDED_EDGE_FIELDS: readonly (keyof EngineEdgeV3)[] = [
+  'defaulted',
+  'provenance',
+  'origin',
+];
+
+/**
+ * Project an object down to an allowlist, preserving the allowlist's order and
+ * dropping absent members exactly as `JSON.stringify` already did.
+ */
+function pickHashedFields<T extends object>(obj: T, fields: readonly (keyof T)[]): Record<string, unknown> {
+  const picked: Record<string, unknown> = {};
+  for (const field of fields) {
+    const value = obj[field];
+    if (value !== undefined) picked[field as string] = value;
+  }
+  return picked;
+}
+
 function computeGraphHash(graph: GraphState): string {
   const sortedNodes = [...graph.nodes].sort((a, b) => {
     if (a.id < b.id) return -1;
@@ -494,7 +593,15 @@ function computeGraphHash(graph: GraphState): string {
     if (a.to > b.to) return 1;
     return 0;
   });
-  const canonical = { nodes: sortedNodes, edges: sortedEdges };
+  // Project onto the field allowlists BEFORE serialising. Without this the
+  // hash is `JSON.stringify` over whole objects, so every producer claim
+  // `normaliseEdge` carries — including a `.passthrough()` provenance object
+  // whose key order and free text are the producer's — lands in a value this
+  // route's contract calls deterministic.
+  const canonical = {
+    nodes: sortedNodes.map((node) => pickHashedFields(node, HASHED_NODE_FIELDS)),
+    edges: sortedEdges.map((edge) => pickHashedFields(edge, HASHED_EDGE_FIELDS)),
+  };
   return createHash('sha256')
     .update(JSON.stringify(canonical))
     .digest('hex')

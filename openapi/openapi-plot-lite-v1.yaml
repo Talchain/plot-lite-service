@@ -640,7 +640,16 @@ components:
         graph_hash:
           type: string
           pattern: '^[0-9a-f]{16}$'
-          description: Deterministic SHA-256 hash (16-char hex) of the normalised graph
+          description: >
+            Deterministic SHA-256 hash (16-char hex) of the normalised graph's
+            STRUCTURE — node id/kind/label/description/intercept/epsilon_std/
+            observed_state/state_space/category/prior, and edge from/to/
+            exists_probability/strength/label/edge_type. The producer's claims
+            ABOUT an edge (`defaulted`, `origin`, `provenance`) are carried on
+            `normalised_graph` but are deliberately NOT hashed: `provenance` is
+            an unvalidated passthrough object whose key order and free text are
+            the producer's, so including it would make this value non-
+            deterministic for one unchanged graph.
         repairs_applied:
           type: array
           items:

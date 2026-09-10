@@ -191,6 +191,21 @@ describe('normaliseGraphWithRepairs — the marker crosses the hop /v2/run actua
     ],
   };
 
+  /**
+   * This describe's title is a claim, so it is pinned rather than asserted in
+   * prose. `normaliseGraphWithRepairs` IS the hop `/v2/run` calls
+   * (`routes/v2/run.ts:5466`), and this fixture really does cross the REPAIR
+   * path rather than sailing past it — an independent review read the fixture
+   * as repair-free, which measurement refutes: CEE's enricher emits no
+   * `exists_probability`, so both edges take `DEFAULT_EXISTS_PROBABILITY`. A
+   * marker that survived only a repair-free traversal would prove much less.
+   */
+  it('the fixture really does cross the repair path — both edges take the exists_probability default', () => {
+    const result = normaliseGraphWithRepairs(graph);
+    const codes = result.repairs.map((r) => r.code);
+    expect(codes).toEqual(['DEFAULT_EXISTS_PROBABILITY', 'DEFAULT_EXISTS_PROBABILITY']);
+  });
+
   it('a CEE enrichment-created edge keeps defaulted:true through normaliseGraphWithRepairs', () => {
     const result = normaliseGraphWithRepairs(graph);
     const edge = result.graph.edges.find((e) => e.from === 'fac_price') as Record<string, unknown>;
