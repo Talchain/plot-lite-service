@@ -36,7 +36,7 @@ function createTestGraph(goalNodeOverrides?: Record<string, any>): EngineGraphV3
     nodes: [
       {
         id: 'goal_node',
-        kind: 'goal',
+        kind: 'goal', goal_direction: 'maximise',
         label: 'Business Goal',
         ...goalNodeOverrides,
       } as EngineNodeV3,
@@ -165,7 +165,7 @@ describe('T2: Fallback skipped when constraints present', () => {
   it('does not synthesise when graph constraint nodes exist', () => {
     const graph: EngineGraphV3 = {
       nodes: [
-        { id: 'goal_node', kind: 'goal', label: 'Goal' },
+        { id: 'goal_node', kind: 'goal', goal_direction: 'maximise', label: 'Goal' },
         { id: 'factor_a', kind: 'factor', label: 'Factor A', observed_state: { value: 100 } },
         {
           id: 'constraint_node',
@@ -399,7 +399,7 @@ describe('T6: Auto-constraint fallback via /v2/run', () => {
       // FALLBACK mechanism, not framing, so the frame is stamped to keep it
       // engaged. `tests/goal-threshold-frame-synthesis-gate.test.ts` owns the
       // frame-absent / 'level' refusal cases.
-      { id: 'goal', kind: 'goal', label: 'Business Goal', goal_threshold_frame: 'delta' },
+      { id: 'goal', kind: 'goal', goal_direction: 'maximise', label: 'Business Goal', goal_threshold_frame: 'delta' },
     ],
     edges: [
       { from: 'mrr_factor', to: 'goal', exists_probability: 1, strength: { mean: 0.6, std: 0.1 } },
@@ -585,7 +585,7 @@ describe('T6: Auto-constraint fallback via /v2/run', () => {
         { id: 'churn_factor', kind: 'factor', label: 'Churn Rate', observed_state: { value: 0.05 } },
         {
           id: 'goal',
-          kind: 'goal',
+          kind: 'goal', goal_direction: 'maximise',
           label: 'Business Goal',
           // Node-level goal_threshold — not in EngineNodeV3 type but
           // accessible on the raw upstream node before normalisation strips it
@@ -863,7 +863,7 @@ describe('T7: Log assertions for auto-constraint events', () => {
   const GRAPH = {
     nodes: [
       // ROADMAP 2.266: frame stamped so auto-synthesis engages (see gate suite).
-      { id: 'goal', kind: 'goal', label: 'Revenue', goal_threshold_frame: 'delta' },
+      { id: 'goal', kind: 'goal', goal_direction: 'maximise', label: 'Revenue', goal_threshold_frame: 'delta' },
       { id: 'factor-a', kind: 'factor', label: 'Market Size', observed_state: { value: 0.5 } },
       { id: 'factor-b', kind: 'factor', label: 'Retention', observed_state: { value: 0.3 } },
     ],

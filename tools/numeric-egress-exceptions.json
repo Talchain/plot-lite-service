@@ -30,7 +30,7 @@
     "A MEASURED ZERO IS NOT AN ABSENCE — the guards test finiteness and range, never truthiness."
   ],
   "generated_at_commit": "236e82d6641b87e282dcfc5f8673904aec6678e7",
-  "count": 53,
+  "count": 52,
   "by_class": {
     "fabricated-certainty": 3,
     "fabricated-confidence": 2,
@@ -38,7 +38,7 @@
     "fabricated-formula-input": 2,
     "fabricated-latency": 4,
     "fabricated-measurement": 10,
-    "fabricated-probability": 8,
+    "fabricated-probability": 7,
     "fabricated-rate": 2,
     "fabricated-reproducibility": 2,
     "heuristic-limit": 1,
@@ -50,15 +50,6 @@
       "key": "win_probability",
       "snippet": "win_probability: opt.win_probability ?? 0",
       "line": 944,
-      "fallback": "0",
-      "class": "fabricated-probability",
-      "why": "Reads as \"this option never wins\" when the truth is \"not measured\"."
-    },
-    {
-      "file": "src/assembly/decision-brief.ts",
-      "key": "win_probability",
-      "snippet": "win_probability: o.win_probability ?? 0",
-      "line": 342,
       "fallback": "0",
       "class": "fabricated-probability",
       "why": "Reads as \"this option never wins\" when the truth is \"not measured\"."

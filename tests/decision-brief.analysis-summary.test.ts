@@ -14,6 +14,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
+import { mockLicensedComparison } from './helpers/objective-fixtures.js';
 import { assembleBrief, type BriefAssemblyInput } from '../src/assembly/decision-brief.js';
 import { DecisionRecordAnalysisSummarySchema } from '@talchain/schemas/boundary';
 
@@ -29,7 +30,7 @@ afterEach(() => {
 });
 
 function baseInput(overrides: Partial<BriefAssemblyInput> = {}): BriefAssemblyInput {
-  return {
+  const input: BriefAssemblyInput = {
     analysis_status: 'complete' as any,
     critiques: [] as any,
     option_comparison: [
@@ -57,6 +58,8 @@ function baseInput(overrides: Partial<BriefAssemblyInput> = {}): BriefAssemblyIn
     meta: { seed_used: '424242' },
     ...overrides,
   };
+  input.licensed_comparison = mockLicensedComparison(input.option_comparison!);
+  return input;
 }
 
 describe('decision_brief.analysis_summary — flag off (default)', () => {
@@ -140,7 +143,7 @@ describe('decision_brief.analysis_summary — flag on', () => {
     ).toBe(true);
   });
 
-  it('ranks by win_probability — the leader is rank-1, not input order', () => {
+  it('uses licensed producer identity regardless of option input order', () => {
     const input = baseInput();
     // Reverse input order; assembly must still lead with the higher win_probability.
     input.option_comparison = [...(input.option_comparison as any[])].reverse() as any;

@@ -135,7 +135,7 @@ function graphWithGoal(goalOverrides: Record<string, unknown> = {}) {
     nodes: [
       {
         id: 'goal_arr',
-        kind: 'goal',
+        kind: 'goal', goal_direction: 'maximise',
         label: 'Reach 6M ARR',
         observed_state: { value: 0.4, baseline: 0.35, unit: '£' },
         ...goalOverrides,

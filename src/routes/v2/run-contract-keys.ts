@@ -38,6 +38,7 @@ export const V2_RUN_ALLOWED_KEYS: ReadonlySet<string> = new Set([
 // MUST be documented as a `runResponseV3` property — enforced by the drift gate.
 // Order is the wire-emission order (preserved by islEnrichmentPassthrough).
 export const ISL_TOPLEVEL_ENRICHMENT_KEYS = [
+  'objective_ranking',
   'correlation_model',
   'decision_evpi',
   'factor_evppi',

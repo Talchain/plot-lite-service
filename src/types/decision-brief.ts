@@ -28,7 +28,7 @@ export interface DecisionBriefV1 {
   /** Top-level narrative summary */
   headline: string;
 
-  /** Options ranked by win_probability descending */
+  /** Options in ISL objective_ranking order and dense ranks; empty without attestation. */
   options: BriefOption[];
 
   /** Top factors by absolute elasticity (max 5) */
@@ -85,8 +85,8 @@ export interface DecisionBriefV1 {
    * Deterministic leader claim banded by win-probability gap (the producer
    * leg of the UI's UI-SEM-060 leader-claim banding debt — "Remove when PLoT
    * provides a leader-confidence band / close-call signal").
-   * Absent when fewer than two ranked options exist (no comparative claim
-   * is made without a comparison).
+   * Absent without a unique permitted recommendation or fewer than two
+   * permitted options. The identity is the route's licensed recommendation.
    */
   headline_banded?: BriefBandedHeadline;
 

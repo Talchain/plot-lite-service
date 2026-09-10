@@ -1,6 +1,41 @@
 {
   "description": "Robust model — no fragile edges, what_would_change from factor_sensitivity fallback, robustness 'robust'",
   "input": {
+    "licensed_comparison": {
+      "attested": true,
+      "rankedOptions": [
+        {
+          "option_id": "opt_alpha",
+          "option_label": "Alpha Plan",
+          "rank": 1,
+          "win_probability": 0.88
+        },
+        {
+          "option_id": "opt_beta",
+          "option_label": "Beta Plan",
+          "rank": 2,
+          "win_probability": 0.12
+        }
+      ],
+      "permittedOptions": [
+        {
+          "option_id": "opt_alpha",
+          "option_label": "Alpha Plan",
+          "rank": 1,
+          "win_probability": 0.88
+        },
+        {
+          "option_id": "opt_beta",
+          "option_label": "Beta Plan",
+          "rank": 2,
+          "win_probability": 0.12
+        }
+      ],
+      "recommendation": {
+        "recommended_option_id": "opt_alpha",
+        "recommended_option_label": "Alpha Plan"
+      }
+    },
     "analysis_status": "computed",
     "critiques": [],
     "option_comparison": [
@@ -57,7 +92,7 @@
     "version": "1",
     "graph_hash": "rob123stable456ab",
     "seed": 7,
-    "headline": "Alpha Plan is the dominant choice with 88% win probability and a robust model.",
+    "headline": "Alpha Plan is clearly ahead.",
     "options": [
       { "option_id": "opt_alpha", "label": "Alpha Plan", "win_probability": 0.88, "rank": 1 },
       { "option_id": "opt_beta", "label": "Beta Plan", "win_probability": 0.12, "rank": 2 }

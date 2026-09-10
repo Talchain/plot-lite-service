@@ -5655,6 +5655,13 @@ components:
           type: number
           default: 0.0
           description: 'Constant term (β₀) in structural equation. Applied by ISL for computed nodes (outcome, risk, goal). Ignored for exogenous nodes. Omit or set to 0.0 for default behaviour.'
+        goal_direction:
+          type: string
+          enum: [maximise, minimise, target]
+          description: |
+            Explicit objective on the selected goal node. Forwarded to ISL only
+            from graph.nodes[id=goal_node_id]; absence stays unknown. Labels do
+            not supply a direction. Target uses goal_threshold and its frame.
         observed_state:
           type: object
           properties:
@@ -6322,6 +6329,48 @@ components:
                       Human-readable modelled-pathway statement (ISL-owned
                       wording, provisional_doctrine_v0). Describes modelled
                       structure only; not a real-world causal claim.
+        objective_ranking:
+          type: object
+          additionalProperties: true
+          required: [attested, status, ranked_options]
+          description: |
+            Verbatim ISL objective comparison, not a recommendation. Computed
+            comparisons require an explicit matching goal direction and a positive
+            simulation win share. Shares split ties and are not goal-attainment
+            probabilities. PLoT filters this order through existing eligibility
+            policy once; robustness.recommended_option_id is the unique permitted
+            identity. Absent or withheld comparisons never license a winner.
+          properties:
+            direction:
+              type: string
+              enum: [maximise, minimise, target]
+            attested:
+              type: boolean
+            status:
+              type: string
+              enum: [computed, withheld]
+            withheld_reason:
+              type: string
+            ranked_options:
+              type: array
+              description: |
+                Producer order, descending by tie-split win share with stable ID
+                ordering for ties. Equal shares have equal dense ranks. Empty for
+                withheld comparisons. PLoT never recomputes this order.
+              items:
+                type: object
+                additionalProperties: true
+                required: [option_id, rank, win_probability]
+                properties:
+                  option_id:
+                    type: string
+                  rank:
+                    type: integer
+                    minimum: 1
+                  win_probability:
+                    type: number
+                    minimum: 0
+                    maximum: 1
         correlation_model:
           description: |
             Correlated-factors capability output (capability #100 + VOI slices,

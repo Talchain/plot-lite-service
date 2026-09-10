@@ -32,7 +32,7 @@ import { sha8 } from '../../util/pii-redact.js';
 // 0.32.0 ever adds a third frame, this file widens with it instead of silently
 // rejecting the new token — the hand-maintained-mirror defect class (the
 // dominant one in this estate) cannot arise here by construction.
-import { GoalThresholdFrame, type GoalThresholdFrameType } from '@talchain/schemas';
+import { GoalThresholdFrame, type GoalThresholdFrameType, GoalDirection, type GoalDirectionType } from '@talchain/schemas';
 
 /**
  * The frame a `goal_threshold` is stated in, as the shared contract defines it.
@@ -52,6 +52,12 @@ export type { GoalThresholdFrameType };
  */
 export function parseGoalThresholdFrame(value: unknown): GoalThresholdFrameType | undefined {
   const parsed = GoalThresholdFrame.safeParse(value);
+  return parsed.success ? parsed.data : undefined;
+}
+
+/** Preserve only an explicit canonical objective; never infer from labels. */
+export function parseGoalDirection(value: unknown): GoalDirectionType | undefined {
+  const parsed = GoalDirection.safeParse(value);
   return parsed.success ? parsed.data : undefined;
 }
 
@@ -194,6 +200,8 @@ export interface ISLRobustnessRequestV3 {
   };
   options: ISLOptionV3[];
   goal_node_id: string;
+  /** Explicit selected-goal objective; absence is meaningful to ISL. */
+  goal_direction?: GoalDirectionType;
   n_samples?: number;
   confidence_level?: number;
   analysis_types: Array<'comparison' | 'sensitivity' | 'robustness'>;
@@ -957,7 +965,8 @@ export function toISLRobustnessRequest(
   // request. Appended for the same reason as `goalThresholdFrame` above — the
   // call sites pass these positionally and reshuffling them is a mis-wire
   // waiting to happen.
-  userStatedRanges?: ISLUserStatedRange[]
+  userStatedRanges?: ISLUserStatedRange[],
+  goalDirection?: GoalDirectionType
 ): ISLRobustnessRequestV3 {
   // Bidirected edges are trust-layer only (identifiability + warnings).
   // ISL operates on directed edges only. Phase 3A-inference will add inference semantics.
@@ -982,6 +991,8 @@ export function toISLRobustnessRequest(
     // response and `flip_thresholds[].flip_value` null on every run.
     include_factor_flips: true,
   };
+
+  if (goalDirection !== undefined) request.goal_direction = goalDirection;
 
   // Only include goal_threshold if provided (omit entirely when absent)
   if (goalThreshold !== undefined) {

@@ -1,6 +1,41 @@
 {
   "description": "Partial analysis — includes PARTIAL_ANALYSIS warning, drivers may be empty",
   "input": {
+    "licensed_comparison": {
+      "attested": true,
+      "rankedOptions": [
+        {
+          "option_id": "opt_1",
+          "option_label": "Launch Now",
+          "rank": 1,
+          "win_probability": 0.55
+        },
+        {
+          "option_id": "opt_2",
+          "option_label": "Wait",
+          "rank": 2,
+          "win_probability": 0.45
+        }
+      ],
+      "permittedOptions": [
+        {
+          "option_id": "opt_1",
+          "option_label": "Launch Now",
+          "rank": 1,
+          "win_probability": 0.55
+        },
+        {
+          "option_id": "opt_2",
+          "option_label": "Wait",
+          "rank": 2,
+          "win_probability": 0.45
+        }
+      ],
+      "recommendation": {
+        "recommended_option_id": "opt_1",
+        "recommended_option_label": "Launch Now"
+      }
+    },
     "analysis_status": "partial",
     "critiques": [
       {
@@ -53,7 +88,7 @@
     "version": "1",
     "graph_hash": "part123anal456ab",
     "seed": 123,
-    "headline": "Close call between Launch Now and Wait.",
+    "headline": "Launch Now is slightly ahead.",
     "options": [
       { "option_id": "opt_1", "label": "Launch Now", "win_probability": 0.55, "rank": 1 },
       { "option_id": "opt_2", "label": "Wait", "win_probability": 0.45, "rank": 2 }

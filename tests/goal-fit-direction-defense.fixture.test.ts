@@ -134,7 +134,7 @@ const GRAPH = {
     // stamped here to keep the synthesis engaged and the subject under test
     // reachable. (A 'delta' frame is also the honest reading of this fixture:
     // the goal node is literally labelled "Net cost change".)
-    { id: 'goal_cost_reduction', kind: 'goal', label: 'Net cost change', goal_threshold_frame: 'delta' },
+    { id: 'goal_cost_reduction', kind: 'goal', goal_direction: 'maximise', label: 'Net cost change', goal_threshold_frame: 'delta' },
     { id: 'fac_spend', kind: 'factor', label: 'Marketing spend', observed_state: { value: 0.5 } },
   ],
   edges: [

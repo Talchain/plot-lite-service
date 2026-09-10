@@ -1,6 +1,41 @@
 {
   "description": "Happy path: 2 options, clear winner, 5 drivers, moderate robustness, M2 headline",
   "input": {
+    "licensed_comparison": {
+      "attested": true,
+      "rankedOptions": [
+        {
+          "option_id": "opt_a",
+          "option_label": "Option A",
+          "rank": 1,
+          "win_probability": 0.72
+        },
+        {
+          "option_id": "opt_b",
+          "option_label": "Option B",
+          "rank": 2,
+          "win_probability": 0.28
+        }
+      ],
+      "permittedOptions": [
+        {
+          "option_id": "opt_a",
+          "option_label": "Option A",
+          "rank": 1,
+          "win_probability": 0.72
+        },
+        {
+          "option_id": "opt_b",
+          "option_label": "Option B",
+          "rank": 2,
+          "win_probability": 0.28
+        }
+      ],
+      "recommendation": {
+        "recommended_option_id": "opt_a",
+        "recommended_option_label": "Option A"
+      }
+    },
     "analysis_status": "computed",
     "critiques": [
       {
@@ -92,7 +127,7 @@
     "version": "1",
     "graph_hash": "abc123def456gh78",
     "seed": 42,
-    "headline": "Option A is the clear winner with 72% probability, driven primarily by Market Size advantages.",
+    "headline": "Option A is slightly ahead.",
     "options": [
       { "option_id": "opt_a", "label": "Option A", "win_probability": 0.72, "rank": 1 },
       { "option_id": "opt_b", "label": "Option B", "win_probability": 0.28, "rank": 2 }

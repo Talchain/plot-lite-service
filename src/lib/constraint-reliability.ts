@@ -49,6 +49,7 @@
 
 import type { GoalConstraint } from '../types/engine-v3.js';
 import type { NormalisationRange } from './intervention-normaliser.js';
+import type { ISLRobustnessRequestV3 } from '../integrations/isl/translator-v3.js';
 
 /** ISL's open-vocabulary warning code for a constraint target defaulted to base=0.0. */
 export const ISL_CONSTRAINT_NODE_DEFAULT_BASE_CODE = 'CONSTRAINT_NODE_DEFAULT_BASE';
@@ -275,9 +276,9 @@ export function resolveConstraintSampleFrameAnchor(
  * `CONSTRAINT_NODE_DEFAULT_BASE` warnings — it MIRRORS an upstream list, and
  * so it inherits every gap in it (a PU'd non-root target, for instance, is
  * never flagged there, yet its samples are just as unanchored). This one is
- * DERIVED, from the very graph and options PLoT is sending on this request, so
- * the predicate and the payload cannot disagree and no upstream emission
- * change can silently open a hole in it.
+ * DERIVED, from the graph and options sent on this request. Current ISL can
+ * additionally prove comparability through its all-or-nothing frame-resolved
+ * constraint block; only the exact request-bound join below admits that proof.
  *
  * FAIL CLOSED. An anchor must be PROVED. A missing graph, a missing node, a
  * missing observed value — none of them establish an anchor, so all of them
@@ -295,11 +296,16 @@ export function detectUnanchoredSampleFrameTargets(
   directedEdgeTargets: ReadonlySet<string>,
   options: readonly AnchorOptionLike[] | undefined,
   goalThresholdFrameByNodeId: ReadonlyMap<string, string> | undefined,
+  resolvedConstraintIds?: ReadonlySet<string>,
 ): UnreliableConstraintTarget[] {
   if (!goalConstraints || goalConstraints.length === 0) return [];
 
   const out: UnreliableConstraintTarget[] = [];
   for (const gc of goalConstraints) {
+    // Current ISL resolves each constraint's own value_frame before producing
+    // any constraint_analysis. A complete request-bound result supersedes the
+    // historical raw-sample assumption for this constraint only.
+    if (resolvedConstraintIds?.has(gc.constraint_id)) continue;
     const anchor = resolveConstraintSampleFrameAnchor(
       gc.node_id,
       nodes,
@@ -316,6 +322,71 @@ export function detectUnanchoredSampleFrameTargets(
     }
   }
   return out;
+}
+
+/**
+ * Consume ISL's existing all-or-nothing frame contract (ROADMAP 2.798).
+ * `_resolve_constraint_plans` refuses unresolved level/delta comparisons;
+ * `_compute_constraint_analysis` then omits the entire block. A returned block
+ * is evidence only when every admitted option and forwarded constraint joins
+ * exactly, including the request receipt and NORMALISED threshold actually
+ * sent to ISL, under a computed/partial envelope.
+ *
+ * This does not reproduce the producer's baseline/PU/intervention/epsilon
+ * resolver, and it opens only L63's sample-frame gate. Independent scale,
+ * default-base and unit checks still run. No public attestation is invented.
+ */
+export function collectResolvedConstraintFrameIds(
+  request: Pick<ISLRobustnessRequestV3, 'request_id' | 'options' | 'goal_constraints'> | undefined,
+  islResult: unknown,
+): Set<string> {
+  const none = () => new Set<string>();
+  const constraints = request?.goal_constraints;
+  const options = request?.options;
+  if (!constraints?.length || !options?.length || !request?.request_id ||
+      typeof request.request_id !== 'string') return none();
+  const constraintsById = new Map(constraints.map(c => [c.constraint_id, c]));
+  const optionIds = new Set(options.map(o => o.id));
+  if (constraintsById.size !== constraints.length || optionIds.size !== options.length ||
+      options.some(o => typeof o.id !== 'string' || !o.id) ||
+      constraints.some(c => !c.constraint_id || !c.node_id ||
+        (c.value_frame !== 'level' && c.value_frame !== 'delta') ||
+        !Number.isFinite(c.value))) return none();
+
+  const result = islResult as any;
+  if (!result || typeof result !== 'object' || result.request_id !== request.request_id ||
+      (result.analysis_status !== 'computed' && result.analysis_status !== 'partial')) return none();
+  const refusalCodes = new Set(['CONSTRAINT_NOT_CONVERTIBLE', 'CONSTRAINT_FRAME_UNSPECIFIED']);
+  if ([result.inference_warnings, result.critiques].some(warnings =>
+    Array.isArray(warnings) && warnings.some(w => refusalCodes.has(w?.code)))) return none();
+
+  const rows = result.options ?? result.results;
+  if (!Array.isArray(rows) || rows.length !== options.length) return none();
+  const seenOptions = new Set<string>();
+  const isProbability = (value: unknown) => typeof value === 'number' &&
+    Number.isFinite(value) && value >= 0 && value <= 1;
+  for (const row of rows) {
+    const optionId = row?.id ?? row?.option_id;
+    if (!optionIds.has(optionId) || seenOptions.has(optionId) ||
+        (row.id !== undefined && row.option_id !== undefined && row.id !== row.option_id) ||
+        (row.status !== undefined && row.status !== 'computed' && row.status !== 'partial')) return none();
+    seenOptions.add(optionId);
+    const analysis = row.constraint_analysis;
+    if (!analysis || !isProbability(analysis.joint_probability) ||
+        !Array.isArray(analysis.constraints) || analysis.constraints.length !== constraints.length) return none();
+    const seenConstraints = new Set<string>();
+    for (const constraint of analysis.constraints) {
+      const sent = constraintsById.get(constraint?.constraint_id);
+      if (!sent || seenConstraints.has(sent.constraint_id) ||
+          constraint.node_id !== sent.node_id || constraint.operator !== sent.operator ||
+          (constraint.threshold ?? constraint.value) !== sent.value ||
+          (constraint.threshold !== undefined && constraint.threshold !== sent.value) ||
+          (constraint.value !== undefined && constraint.value !== sent.value) ||
+          !isProbability(constraint.prob_satisfied)) return none();
+      seenConstraints.add(sent.constraint_id);
+    }
+  }
+  return new Set(constraintsById.keys());
 }
 
 /**

@@ -26,7 +26,7 @@ import { toISLRobustnessRequest } from '../src/integrations/isl/translator-v3.js
 
 const GOAL_NODE: EngineNodeV3 = {
   id: 'goal',
-  kind: 'goal',
+  kind: 'goal', goal_direction: 'maximise',
   label: 'Revenue Growth',
 } as EngineNodeV3;
 
