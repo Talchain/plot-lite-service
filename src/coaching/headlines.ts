@@ -168,9 +168,16 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
 
   // Simple headlines for the other options. Every winProbability is finite here
   // (any non-finite option triggered the rank-neutral early return above), so the
-  // "Runner-up" rank label is justified and the percentage is always finite.
+  // percentage is always finite.
+  //
+  // The "Runner-up" RANK LABEL this used to carry is gone, for two reasons.
+  // (1) It framed the option by its position in a contest rather than by its own
+  // standing — the same defect this file's templates carried.
+  // (2) It was inaccurate beyond rank 2: this is `sorted.slice(1)`, so the third
+  // and fourth options were each announced as the "Runner-up" too.
+  // The percentage alone says strictly more, and says it about THIS option.
   sorted.slice(1).forEach((opt) => {
-    headlines[opt.id] = `Runner-up with ${Math.round(opt.winProbability * 100)}% win probability`;
+    headlines[opt.id] = `${Math.round(opt.winProbability * 100)}% chance of producing the best outcome`;
   });
 
   return headlines;

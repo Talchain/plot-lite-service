@@ -30,6 +30,23 @@
  * (trap 13b). The control below asserts the pattern still matches EVERY
  * pre-repair string verbatim, so the guard's discrimination is pinned in-test
  * and a future widening of the carve-out fails HERE rather than shipping.
+ *
+ * ⛔ THE LIMIT OF THIS GUARD, STATED SO NOBODY MISTAKES IT FOR MORE. It bounds
+ * VOCABULARY. It cannot bound FRAMING. Mutant M11 demonstrated the gap on a
+ * real emission site: "this option is still out in front" passed while the same
+ * site with "currently leads" went red. The idiom list below was widened in
+ * response, but a word list is a hand-maintained mirror and the next idiom
+ * nobody listed will pass it too.
+ *
+ * ⭐ AND THERE IS A THIRD FACE THIS FILE CANNOT SEE AT ALL: the SUBJECT of every
+ * sentence swept here is chosen by RANK (`inputs.options[0]`, `sorted[0]`), not
+ * by the user. Copy that answers about the top-ranked option when the user
+ * asked about their own is a race frame with a perfectly clean grep — measured
+ * live elsewhere in the estate, and repaired on the UI side in #1421. A green
+ * run here is evidence about wording and is silent about referent.
+ *
+ * So: this guard stops a regression in the words. The review is still the only
+ * instrument that bounds the frame.
  */
 import { describe, it, expect } from 'vitest';
 import { generateExecutiveSummary } from '../../src/coaching/executive-summary.js';
@@ -71,6 +88,21 @@ const BANNED_RACE_FRAMING = new RegExp(
     String.raw`\bvictor\w*\b`,
     String.raw`\btop option\b`,
     String.raw`\bclose race\b`,
+    // ⭐ RACE IDIOM WITHOUT ANY OF THE ABOVE WORDS. Added after mutant M11
+    // restored "this option is still out in front" at a real emission site and
+    // SURVIVED, while the same site with "currently leads" went red — a
+    // discriminating pair proving the site was reached and the GUARD was
+    // narrow, not the sweep blind. See the limitation note on this constant.
+    String.raw`\bout in front\b`,
+    String.raw`\bin front\b`,
+    String.raw`\bfirst place\b`,
+    String.raw`\bpull(?:s|ing)? ahead\b`,
+    String.raw`\bneck and neck\b`,
+    String.raw`\bphoto finish\b`,
+    String.raw`\brunner-?up\b`,
+    String.raw`\bovertak(?:e|es|ing)\b`,
+    String.raw`\btoo close to call\b`,
+    String.raw`\bcomes? (?:first|second|last)\b`,
   ].join('|'),
   'i',
 );
@@ -218,6 +250,11 @@ describe('emitted copy carries no race framing', () => {
       'Every option produced almost the same outcome, so there is no meaningful winner to report.',
       'none of the factors we could test changed which option leads on its own, but this result scored low on our other robustness checks',
       'flip_thresholds is empty because computation failed, not because no factor could flip the leading option.',
+      // Race idioms carrying NONE of the primary banned words (M11's class).
+      'Significant evidence gaps remain, but this option is still out in front.',
+      'Define tie-breaker criteria — margin is too close to call',
+      'The top two are neck and neck.',
+      'Option A overtakes Option B once demand recovers.',
     ];
 
     for (const s of PRE_REPAIR_STRINGS) {

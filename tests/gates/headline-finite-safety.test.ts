@@ -59,7 +59,12 @@ function assertNoNonFiniteCopy(headlines: Record<string, string>) {
 }
 
 /** No headline may assert a RANK (leads / outperforms / edges ahead / Runner-up) —
- *  used when the comparison is invalid, where rank is unknowable. */
+ *  used when the comparison is invalid, where rank is unknowable.
+ *
+ *  NB the "Runner-up" limb is now defence in depth rather than a live case: the
+ *  non-winner headline states the option's own chance of producing the best
+ *  outcome and asserts no rank at all. The limb stays so the label cannot
+ *  return unnoticed. */
 function assertNoRankClaim(headlines: Record<string, string>) {
   for (const [id, text] of Object.entries(headlines)) {
     expect(text, `headline for ${id}`).not.toMatch(/\bleads\b|outperforms|edges ahead|Runner-up/i);
@@ -107,7 +112,7 @@ describe('WP5 headline gate · finite edge values are NOT suppressed', () => {
     // Winner is the finite 1.0 option; margin is a real number (100 points), not suppressed.
     expect(headlines['win']).toMatch(/\d/);
     expect(headlines['win']).not.toBe('Runner-up');
-    expect(headlines['lose']).toBe('Runner-up with 0% win probability');
+    expect(headlines['lose']).toBe('0% chance of producing the best outcome');
   });
 
   it('a tiny positive margin renders finite copy (no Infinity/NaN, winner is finite)', () => {

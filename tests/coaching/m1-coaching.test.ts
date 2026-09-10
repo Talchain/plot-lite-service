@@ -189,7 +189,7 @@ describe('B1: Story Headlines', () => {
     const headlines = generateHeadlines(inputs);
     expect(headlines['opt1']).toBeDefined();
     expect(headlines['opt2']).toBeDefined();
-    expect(headlines['opt2']).toContain('Runner-up');
+    expect(headlines['opt2']).toContain('chance of producing the best outcome');
   });
 });
 
