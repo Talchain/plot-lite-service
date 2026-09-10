@@ -4,7 +4,7 @@
  * The caveat used to be composed from robustness MARGINALS alone
  * (is_robust / level); per-factor flip evidence in the SAME response could
  * attest that no tested factor flips the leader while the caveat claimed
- * "small changes to assumptions could change which option leads" — the same
+ * "small changes to assumptions could change which option the model favours" — the same
  * self-contradiction the display verdict fixed for its reason string
  * (ROADMAP 2.278, witness-2267-onscreen-flip.md).
  *
@@ -93,7 +93,7 @@ function buildInput(
 }
 
 /** The flip-language predicate claim 1 must never use against an attested no-flip. */
-const FLIP_CLAIM = /change which option leads|flip/i;
+const FLIP_CLAIM = /change which option the model favours|flip/i;
 
 // =============================================================================
 // The witnessed contradiction class (named cases)
@@ -130,7 +130,7 @@ describe('robustness_caveat — attested no-flip evidence (2.1247)', () => {
     const caveat = brief?.robustness_caveat;
     expect(caveat!.flip_evidence).toBeDefined();
     expect(caveat!.flip_evidence!.status).toBe('computed');
-    expect(caveat!.flip_evidence!.text).toMatch(/change which option leads/);
+    expect(caveat!.flip_evidence!.text).toMatch(/change which option the model favours/);
     // Aggregate claim keeps its original wording — consistent with the evidence.
     expect(caveat!.text).toContain('fragile under the perturbations tested');
   });
@@ -139,21 +139,21 @@ describe('robustness_caveat — attested no-flip evidence (2.1247)', () => {
     const brief = assembleBrief(buildInput({ level: 'medium' }, [computedFlipRow('f1'), attestedNoFlipRow('f2')]));
     const caveat = brief?.robustness_caveat;
     expect(caveat!.flip_evidence!.status).toBe('partial_no_effect');
-    expect(caveat!.flip_evidence!.text).toMatch(/change which option leads/);
+    expect(caveat!.flip_evidence!.text).toMatch(/change which option the model favours/);
   });
 
   it('unresolved probes attest nothing: no flip_evidence claim, wording unchanged', () => {
     const brief = assembleBrief(buildInput({ is_robust: false, level: 'low' }, [attestedNoFlipRow('f1'), unresolvedRow('f2')]));
     const caveat = brief?.robustness_caveat;
     expect(caveat!.flip_evidence).toBeUndefined();
-    expect(caveat!.text).toContain('small changes to assumptions could change which option leads');
+    expect(caveat!.text).toContain('small changes to assumptions could change which option the model favours');
   });
 
   it('absent flip evidence: caveat byte-identical to the pre-2.1247 shape (no flip_evidence key)', () => {
     const brief = assembleBrief(buildInput({ is_robust: false, level: 'low' }));
     const caveat = brief?.robustness_caveat;
     expect(caveat).toEqual({
-      text: 'This ranking was fragile under the perturbations tested — small changes to assumptions could change which option leads.',
+      text: 'This ranking was fragile under the perturbations tested — small changes to assumptions could change which option the model favours.',
       basis: 'is_robust',
       doctrine: 'provisional_doctrine_v0',
     });
@@ -214,7 +214,7 @@ describe('robustness_caveat — domain-wide consistency invariants (2.1247)', ()
             expect(caveat!.flip_evidence.text, label).not.toMatch(/\d/);
             // No self-contradiction inside claim 2 either.
             if (caveat!.flip_evidence.status === 'all_no_effect') {
-              expect(caveat!.flip_evidence.text, label).not.toMatch(/could change which option leads(?! on its own)/);
+              expect(caveat!.flip_evidence.text, label).not.toMatch(/could change which option the model favours(?! on its own)/);
             }
           } else {
             // Absence of claim 2 is only honest when nothing was attested.

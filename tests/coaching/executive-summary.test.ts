@@ -79,7 +79,7 @@ describe('D2 Executive Summary — tone gate', () => {
     });
     const summary = generateExecutiveSummary(inputs, 'ready', 'clear_winner', cleanKeyDrivers(), []);
     expectNoBannedPhrasing(summary.summary);
-    expect(summary.summary).toContain('currently leads');
+    expect(summary.summary).toContain('most likely to produce the best outcome by');
     expect(summary.action_implication).toContain('validate the assumptions');
   });
 
@@ -88,7 +88,7 @@ describe('D2 Executive Summary — tone gate', () => {
     const gaps = [gap('f1', 'Cost', 0.5), gap('f2', 'Other', 0.3)];
     const summary = generateExecutiveSummary(inputs, 'ready', 'clear_winner', cleanKeyDrivers(), gaps);
     expectNoBannedPhrasing(summary.summary);
-    expect(summary.summary).toContain('currently leads');
+    expect(summary.summary).toContain('most likely to produce the best outcome by');
   });
 
   it('low top-driver confidence: output is tempered', () => {
@@ -100,14 +100,14 @@ describe('D2 Executive Summary — tone gate', () => {
     });
     const summary = generateExecutiveSummary(inputs, 'ready', 'clear_winner', cleanKeyDrivers(), []);
     expectNoBannedPhrasing(summary.summary);
-    expect(summary.summary).toContain('currently leads');
+    expect(summary.summary).toContain('most likely to produce the best outcome by');
   });
 
   it('clean strong case: confident copy allowed, but no banned imperative', () => {
     const inputs = cleanInputs();
     const summary = generateExecutiveSummary(inputs, 'ready', 'clear_winner', cleanKeyDrivers(), []);
     expectNoBannedPhrasing(summary.summary);
-    expect(summary.summary).toContain('strong current lead');
+    expect(summary.summary).toContain('clearly most likely to produce the best outcome');
     expect(summary.action_implication).toContain('reasonable to move forward');
   });
 
@@ -121,7 +121,7 @@ describe('D2 Executive Summary — tone gate', () => {
     });
     const summary = generateExecutiveSummary(inputs, 'ready', 'clear_winner', cleanKeyDrivers(), []);
     expectNoBannedPhrasing(summary.summary);
-    expect(summary.key_qualifier).toContain('provisional lead');
+    expect(summary.key_qualifier).toContain('Treat this as provisional');
     expect(summary.action_implication).toContain('Validate the fragile assumptions');
   });
 

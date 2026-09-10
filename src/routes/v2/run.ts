@@ -3911,7 +3911,7 @@ function buildResponse(
     inferenceWarnings.push({
       code: INFERENCE_WARNING_CODES.FLIP_THRESHOLDS_UNAVAILABLE,
       // provisional_doctrine_v0 — wording surface (diagnostic disclosure)
-      message: `Flip thresholds (tipping points) were attempted for this analysis but the computation failed as a whole (${meta.flipThresholdsFailedErrorName}) — flip_thresholds is empty because computation failed, not because no factor could flip the leading option. All other analyses are unaffected.`,
+      message: `Flip thresholds (tipping points) were attempted for this analysis but the computation failed as a whole (${meta.flipThresholdsFailedErrorName}) — flip_thresholds is empty because computation failed, not because no factor could change which option the model favours. All other analyses are unaffected.`,
       severity: 'warning',
     });
   }

@@ -110,9 +110,9 @@ export const ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP: Partial<
   Record<RobustnessDisplayVerdict, string>
 > = {
   fragile:
-    'none of the factors we could test changed which option leads on its own, but this result scored low on our other robustness checks',
+    'none of the factors we could test changed which option the model favours on its own, but this result scored low on our other robustness checks',
   moderate:
-    'none of the factors we could test changed which option leads on its own, and this result mostly held up under the other changes we tested',
+    'none of the factors we could test changed which option the model favours on its own, and this result mostly held up under the other changes we tested',
 };
 
 /**

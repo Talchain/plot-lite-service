@@ -95,12 +95,12 @@ export function generateNextActions(
 
   // Priority 4: Close call
   if (headlineType === 'close_call' && actions.length < 3) {
-    const leadingLabel = context.winner?.label ?? 'the leading option';
+    const leadingLabel = context.winner?.label ?? 'the most likely option';
     const delta = context.winner ? Math.round((context.winner.winProbability - (inputs.options[1]?.winProbability ?? 0)) * 100) : 0;
     actions.push({
       priority: 4,
-      action: 'Define tie-breaker criteria — margin is too close to call',
-      rationale: `${leadingLabel} leads by only ${delta} points; within model uncertainty`,
+      action: 'Define tie-breaker criteria — the options are too close to separate',
+      rationale: `${leadingLabel} is most likely to produce the best outcome by only ${delta} points; within model uncertainty`,
       target_type: 'option',
       target_id: context.winner?.id,
       target_label: leadingLabel,
@@ -112,7 +112,7 @@ export function generateNextActions(
   // a validation-first action so we don't issue an imperative the evidence
   // doesn't support.
   if (readiness === 'ready' && actions.length < 3) {
-    const leadingLabel = context.winner?.label ?? 'the leading option';
+    const leadingLabel = context.winner?.label ?? 'the most likely option';
     const delta = context.winner ? Math.round((context.winner.winProbability - (inputs.options[1]?.winProbability ?? 0)) * 100) : 0;
     // No stabilityDisplay: the withheld quantity may not be published as prose
     // (see the `recommendationStability` doc in ./types.ts). The rationales below
@@ -138,17 +138,17 @@ export function generateNextActions(
     let rationale: string;
     if (tone === 'confident') {
       action = `Move forward with ${leadingLabel} while validating the key assumptions`;
-      rationale = `${leadingLabel} has a strong current lead by ${delta} points`;
+      rationale = `${leadingLabel} is clearly most likely to produce the best outcome, by ${delta} points`;
     } else if (tone === 'caution') {
       action = `Validate the fragile assumptions before treating ${leadingLabel} as a decision`;
       rationale = reasonSummary
-        ? `${leadingLabel} currently leads by ${delta} points, but ${reasonSummary}`
-        : `${leadingLabel} currently leads by ${delta} points, but the model is not yet strong enough for an unqualified decision`;
+        ? `${leadingLabel} is most likely to produce the best outcome by ${delta} points, but ${reasonSummary}`
+        : `${leadingLabel} is most likely to produce the best outcome by ${delta} points, but the model is not yet strong enough for an unqualified decision`;
     } else {
       action = `Validate the key assumptions before acting on ${leadingLabel}`;
       rationale = reasonSummary
-        ? `${leadingLabel} currently leads by ${delta} points, but ${reasonSummary}`
-        : `${leadingLabel} currently leads by ${delta} points`;
+        ? `${leadingLabel} is most likely to produce the best outcome by ${delta} points, but ${reasonSummary}`
+        : `${leadingLabel} is most likely to produce the best outcome by ${delta} points`;
     }
 
     actions.push({

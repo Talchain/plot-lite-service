@@ -316,7 +316,7 @@ describe('withheld recommendation_stability — never published as prose (/v2/ru
     expect(prose.length).toBeGreaterThan(3);
 
     // Second precondition pin: the ready/confident NEXT-ACTION site is reached.
-    const leadRationale = prose.find((p) => /has a strong current lead by/.test(p.text));
+    const leadRationale = prose.find((p) => /is clearly most likely to produce the best outcome, by/.test(p.text));
     expect(leadRationale, 'must exercise the ready/confident next_actions rationale').toBeDefined();
 
     expect(
@@ -374,7 +374,7 @@ describe('withheld recommendation_stability — never published as prose (/v2/ru
     const prose = collectProse(actions, 'next_actions');
     expect(prose.length).toBeGreaterThan(2);
 
-    const leadRationale = prose.find((p) => /currently leads by/.test(p.text));
+    const leadRationale = prose.find((p) => /is most likely to produce the best outcome by/.test(p.text));
     expect(leadRationale, 'must exercise the ready/tempered next_actions rationale').toBeDefined();
 
     expect(

@@ -12,11 +12,11 @@ import { filterInterventionOverrides } from './sensitivity-filter.js';
 import { isLeverSourcedEdge } from '../lib/intervention-override.js';
 
 const HEADLINE_TEMPLATES = {
-  clear_winner: '{option} outperforms by {deltaPoints} points with high confidence',
-  moderate_winner: '{option} leads by {deltaPoints} points, though some uncertainty remains',
-  close_call: '{option} edges ahead, but the {deltaPoints}-point margin is within uncertainty',
+  clear_winner: '{option} is most likely to produce the best outcome by {deltaPoints} points, with high confidence',
+  moderate_winner: '{option} is most likely to produce the best outcome by {deltaPoints} points, though some uncertainty remains',
+  close_call: '{option} is most likely to produce the best outcome, but the {deltaPoints}-point margin is within uncertainty',
   high_uncertainty:
-    '{option} leads, but {fragileEdgeLabel} could swing the outcome to {altWinner}',
+    '{option} is most likely to produce the best outcome, but {fragileEdgeLabel} could swing the outcome to {altWinner}',
   needs_evidence: 'Decision unclear — gather data on {topGapLabel} before proceeding',
 } as const;
 

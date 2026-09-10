@@ -40,7 +40,7 @@ describe('B4 Next Actions — Priority 5 tone gate', () => {
     const priority5 = actions.find((a) => a.priority === 7);
     expect(priority5).toBeDefined();
     expect(priority5!.action).toContain('Move forward with Option A');
-    expect(priority5!.rationale).toContain('strong current lead');
+    expect(priority5!.rationale).toContain('clearly most likely to produce the best outcome');
     expect(priority5!.rationale).not.toContain('robust');
     expect(priority5!.action.toLowerCase()).not.toContain('proceed with');
   });
@@ -58,7 +58,7 @@ describe('B4 Next Actions — Priority 5 tone gate', () => {
     if (priority5) {
       expect(priority5.action).toContain('Validate the key assumptions');
       expect(priority5.action.toLowerCase()).not.toContain('proceed with');
-      expect(priority5.rationale).toContain('currently leads');
+      expect(priority5.rationale).toContain('most likely to produce the best outcome by');
       expect(priority5.rationale.toLowerCase()).not.toContain('decision is robust');
     }
   });

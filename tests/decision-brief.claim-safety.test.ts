@@ -68,7 +68,7 @@ describe('headline_banded — band matrix', () => {
       robustness: { is_robust: true, level: 'high', fragile_edges: [], robust_edges: [] },
     }))!;
     expect(brief.headline_banded!.band).toBe('slightly_ahead');
-    expect(brief.headline_banded!.text).toContain('slightly ahead');
+    expect(brief.headline_banded!.text).toContain('but not by much');
     expect(brief.headline_banded!.robustness_gated).toBe(false);
   });
 
@@ -78,7 +78,7 @@ describe('headline_banded — band matrix', () => {
       robustness: { is_robust: true, fragile_edges: [], robust_edges: [] },
     }))!;
     expect(brief.headline_banded!.band).toBe('clearly_ahead');
-    expect(brief.headline_banded!.text).toBe('Keep price is clearly ahead.');
+    expect(brief.headline_banded!.text).toBe('Keep price is clearly the option most likely to produce the best outcome.');
     expect(brief.headline_banded!.robustness_gated).toBe(false);
   });
 

@@ -109,7 +109,7 @@ async function callCeeGenerateRecommendation(
 function generateFallbackRecommendation(
   analysisResults: GenerateRecommendationRequest['analysis_results']
 ): CeeGeneratedRecommendation {
-  const winner = analysisResults.winner_label ?? analysisResults.winner ?? 'the leading option';
+  const winner = analysisResults.winner_label ?? analysisResults.winner ?? 'the highest-ranked option';
   const p50 = analysisResults.winner_p50;
   const margin = analysisResults.margin;
   const confidence = analysisResults.ranking_confidence ?? 'medium';
@@ -122,7 +122,7 @@ function generateFallbackRecommendation(
 
   const supportingPoints: string[] = [];
   if (margin !== undefined && margin > 0) {
-    supportingPoints.push(`Leads by a margin of ${margin.toFixed(2)} over alternatives`);
+    supportingPoints.push(`Margin of ${margin.toFixed(2)} over the alternatives`);
   }
   if (confidence === 'high') {
     supportingPoints.push('Analysis shows high confidence in this ranking');

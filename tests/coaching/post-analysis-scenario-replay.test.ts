@@ -95,11 +95,11 @@ describe('Scenario A — Marketing (moderate lead, low robustness, fragile edges
     evidenceGap('f_cost', 'Campaign cost', 0.5, 0.4),
   ];
 
-  it('executive summary contains no banned phrasing and tempers the lead', () => {
+  it('executive summary contains no banned phrasing and tempers the claim', () => {
     const summary = generateExecutiveSummary(marketingInputs, 'ready', 'moderate_winner', keyDrivers, gaps);
     expectNoBannedPhrasing(summary.summary);
     expect(summary.summary.toLowerCase()).not.toContain('robust');
-    expect(summary.summary).toContain('currently leads');
+    expect(summary.summary).toContain('most likely to produce the best outcome by');
   });
 
   it('next actions: no Priority 5 bare imperative; rationale surfaces the active concern', () => {
@@ -135,7 +135,7 @@ describe('Scenario B — Tech Lead (strong lead, low-confidence drivers / eviden
 
   const gaps = [evidenceGap('f_brand', 'Career fit', 0.5, 0.4)];
 
-  it('strong-lead summary may use "strong current lead" wording but never the bare imperative', () => {
+  it('strong-case summary may use the confident wording but never the bare imperative', () => {
     const summary = generateExecutiveSummary(techLeadInputs, 'ready', 'clear_winner', keyDrivers, gaps);
     expectNoBannedPhrasing(summary.summary);
     expect(summary.action_implication).not.toBe('Proceed with implementation.');
@@ -145,9 +145,9 @@ describe('Scenario B — Tech Lead (strong lead, low-confidence drivers / eviden
     const summary = generateExecutiveSummary(techLeadInputs, 'ready', 'clear_winner', keyDrivers, gaps);
     // LOW_DRIVER_CONFIDENCE + EVIDENCE_GAPS (single gap, VoI 0.5 > 0.4 threshold)
     // ⇒ two hard reasons ⇒ caution. Both tempered and caution decision_statements
-    // contain "currently leads", so we assert on that shared substring.
-    expect(summary.summary).toContain('currently leads');
-    expect(summary.summary).not.toContain('strong current lead');
+    // contain the tempered phrasing, so we assert on that shared substring.
+    expect(summary.summary).toContain('most likely to produce the best outcome by');
+    expect(summary.summary).not.toContain('clearly most likely to produce the best outcome');
   });
 
   it('all-clean Tech Lead variant: confident copy permitted', () => {
@@ -160,7 +160,7 @@ describe('Scenario B — Tech Lead (strong lead, low-confidence drivers / eviden
     };
     const summary = generateExecutiveSummary(inputs, 'ready', 'clear_winner', keyDrivers, []);
     expectNoBannedPhrasing(summary.summary);
-    expect(summary.summary).toContain('strong current lead');
+    expect(summary.summary).toContain('clearly most likely to produce the best outcome');
     expect(summary.action_implication).toContain('reasonable to move forward');
   });
 });
@@ -248,7 +248,7 @@ describe('Scenario C — Staging-derived near-tie (PR #174 + driver direction pr
   it('executive summary uses cautious near-tie wording; no banned phrases', () => {
     const summary = generateExecutiveSummary(nearTieInputs, 'close_call', 'close_call', nearTieKeyDrivers, nearTieGaps);
     expectNoBannedPhrasing(summary.summary);
-    expect(summary.summary).toContain('Hire One Tech Lead edges ahead');
+    expect(summary.summary).toContain('Hire One Tech Lead is most likely to produce the best outcome, but only by');
     // Was `toContain('recommendation stability')`, which pinned a leak: the
     // summary carried the WITHHELD figure ("the 59% recommendation stability
     // indicates…"). The quantity is not published as a field, so it may not be
@@ -340,6 +340,6 @@ describe('Scenario C — Staging-derived near-tie (PR #174 + driver direction pr
     expect(brief!.headline.toLowerCase()).not.toContain('ready to proceed');
     // Headline must include cautious near-tie wording sourced from the
     // PR #174-gated executive_summary.
-    expect(brief!.headline).toContain('edges ahead');
+    expect(brief!.headline).toContain('is most likely to produce the best outcome');
   });
 });
