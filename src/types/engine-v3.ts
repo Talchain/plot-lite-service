@@ -2830,6 +2830,22 @@ export interface InferenceWarning {
   message: string;
   severity: 'info' | 'warning';
   /**
+   * Product copy for this warning, in plain British English, generated
+   * deterministically by `src/inference-warning-humaniser.ts`.
+   *
+   * Present only for codes that HAVE copy. Absent is meaningful: it means no
+   * producer-grounded sentence exists for this code yet, and a consumer should
+   * fall back to showing nothing rather than to `message` — `message`
+   * interpolates raw node ids and internal field names and is a DEBUG string,
+   * carried for the advanced-details surface and our logs.
+   *
+   * Additive on a passthrough element of `AnalysisEnrichmentSchema` (verified
+   * by execution against the vendored schema, with contrast controls that
+   * correctly FAIL), exactly like the `field` and `elapsed_ms` keys above, so
+   * it can never itself raise ENRICHMENT_CONTRACT_MISMATCH.
+   */
+  user_message?: string;
+  /**
    * F4 (Codex deep review): the field path the warning is about, preserved
    * verbatim from ISL's real `InferenceWarning.field` (e.g. `factor_evpi`,
    * `path_decomposition`). Present only when the source warning carried one.

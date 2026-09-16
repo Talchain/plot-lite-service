@@ -670,8 +670,16 @@ function buildBandedHeadline(
  *      in "check this input" framing; same A1b predicate as top_drivers).
  *      Sorted by factor_id bytewise for determinism.
  *   2. inference warnings whose code contains 'DEFAULT'
- *      (e.g. ROOT_NODE_DEFAULT_VALUE) — run-level disclosures echoed
- *      verbatim (message is producer-owned wording), sorted by code.
+ *      (e.g. ROOT_NODE_DEFAULT_VALUE) — run-level disclosures, sorted by code.
+ *      The note prefers the warning's `user_message` (product copy from
+ *      `inference-warning-humaniser.ts`) and falls back to the producer's
+ *      `message` only where no copy exists yet, so nothing is ever lost.
+ *      ⚠ This branch USED to echo `message` verbatim onto a rendered brief
+ *      surface. Producer messages on this channel interpolate raw node ids and
+ *      internal field names, so a user could be shown, word for word: "Node
+ *      'out_throughput' has no ParameterUncertainty — base offset defaulted to
+ *      0.0; its samples are the forward-propagated composition of its parents"
+ *      (captured, tests/fixtures/isl-constraint-value-frame-20260807/).
  * Capped at MAX_DEFAULTED_ASSUMPTIONS, factor-scoped entries first.
  */
 function buildDefaultedAssumptions(input: BriefAssemblyInput): BriefDefaultedAssumption[] {
@@ -705,7 +713,9 @@ function buildDefaultedAssumptions(input: BriefAssemblyInput): BriefDefaultedAss
     seenCodes.add(w.code);
     out.push({
       factor_label: null,
-      note: w.message,
+      // provisional_doctrine_v0 — product copy where we have it, producer
+      // message only as the fallback for a code with no copy yet.
+      note: w.user_message ?? w.message,
       source: 'default_disclosure',
       code: w.code,
       doctrine: 'provisional_doctrine_v0',

@@ -226,6 +226,7 @@ import {
   buildEnrichmentContractWarning,
   logEnrichmentContractMismatch,
 } from './enrichment-egress-guard.js';
+import { addInferenceWarningUserMessages } from '../../inference-warning-humaniser.js';
 
 // -----------------------------------------------------------------------------
 // Feature Flags
@@ -3993,6 +3994,12 @@ function buildResponse(
     }
   }
 
+  // Attach product copy to the fully-assembled warning array, ONCE, so the
+  // brief and the response body can never carry different sentences for the
+  // same code. `message` is untouched: this is additive, and a code with no
+  // copy simply gets no `user_message`.
+  const humanisedInferenceWarnings = addInferenceWarningUserMessages(inferenceWarnings);
+
   // Pre-compute decision_brief and review_cards so _meta can reference them.
   const assembledBrief = assembleBrief({
     analysis_status: analysisStatus,
@@ -4008,7 +4015,7 @@ function buildResponse(
     m1_review: m2DecisionReview?.m1_review ?? undefined,
     // Lane PLoT-R3: warning_codes echo + DEFAULT-coded disclosures for the
     // brief's claim-safe surfaces (provisional_doctrine_v0 wording).
-    inference_warnings: inferenceWarnings,
+    inference_warnings: humanisedInferenceWarnings,
     // ROADMAP 2.1247: the SAME flip array the response publishes at
     // `flip_thresholds` below and the display verdict already consumes —
     // one variable, so the brief's robustness_caveat and the evidence it
@@ -4288,7 +4295,7 @@ function buildResponse(
     // Sentinel contract: inference_warnings is ALWAYS present ([] when empty, never absent).
     // Consumers can distinguish "no warnings assessed" (field absent on old builds)
     // from "warnings assessed, none found" (empty array).
-    inference_warnings: inferenceWarnings,
+    inference_warnings: humanisedInferenceWarnings,
     // Factor enrichments from CEE /assist/v1/review (undefined when unavailable)
     // NOTE: Non-deterministic (LLM-derived), excluded from canonical hash
     ...(factorEnrichments && { factor_enrichments: factorEnrichments }),
@@ -4638,10 +4645,14 @@ function buildResponse(
         if (response._meta?.evidence) {
           response._meta.evidence.enrichment_contract_withheld = withheld;
         }
-        response.inference_warnings = [
+        // The guard's own disclosure is appended AFTER the array was humanised
+        // above, so it is humanised here too. Without this the one warning the
+        // user is most likely to need explained would be the only one on the
+        // channel with no copy.
+        response.inference_warnings = addInferenceWarningUserMessages([
           ...(response.inference_warnings ?? []),
           buildEnrichmentContractWarning(enrichmentAssessment, withheld),
-        ];
+        ]);
         if (logger) logEnrichmentContractMismatch(logger, enrichmentAssessment, requestId);
       } else if (response._meta?.evidence) {
         response._meta.evidence.enrichment_contract_withheld = [];

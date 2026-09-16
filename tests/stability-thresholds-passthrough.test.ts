@@ -170,6 +170,7 @@ vi.mock('../src/integrations/isl/index.ts', async () => {
 });
 
 import { createServer } from '../src/createServer.js';
+import { humaniseInferenceWarning } from '../src/inference-warning-humaniser.js';
 
 // ---------------------------------------------------------------------------
 // ST1, ST2, ST4: Route-level integration tests
@@ -342,11 +343,20 @@ describe('stability_thresholds passthrough + hash_version in _meta', () => {
         (w: any) => w.code === 'STABILITY_THRESHOLDS_MISSING',
       );
       expect(stabilityWarnings).toHaveLength(1);
+      // Kept STRICT (toEqual, not toMatchObject) so an unintended extra key
+      // still REDs here. The additive `user_message` is product copy attached
+      // by `inference-warning-humaniser.ts`; it is bound to that module's
+      // output rather than to a copied sentence, so a reworded template moves
+      // both sides together and this test cannot decay into a stale mirror.
+      // `message` and `severity` are pinned unchanged: the diagnostic channel
+      // is added to, never replaced.
       expect(stabilityWarnings[0]).toEqual({
         code: 'STABILITY_THRESHOLDS_MISSING',
         message: 'ISL returned factor-level stability fields but stability_thresholds metadata was absent or malformed — threshold classification context unavailable',
         severity: 'info',
+        user_message: humaniseInferenceWarning('STABILITY_THRESHOLDS_MISSING'),
       });
+      expect(stabilityWarnings[0].user_message, 'copy must exist, or the line above compares undefined with undefined').toBeDefined();
     } finally {
       forceOmitThresholds = false;
     }

@@ -94,6 +94,22 @@
  * canonicalisation changed, the computation did not. Verified by diffing the
  * regenerated golden against the committed one (14 diff lines total, all above).
  *
+ * REGENERATED again for the inference-warning copy lane (2026-09-17) — AN
+ * ADDITIVE USER-COPY KEY. `inference_warnings[]` elements now carry
+ * `user_message`, product copy generated deterministically by
+ * `src/inference-warning-humaniser.ts`, so the channel stops being
+ * engineer-prose-only. The regeneration changes EXACTLY 3 lines:
+ *   +1  `inference_warnings[0].user_message` (the new key), on the single
+ *       EDGE_E_VALUE_NON_FINITE_DROPPED warning this capture carries;
+ *   ~1  the trailing comma on the `severity` line above it;
+ *   ~1  `_meta.response_content_hash` a37066d3dad670d9 -> b14cfe4402559a8b,
+ *       which is the CORRECT direction for an additive content change.
+ * No option row, probability, label, factor id, ordering or existing key
+ * moved; `message` and `severity` are untouched (the diagnostic channel is
+ * additive-only, never replaced); `response_hash` is UNMOVED because the
+ * REQUEST did not change; and the four ISL captures in this fixture directory
+ * are byte-unchanged (sha256 verified against HEAD before and after).
+ *
  * ⚠ The `60e3ac213554be4f` values in the 2.160 paragraph above are HISTORY and
  * are deliberately left alone — they record what was true at that regeneration.
  * A bulk find-and-replace across this header would falsify the record.
@@ -595,6 +611,12 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //          in this fixture directory are byte-unchanged (sha256 verified
     //          before and after regeneration); and `response_hash` is UNMOVED
     //          (the REQUEST did not change).)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:a37066d3dad670d9');
+    //  copy-   rch_v2:b14cfe4402559a8b (INFERENCE-WARNING USER COPY, 2026-09-17:
+    //  chan-   `inference_warnings[]` gained the additive `user_message` key.
+    //  nel     Producer copy IS hashed content, so the derived hash moves. The
+    //  2026-   golden diff is EXACTLY the one new key, its preceding comma and
+    //  09-17   this hash. `response_hash` is UNMOVED — the REQUEST did not
+    //          change — and `message`/`severity` are byte-identical.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:b14cfe4402559a8b');
   });
 });
