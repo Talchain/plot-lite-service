@@ -589,6 +589,24 @@ export function buildConstraintTargetUnreliableMessage(
    * branch still fires but names the collision generically rather than by unit.
    */
   unitMismatch?: { constraint_unit: string; scale_unit: string },
+  /**
+   * PROVED root-ness of the target node: `true` only when the caller has
+   * established the node has ZERO directed incoming edges, i.e.
+   * `!collectDirectedEdgeTargets(edges).has(nodeId)`.
+   *
+   * ⚠ WHY IT IS A PROOF AND NOT A HINT, AND WHY `undefined` TAKES THE NON-ROOT
+   * ARM. It decides whether the L63-only message may prescribe "set a current
+   * value" — a remedy that WORKS for a root and is INERT for a non-root, because
+   * `resolveConstraintSampleFrameAnchor` returns at the `directedEdgeTargets`
+   * early return BEFORE it ever reads `observed_state`. The two failure
+   * directions are not symmetric: withholding the advice from a root costs a
+   * suggestion, while offering it to a non-root sends the user to perform an
+   * edit the resolver provably ignores. So the advice is emitted only on PROOF,
+   * matching this module's stated FAIL CLOSED posture ("An anchor must be
+   * PROVED"). The production call site (`routes/v2/run.ts`) always passes a
+   * derived value; `undefined` exists so no other caller has to.
+   */
+  targetIsRoot?: boolean,
 ): string {
   const inUnits =
     unitMismatch !== undefined
@@ -653,15 +671,75 @@ export function buildConstraintTargetUnreliableMessage(
   // reasons describe inputs to a comparison that is not going to happen.
   // Claim-safe, same rules as its siblings: says what was and was not compared,
   // never quotes the withheld probability, and names a concrete user action.
+  // ⚠⚠ THE PRESCRIBED REMEDY IS SHAPE-DEPENDENT, AND THE PRE-2026-09-18 TEXT
+  // PRESCRIBED IT UNCONDITIONALLY — measured on a live journey (deployed CEE
+  // 0168483, 18 Sep) as a user-facing trust defect. The user was told "Set a
+  // current value for <target>", did exactly that, and measured: graph_hash
+  // UNCHANGED, zero graph_patch blocks, win_probabilities BYTE-IDENTICAL, the
+  // same warning repeated.
+  //
+  // ⭐ THE REFUTATION NEEDS NO CODE READING: the witnessed target "Runway
+  // Remaining" ALREADY carried `observed_state {value: 0.7, raw_value: 14,
+  // unit: 'months'}` and `display_value "14 months"` — and still received "Set
+  // a current value for Runway Remaining". The remedy was already satisfied
+  // before the sentence was written.
+  //
+  // WHY IT IS IMPOSSIBLE RATHER THAN BROKEN. Read the resolver's limb ORDER:
+  // `directedEdgeTargets.has(nodeId) -> return null` executes BEFORE the
+  // `root_observed_level` limb, so for ANY target with >=1 directed incoming
+  // edge the resolver never looks at `observed_state` at all. Setting a value
+  // cannot move the verdict. Measured on the live graph: the goal node had 4
+  // directed incoming edges, "Runway Remaining" had 2.
+  //
+  // ⚠ AND THE OTHER LIMB IS NOT A SUBSTITUTE HERE. `attested_delta` requires
+  // `goal_threshold_frame === 'delta'`, which no CEE writer produces today:
+  // `CEE_GOAL_THRESHOLD_FRAME = 'level'` is a code constant, all three non-test
+  // writers assign it, and `goal_threshold_frame` sits in CEE_MINTED_GOAL_FIELDS
+  // ("the fields no model may author"), stripped at ingress. So the non-root arm
+  // prescribes NEITHER limb: it states what is true and stops. Offering an
+  // action the system cannot honour is the harm being removed; replacing it with
+  // a second unactionable one would not remove it.
+  //
+  // This is the residual the BOTH-REASONS message above already closed for its
+  // own domain, where it recorded this exact asymmetry and left "the L63-only
+  // message's own shape-dependent first limb pre-existing and untouched".
   if (reasons.includes('sample_frame_unanchored')) {
+    const withheld =
+      `Comparing the two would report a near-zero chance for every option no matter how ` +
+      `good the options are, so goal-fit probabilities were withheld for this run rather ` +
+      `than shown. `;
+
+    // ROOT ARM. Reaching here with a PROVED root means the resolver fell through
+    // every limb: not delta-framed, not pinned by every option, not a directed
+    // edge target, and `observed_state.value` not a finite number. So "has no
+    // recorded current value" is true BY CONSTRUCTION, and setting one resolves
+    // `root_observed_level` — the remedy genuinely works, and is kept.
+    //
+    // Note the cause clause is the root's own: a root is NOT "calculated from
+    // the factors feeding into it" (it has none), so the non-root diagnosis
+    // would be false here.
+    if (targetIsRoot === true) {
+      return (
+        `The target on "${nodeLabel}" can't be scored against this model: "${nodeLabel}" has ` +
+        `no recorded current value, so the analysis has no measured starting point to place ` +
+        `its samples on the same scale as your target. ` +
+        withheld +
+        `Set a current value for "${nodeLabel}" to make it comparable.`
+      );
+    }
+
+    // NON-ROOT ARM (and the unproved default). States the limit is recorded and
+    // was not scored, forecloses the remedy that cannot work, and prescribes
+    // nothing. Claim-safe on the same rules as every sibling: names the node,
+    // says what was and was not compared, never quotes the withheld probability.
     return (
       `The target on "${nodeLabel}" can't be scored against this model: "${nodeLabel}" is ` +
       `calculated from the factors feeding into it, so the analysis produces a modelled ` +
-      `change for it, not a reading on the same scale as your target. Comparing the two ` +
-      `would report a near-zero chance for every option no matter how good the options are, ` +
-      `so goal-fit probabilities were withheld for this run rather than shown. ` +
-      `Set a current value for "${nodeLabel}" — or state the target as the change you want ` +
-      `from today — to make it comparable.`
+      `change for it, not a reading on the same scale as your target. ` +
+      withheld +
+      `Setting a current value for "${nodeLabel}" would not change that — it is calculated ` +
+      `from its inputs, so it has no measured starting point of its own to anchor to. Your ` +
+      `limit is recorded and was left unscored rather than scored against the wrong number.`
     );
   }
   const because = reasons.includes('target_base_defaulted')

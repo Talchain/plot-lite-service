@@ -2992,12 +2992,18 @@ function buildResponse(
   // sample-frame gate does not close it either. This one asks the question they
   // do not: is the threshold about the SAME QUANTITY as the scale it was
   // divided by? Derivation: `lib/constraint-units.ts`.
+  // Hoisted so the DETECTOR and the user-facing MESSAGE read the same set. The
+  // L63 message's "set a current value" remedy is valid for a ROOT target only
+  // (the resolver's `directedEdgeTargets` early return fires before it reads
+  // `observed_state`), so the message needs the very same topology the verdict
+  // was derived from. Deriving it twice would be two things to drift.
+  const directedEdgeTargets = collectDirectedEdgeTargets(graph?.edges);
   const unreliableConstraintTargets = mergeUnreliableConstraintTargets(
     detectUnreliableConstraintTargets(goalConstraints, constraintNormRanges, islResult),
     detectUnanchoredSampleFrameTargets(
       goalConstraints,
       graph?.nodes,
-      collectDirectedEdgeTargets(graph?.edges),
+      directedEdgeTargets,
       options,
       goalThresholdFrameByNodeId,
     ),
@@ -3834,6 +3840,10 @@ function buildResponse(
           // read from the SAME projected provenance the detector fired on, so
           // the message and the verdict can never disagree.
           constraintScaleProvenanceByConstraintId?.get(target.constraint_id)?.unit_mismatch,
+          // PROVED root-ness, from the same edge set the detector used. Gates
+          // the "set a current value" remedy, which the resolver ignores for any
+          // node with a directed parent.
+          !directedEdgeTargets.has(target.node_id),
         ),
         severity: 'warning',
       });
