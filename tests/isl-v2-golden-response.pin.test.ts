@@ -617,6 +617,11 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //  2026-   golden diff is EXACTLY the one new key, its preceding comma and
     //  09-17   this hash. `response_hash` is UNMOVED — the REQUEST did not
     //          change — and `message`/`severity` are byte-identical.)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:b14cfe4402559a8b');
+    //  09-18   review F1: the EDGE_E_VALUE_NON_FINITE_DROPPED `user_message` no
+    //          longer asserts an overflow cause that the captured evidence
+    //          contradicts (4/4 input-null, 0 overflow), so the CONTENT hash
+    //          moves to rch_v2:75f53275bab1fb03. `response_hash` is again UNMOVED: the
+    //          REQUEST did not change, and `message`/`severity` are untouched.
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:75f53275bab1fb03');
   });
 });

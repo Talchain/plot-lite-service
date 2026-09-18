@@ -27,6 +27,7 @@ import {
   getKnownInferenceWarningCodes,
   INFERENCE_WARNING_BUCKET,
   inferenceWarningBucket,
+  DELIBERATELY_NO_USER_MESSAGE,
 } from '../src/inference-warning-humaniser.js';
 import { INFERENCE_WARNING_CODES } from '../src/types/engine-v3.js';
 import type { InferenceWarning } from '../src/types/engine-v3.js';
@@ -74,12 +75,39 @@ describe('inference-warning copy coverage', () => {
     // they were green while nine siblings were red. A guard whose silence is
     // indistinguishable from success is a guard agreeing with itself, so the
     // non-emptiness it depends on is asserted here rather than assumed.
-    expect(getKnownInferenceWarningCodes().length).toBeGreaterThanOrEqual(ALL_COVERED.length);
+    // ⚠ MINUS THE DELIBERATELY-UNCOVERED SET. A code withheld on purpose (see
+    // RED 1b) legitimately lowers the registry count, so comparing against the
+    // raw ALL_COVERED length would RED on a correct state. The subtraction is
+    // derived from the exported set, not a hand-tuned constant, so it cannot
+    // drift from it.
+    expect(getKnownInferenceWarningCodes().length).toBeGreaterThanOrEqual(
+      ALL_COVERED.length - DELIBERATELY_NO_USER_MESSAGE.size,
+    );
   });
 
   it('RED 1 — every PLoT inference-warning code has copy (DERIVED from the registry)', () => {
     const known = new Set(getKnownInferenceWarningCodes());
-    expect(PLOT_CODES.filter((c) => !known.has(c))).toEqual([]);
+    expect(
+      PLOT_CODES.filter((c) => !known.has(c) && !DELIBERATELY_NO_USER_MESSAGE.has(c)),
+    ).toEqual([]);
+  });
+
+  it('RED 1b — the deliberately-uncovered set is EXACTLY what it claims, and is real', () => {
+    // ⭐ PINNED EXACTLY, so this REDs if the set GROWS (a code quietly loses its
+    // copy) or SHRINKS (someone "fixes" the gap by adding the generic template
+    // that review F2 removed on purpose). A known gap recorded in the suite is
+    // honest; a known gap invisible to it is how it comes back.
+    expect([...DELIBERATELY_NO_USER_MESSAGE].sort()).toEqual(['CONSTRAINT_TARGET_UNRELIABLE']);
+
+    // PRECONDITION, so the exclusion above cannot pass by naming a code that
+    // does not exist: every member must be a REAL registry code, and must
+    // genuinely resolve to no user_message.
+    const registry = new Set(getKnownInferenceWarningCodes());
+    for (const c of DELIBERATELY_NO_USER_MESSAGE) {
+      expect(PLOT_CODES.includes(c) || ISL_FORWARDED_CODES.includes(c)).toBe(true);
+      expect(registry.has(c)).toBe(false);
+      expect(humaniseInferenceWarning(c)).toBeUndefined();
+    }
   });
 
   it('RED 2 — every ISL-forwarded code evidenced in this repo has copy', () => {
@@ -89,10 +117,13 @@ describe('inference-warning copy coverage', () => {
 
   it('RED 3 — every covered code resolves to a NON-EMPTY user_message', () => {
     const empty = ALL_COVERED.filter((c) => {
+      if (DELIBERATELY_NO_USER_MESSAGE.has(c)) return false;
       const m = humaniseInferenceWarning(c);
       return m === undefined || m.trim().length === 0;
     });
     expect(empty).toEqual([]);
+    // The exclusion is not a hole: RED 1b pins the excluded set exactly and
+    // asserts each member really does resolve to `undefined`.
   });
 
   it('RED 4 — no copy leaks a bare machine code at the user', () => {

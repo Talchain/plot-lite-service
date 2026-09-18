@@ -692,7 +692,7 @@
       "code": "EDGE_E_VALUE_NON_FINITE_DROPPED",
       "message": "4 edge E-value entries were omitted from edge_e_values: 4 carried no finite E-value from the analysis engine (an unflippable edge, whose current and flip means coincide, has no evidence ratio). edge_e_values is shorter because those entries could not be represented, not because they were computed empty. All other analyses are unaffected.",
       "severity": "info",
-      "user_message": "Some connections produced numbers too large or too small to report, so those entries were left out rather than shown as blanks. The remaining connections and the rest of the analysis are unaffected."
+      "user_message": "Some connections could not be given a tipping-point figure, so those entries were left out rather than shown as blanks. The remaining connections and the rest of the analysis are unaffected."
     }
   ],
   "m1_coaching": {
@@ -1612,7 +1612,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:b14cfe4402559a8b"
+    "response_content_hash": "rch_v2:75f53275bab1fb03"
   },
   "meta": {
     "seed_used": "2034401427",

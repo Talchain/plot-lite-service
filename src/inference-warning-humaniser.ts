@@ -107,10 +107,9 @@ export const INFERENCE_WARNING_COPY: Record<string, string> = {
    * `constraint_probabilities` are SUPPRESSED for the run, so the copy must
    * describe a WITHHELD figure, not a shown one.
    */
-  CONSTRAINT_TARGET_UNRELIABLE:
-    'A factor your goal condition depends on has no measured starting value, so the analysis had to treat it as zero. ' +
-    'Rather than show a goal-fit probability that rests on that substitution, we are withholding it. ' +
-    'Give that factor a real starting value to get a figure.',
+  // ⛔ DELIBERATELY ABSENT — see DELIBERATELY_NO_USER_MESSAGE below (review F2).
+  // CONSTRAINT_TARGET_UNRELIABLE is NOT given copy here, because a generic
+  // string would DISPLACE a better, reason-differentiated one.
 
   /**
    * Doctrine B (P0-C2). Goal-fit probabilities WERE delivered, scored from the
@@ -242,9 +241,24 @@ export const INFERENCE_WARNING_COPY: Record<string, string> = {
    * complexity budget. The run succeeded; precision, not correctness, is what
    * moved, and `meta.n_samples` reports the true reduced depth.
    */
+  // ⚠ "SOUND" WAS A CLAIM THE PRODUCER DOES NOT MAKE (review F3). The registry
+  // entry says "probabilities may be less stable" at severity `warning` — this
+  // is the only `expected`-bucket code carrying that severity. The copy now
+  // states the producer's own consequence instead of upgrading it to soundness.
+  //
+  // ⚠ THE BUCKET QUESTION IS LEFT OPEN ON PURPOSE, not settled here. The review
+  // offered "re-bucket, or widen the definition to match the purpose", and both
+  // are design calls with estate-wide reach: `DisclosureBucket` has exactly two
+  // members, and neither fits — `not_your_number` is defined as "substituted,
+  // defaulted, or could not be evaluated", and a reduced sample count is none of
+  // those, it is LESS PRECISE. That mismatch between the bucket's DEFINITION and
+  // its stated PURPOSE ("whether a number can be trusted") is real and is trap
+  // 21; forcing this code into one of two ill-fitting members would hide it.
+  // Fixing the false claim needs no such decision, so it is made here and the
+  // taxonomy question is left to its owner.
   SAMPLES_REDUCED_FOR_COMPLEXITY:
     'This model is large, so the analysis ran fewer simulations than usual in order to finish. ' +
-    'The results are sound but less precise than normal, and simplifying the model would tighten them.',
+    'The probabilities are therefore less stable than normal, and simplifying the model would steady them.',
 
   /**
    * Producer-side egress validation failed. FAIL-OPEN: delivery is never
@@ -267,8 +281,26 @@ export const INFERENCE_WARNING_COPY: Record<string, string> = {
    * Severity: info. ISL routinely emits null for unflippable edges, so the copy
    * must not read as an alarm.
    */
+  // ⚠ THE CAUSE IS DELIBERATELY NOT NAMED, AND THAT IS THE FIX (review F1).
+  // The producer splits two causes: `inputNull` — "an unflippable edge, whose
+  // current and flip means coincide, has no evidence ratio", the NORMAL and
+  // common case — and `overflow`, "became non-finite after range
+  // denormalisation". The first version of this string asserted the OVERFLOW
+  // limb for both ("numbers too large or too small to report") while the golden
+  // this PR regenerates is 4/4 input-null and 0 overflow.
+  //
+  // ⛔ AND IT SAILED PAST THE GUARD WRITTEN TO PREVENT EXACTLY THIS.
+  // `tests/edge-e-value-drop-cause.test.ts` exists to stop this cause being
+  // described as a transformation overflow — but it asserts on `message`, and
+  // this is `user_message`, one layer up where it cannot see. A new surface
+  // does not inherit the guards of the old one.
+  //
+  // `humaniseInferenceWarning(code)` is code-keyed and cannot see the counts,
+  // so a cause-ACCURATE string is not available at this seam. Naming no cause
+  // is therefore the honest option, and it matches the `EVPI_UNAVAILABLE`
+  // precedent in this same map.
   EDGE_E_VALUE_NON_FINITE_DROPPED:
-    'Some connections produced numbers too large or too small to report, so those entries were left out rather than shown as blanks. ' +
+    'Some connections could not be given a tipping-point figure, so those entries were left out rather than shown as blanks. ' +
     'The remaining connections and the rest of the analysis are unaffected.',
 };
 
@@ -290,6 +322,32 @@ export const INFERENCE_WARNING_COPY: Record<string, string> = {
 export type DisclosureBucket = 'expected' | 'not_your_number';
 
 /**
+ * ⭐⭐ CODES THAT DELIBERATELY HAVE NO `user_message`, AND THE SET IS PINNED
+ * EXACTLY — it REDs if it GROWS or SHRINKS, so neither half can move silently.
+ *
+ * Absence on this channel already means "fall back to the producer", and for
+ * these codes the producer's own message is BETTER than anything a code-keyed
+ * template can say.
+ *
+ * `CONSTRAINT_TARGET_UNRELIABLE`: `ConstraintUnreliabilityReason` has FOUR
+ * limbs, and a single-cause template names one cause and one remedy. On three of
+ * the four the stated cause is false and the prescribed action cannot unblock
+ * the target. This repo already argues the point against itself, at
+ * `buildConstraintTargetUnreliableMessage`:
+ *
+ *   "A single-cause message here is not merely incomplete, it is a REGRESSION …
+ *    A more precise diagnosis that removes the user's only working remedy is a
+ *    worse message."
+ *
+ * Since the contract tells consumers to PREFER `user_message`, supplying one
+ * here would override that reason-differentiated producer message with the
+ * generic. Withholding the template is what keeps the better message reachable.
+ */
+export const DELIBERATELY_NO_USER_MESSAGE: ReadonlySet<string> = new Set([
+  'CONSTRAINT_TARGET_UNRELIABLE',
+]);
+
+/**
  * Bucket per code. Every code in INFERENCE_WARNING_COPY has an entry; the
  * coverage guard derives that requirement rather than mirroring a list.
  */
@@ -299,8 +357,6 @@ export const INFERENCE_WARNING_BUCKET: Record<string, DisclosureBucket> = {
   ROOT_NODE_DEFAULT_VALUE: 'not_your_number',
   /** Base offset defaulted to 0.0 on the constraint's target node. */
   CONSTRAINT_NODE_DEFAULT_BASE: 'not_your_number',
-  /** Base defaulted to 0.0 and/or threshold fell back to [0,1]; goal fit suppressed. */
-  CONSTRAINT_TARGET_UNRELIABLE: 'not_your_number',
   /** Goal-fit figures ARE shown, but they rest on a base defaulted to 0.0. */
   CONSTRAINT_GOALFIT_MODELLED_BASIS: 'not_your_number',
 
