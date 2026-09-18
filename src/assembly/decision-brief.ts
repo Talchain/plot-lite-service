@@ -671,9 +671,11 @@ function buildBandedHeadline(
  *      Sorted by factor_id bytewise for determinism.
  *   2. inference warnings whose code contains 'DEFAULT'
  *      (e.g. ROOT_NODE_DEFAULT_VALUE) — run-level disclosures, sorted by code.
- *      The note prefers the warning's `user_message` (product copy from
- *      `inference-warning-humaniser.ts`) and falls back to the producer's
- *      `message` only where no copy exists yet, so nothing is ever lost.
+ *      The note is the warning's `user_message` (product copy from
+ *      `inference-warning-humaniser.ts`) and NOTHING ELSE: a code with no copy
+ *      yet produces NO ROW here rather than falling back to the producer's
+ *      `message` (review F8). Nothing is lost — the warning keeps its full
+ *      diagnostic on `inference_warnings[]`, which is where that prose belongs.
  *      ⚠ This branch USED to echo `message` verbatim onto a rendered brief
  *      surface. Producer messages on this channel interpolate raw node ids and
  *      internal field names, so a user could be shown, word for word: "Node
@@ -698,7 +700,20 @@ function buildDefaultedAssumptions(input: BriefAssemblyInput): BriefDefaultedAss
       factor_id: f.factor_id,
       factor_label: label,
       // provisional_doctrine_v0
-      note: `No starting value was provided for "${label}", so the analysis used a default. Setting a real value or range would make this more trustworthy.`,
+      // provisional_doctrine_v0 — REVIEW F4. This row and the DEFAULT-coded
+      // warning rows below land in the SAME rendered array, about the SAME
+      // substitution, and this one sorts FIRST. ISL's pinned OpenAPI on
+      // `value_defaulted`: "no observed value was provided, so it fell back to
+      // 0.0 ... Derived from the SAME observed-value check as the
+      // ROOT_NODE_DEFAULT_VALUE warning." So the default IS zero, and this row
+      // said "a default" while its sibling said "zero ... not an estimate".
+      // One list, one substitution, two vocabularies, and the vaguer one read
+      // first — which is worse than either alone, because a reader reconciles
+      // them by assuming the milder one is the true reading.
+      note:
+        `No measured value was provided for "${label}", so the analysis used zero for it. ` +
+        'Zero is a substitute, not an estimate of what that factor really is. ' +
+        'If zero is not the right starting point, set the real value or a range and run the analysis again.',
       source: 'value_defaulted',
       doctrine: 'provisional_doctrine_v0',
     });
@@ -711,11 +726,33 @@ function buildDefaultedAssumptions(input: BriefAssemblyInput): BriefDefaultedAss
   for (const w of defaultWarnings) {
     if (seenCodes.has(w.code)) continue;
     seenCodes.add(w.code);
+    // ⛔⛔ REVIEW F8 — NO FALLBACK TO `message` ON A RENDERED SURFACE.
+    // `InferenceWarning.user_message`'s own contract, written in this same
+    // change, says a consumer "should fall back to showing nothing rather than
+    // to `message` — `message` interpolates raw node ids and internal field
+    // names and is a DEBUG string". This branch read `w.user_message ??
+    // w.message`, i.e. it did the one thing the contract shipping beside it
+    // forbids, on the very surface the leak was found on.
+    //
+    // It was LATENT only because every *DEFAULT*-coded code reaching here today
+    // HAS copy. The next ISL `*DEFAULT*` code re-opened the exact leak this
+    // change closed, silently, with nothing red anywhere — a fix and its own
+    // re-opening shipped in one file.
+    //
+    // ⭐ NOTHING IS LOST BY SKIPPING, and that is why skipping is the honest
+    // option rather than a vague substitute sentence. The warning still rides
+    // `inference_warnings[]` with `code`, `message`, `severity`, `field` and
+    // `disclosure_bucket` intact; that is the diagnostic surface, and it is
+    // where producer prose belongs. What is withheld is only its appearance in
+    // a RENDERED brief. Attaching a "something was noted" line instead would
+    // put a claim on a user surface that no producer made, which is the same
+    // reasoning `humaniseInferenceWarning` already gives for returning
+    // undefined rather than a generic.
+    if (typeof w.user_message !== 'string' || w.user_message.trim() === '') continue;
     out.push({
       factor_label: null,
-      // provisional_doctrine_v0 — product copy where we have it, producer
-      // message only as the fallback for a code with no copy yet.
-      note: w.user_message ?? w.message,
+      // provisional_doctrine_v0 — product copy ONLY. See above.
+      note: w.user_message,
       source: 'default_disclosure',
       code: w.code,
       doctrine: 'provisional_doctrine_v0',

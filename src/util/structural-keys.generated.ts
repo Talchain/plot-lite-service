@@ -123,6 +123,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "details",
   "details_truncated",
   "direction",
+  "disclosure_bucket",
   "display_verdict",
   "display_verdict_reason",
   "distribution",

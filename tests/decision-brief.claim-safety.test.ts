@@ -16,6 +16,10 @@
 
 import { describe, it, expect, afterEach } from 'vitest';
 import { assembleBrief, type BriefAssemblyInput } from '../src/assembly/decision-brief.js';
+// Review F8: a default_disclosure row now requires PRODUCT COPY. These tests
+// build their warnings the way the route does, through the humaniser, rather
+// than hand-rolling a raw warning the rendered surface would (correctly) drop.
+import { addInferenceWarningUserMessages, humaniseInferenceWarning } from '../src/inference-warning-humaniser.js';
 
 afterEach(() => {
   delete process.env.BRIEF_CLAIM_SAFE_SURFACES_ENABLE;
@@ -148,7 +152,12 @@ describe('defaulted_assumptions', () => {
       doctrine: 'provisional_doctrine_v0',
     });
     expect(brief.defaulted_assumptions![0].note).toContain('Market Size');
-    expect(brief.defaulted_assumptions![0].note).toContain('default');
+    // Review F4: the row used to say "the analysis used a default" while its
+    // run-level SIBLING in the same array said "zero ... not an estimate".
+    // ISL defines `value_defaulted` as the same observed-value check, so the
+    // default IS zero and this row says so in the sibling's words.
+    expect(brief.defaulted_assumptions![0].note).toContain('zero');
+    expect(brief.defaulted_assumptions![0].note).toMatch(/not an estimate/i);
   });
 
   it('CLAIM SAFETY: intervention-pinned levers NEVER appear in defaulted_assumptions', () => {
@@ -164,20 +173,28 @@ describe('defaulted_assumptions', () => {
   });
 
   it('echoes DEFAULT-coded inference warnings as run-level disclosures (deduped by code)', () => {
+    // ⚠ Built through the humaniser, exactly as /v2/run builds it. Review F8:
+    // the note is `user_message` and NOTHING ELSE — a warning with no product
+    // copy now yields no row rather than echoing producer prose onto a
+    // rendered surface. This test pinned that echo, so it pinned the leak.
     const brief = assembleBrief(makeInput({
-      inference_warnings: [
+      inference_warnings: addInferenceWarningUserMessages([
         { code: 'ROOT_NODE_DEFAULT_VALUE', message: 'Root node used a default value', severity: 'info' },
         { code: 'ROOT_NODE_DEFAULT_VALUE', message: 'Root node used a default value (dup)', severity: 'info' },
         { code: 'EDGE_SENSITIVITY_UNAVAILABLE', message: 'Not default-related', severity: 'info' },
-      ],
+      ]),
     }))!;
     const disclosures = brief.defaulted_assumptions!.filter((a) => a.source === 'default_disclosure');
     expect(disclosures).toHaveLength(1);
     expect(disclosures[0]).toMatchObject({
       factor_label: null,
       code: 'ROOT_NODE_DEFAULT_VALUE',
-      note: 'Root node used a default value',
+      // Bound to the module's output, never a copied sentence, so a reworded
+      // template moves both sides together (no hand-maintained mirror).
+      note: humaniseInferenceWarning('ROOT_NODE_DEFAULT_VALUE'),
     });
+    // ...and the producer's engineer prose is NOT on the rendered surface.
+    expect(disclosures[0].note).not.toContain('Root node used a default value');
   });
 
   it('is [] when nothing was defaulted', () => {
@@ -269,11 +286,16 @@ describe('claim-safety wording invariants', () => {
       factor_sensitivity: [
         { factor_id: 'f1', factor_label: 'Market Size', elasticity: 0.5, value_defaulted: true },
       ],
-      inference_warnings: [
+      // Humanised, so the forbidden-wording tripwire below actually covers the
+      // PRODUCT COPY now reaching this surface — not just the row's absence.
+      inference_warnings: addInferenceWarningUserMessages([
         { code: 'ROOT_NODE_DEFAULT_VALUE', message: 'Root node used a default value', severity: 'warning' },
-      ],
+      ]),
     }))!;
     const serialised = JSON.stringify(brief);
+    // POSITIVE CONTROL: the copy really is in the string being scanned, or the
+    // three not.toMatch assertions below prove nothing about it (trap 13).
+    expect(serialised).toContain(humaniseInferenceWarning('ROOT_NODE_DEFAULT_VALUE'));
     expect(serialised).not.toMatch(/EVPI/i);
     expect(serialised).not.toMatch(/expected value/i);
     expect(serialised).not.toMatch(/sensitive to/i);

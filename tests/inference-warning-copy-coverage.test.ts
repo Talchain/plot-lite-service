@@ -20,6 +20,8 @@
  */
 
 import { describe, it, expect } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import {
   INFERENCE_WARNING_COPY,
   humaniseInferenceWarning,
@@ -28,7 +30,13 @@ import {
   INFERENCE_WARNING_BUCKET,
   inferenceWarningBucket,
   DELIBERATELY_NO_USER_MESSAGE,
+  RANGE_FIT_REFUSAL_CODES,
+  RANGE_REFUSAL_CAUSE_NOT_NAMED,
 } from '../src/inference-warning-humaniser.js';
+// Imported for RED 15b: the severity premise is read out of the EMITTER by
+// execution, not out of its docstring (review F7).
+import { describeEdgeEValueDrop } from '../src/routes/v2/run.js';
+import { REPO_ROOT } from './helpers/isl-pinned-artifacts.js';
 import { INFERENCE_WARNING_CODES } from '../src/types/engine-v3.js';
 import type { InferenceWarning } from '../src/types/engine-v3.js';
 import { assembleBrief, type BriefAssemblyInput } from '../src/assembly/decision-brief.js';
@@ -55,7 +63,15 @@ const ISL_FORWARDED_CODES: readonly string[] = [
   'CONSTRAINT_NOT_CONVERTIBLE',
 ];
 
-const ALL_COVERED = [...PLOT_CODES, ...ISL_FORWARDED_CODES];
+/**
+ * ⭐ ISL's CLOSED range-fit refusal vocabulary, DERIVED from an exhaustive
+ * `Record<RangeFitRefusalCode, string>` in the humaniser, so it can never go
+ * short the way the hand list above did (review F5). Folded into ALL_COVERED so
+ * every RED below sweeps it without anyone editing a list here.
+ */
+const RANGE_CODES: readonly string[] = RANGE_FIT_REFUSAL_CODES;
+
+const ALL_COVERED = [...PLOT_CODES, ...ISL_FORWARDED_CODES, ...RANGE_CODES];
 
 /** SCREAMING_SNAKE with at least one underscore — a leaked machine code. */
 const BARE_MACHINE_CODE = /\b[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)+\b/;
@@ -70,6 +86,9 @@ describe('inference-warning copy coverage', () => {
     // coverage assertion below pass by iterating nothing.
     expect(PLOT_CODES.length).toBeGreaterThanOrEqual(15);
     expect(ISL_FORWARDED_CODES.length).toBe(4);
+    // Pinned so a SHRINK is visible. A GROWTH is already a compile error in the
+    // humaniser's exhaustive record, which is the half a test cannot give you.
+    expect(RANGE_CODES.length).toBe(7);
     // PIN THE SUITE'S OWN PRECONDITION. RED 4, 5 and 6 iterate the copy map and
     // therefore PASS VACUOUSLY when it is empty — measured: at an emptied map
     // they were green while nine siblings were red. A guard whose silence is
@@ -115,6 +134,89 @@ describe('inference-warning copy coverage', () => {
     expect(ISL_FORWARDED_CODES.filter((c) => !known.has(c))).toEqual([]);
   });
 
+  it('RED 2b — the range-fit refusal set IS ISL\'s, derived at the pinned OpenAPI', () => {
+    // Review F5 charged that a hand list goes short, and this one had. The fix
+    // is not a longer hand list: it is a record tsc keeps exhaustive against
+    // ISL's closed union. This RED checks the two ends agree with ISL's own
+    // machine-generated artefact, so the suite cannot bless a vocabulary that
+    // has drifted from the producer's.
+    const known = new Set(getKnownInferenceWarningCodes());
+    expect(RANGE_CODES.filter((c) => !known.has(c))).toEqual([]);
+
+    const openapi = JSON.parse(
+      readFileSync(resolve(REPO_ROOT, 'tests/fixtures/isl-pinned/isl-openapi.json'), 'utf8'),
+    ) as { components: { schemas: Record<string, { properties: { code: { enum: string[] } } }> } };
+    const islEnum = openapi.components.schemas.RangeFitRefusalPayload.properties.code.enum;
+    // POSITIVE CONTROL first: an empty or absent enum would make the comparison
+    // below pass by comparing nothing (trap 13).
+    expect(islEnum.length).toBe(7);
+    expect([...islEnum].sort()).toEqual([...RANGE_CODES].sort());
+  });
+
+  it('RED 2c — the LIVE-CAPTURED refused range now reaches the user, instead of nothing', () => {
+    // The evidence review F5 rests on, read from the dated capture rather than a
+    // fixture written here: a real ISL response to a real backwards range. A
+    // fixture you wrote yourself is not evidence about the wire.
+    const capture = JSON.parse(
+      readFileSync(
+        resolve(REPO_ROOT, 'tests/fixtures/isl-range-fit-live-20260807/C-invalid-order.response.json'),
+        'utf8',
+      ),
+    ) as { inference_warnings: { code: string; severity: 'info' | 'warning'; field?: string; detail: { message: string } }[] };
+    const row = capture.inference_warnings.find((w) => w.code === 'RANGE_INVALID_ORDER');
+    expect(row, 'the capture this finding rests on no longer carries the code').toBeDefined();
+    expect(row!.detail.message.length).toBeGreaterThan(20);
+
+    // Shaped the way PLoT's ISL merge shapes it: detail.message is promoted to
+    // `message` (src/routes/v2/run.ts, the ISL inference_warnings merge).
+    const out = addInferenceWarningUserMessages([
+      {
+        code: row!.code,
+        message: row!.detail.message,
+        severity: row!.severity,
+        ...(row!.field !== undefined && { field: row!.field }),
+      },
+    ]);
+    expect(out[0].user_message, 'a refused user-stated range showed NOTHING before this').toBeDefined();
+    expect(out[0].user_message).toMatch(/lower bound/i);
+    expect(out[0].disclosure_bucket).toBe('not_your_number');
+    // The producer's own sentence survives untouched on the diagnostic channel.
+    expect(out[0].message).toBe(row!.detail.message);
+  });
+
+  it('RED 2d — a refusal names a CAUSE only where the producer guarantees one', () => {
+    // ⭐ The recorded gap, pinned EXACTLY: it REDs if the set grows (a grounded
+    // cause was dropped) or shrinks (a cause was invented from a code NAME,
+    // which is review F10's defect and trap 13c's).
+    expect([...RANGE_REFUSAL_CAUSE_NOT_NAMED].sort()).toEqual([
+      'RANGE_AT_DOMAIN_EDGE',
+      'RANGE_NON_FINITE',
+      'RANGE_OUT_OF_DOMAIN',
+      'RANGE_ZERO_WIDTH',
+    ]);
+
+    // The four ungrounded codes share ONE string...
+    const ungrounded = new Set([...RANGE_REFUSAL_CAUSE_NOT_NAMED].map((c) => humaniseInferenceWarning(c)));
+    expect(ungrounded.size).toBe(1);
+    const familyText = [...ungrounded][0]!;
+    // ...and the three grounded ones do NOT, so this cannot pass by every
+    // refusal having collapsed to the same generic sentence.
+    const grounded = RANGE_CODES.filter((c) => !RANGE_REFUSAL_CAUSE_NOT_NAMED.has(c as never));
+    expect(grounded.length).toBe(3);
+    for (const c of grounded) expect(humaniseInferenceWarning(c)).not.toBe(familyText);
+
+    // The one clause ISL's model guarantees for ALL seven: never a fallback,
+    // nothing minted in place of the refused fit.
+    for (const c of RANGE_CODES) {
+      expect(humaniseInferenceWarning(c)).toMatch(/nothing was substituted in its place/i);
+    }
+    // ⛔ And none of them may claim the range would otherwise have moved the
+    // numbers: engine-v3.ts is explicit that the field is CARRIED, NOT APPLIED.
+    for (const c of RANGE_CODES) {
+      expect(humaniseInferenceWarning(c)).not.toMatch(/would have changed|now counts|has been applied/i);
+    }
+  });
+
   it('RED 3 — every covered code resolves to a NON-EMPTY user_message', () => {
     const empty = ALL_COVERED.filter((c) => {
       if (DELIBERATELY_NO_USER_MESSAGE.has(c)) return false;
@@ -140,6 +242,15 @@ describe('inference-warning copy coverage', () => {
       if (text.includes('!')) offenders.push(`${code}: exclamation mark`);
       // Producer-copy ruling, recorded in isl-v2-golden-response.pin.test.ts.
       if (text.includes('—')) offenders.push(`${code}: em dash`);
+      // ⭐ REVIEW F9. "unaffected" is a claim about TRUST; every degradation on
+      // this channel is a fact about DELIVERY. A figure can be byte-identical
+      // and still be worth less to a reader who has just lost the thing that
+      // would have let them judge it — so "the comparison between your options
+      // is unaffected" is true of the numbers and false of the confidence, and
+      // the reader takes the second reading. "unchanged" says the true half.
+      // This product's job is to keep someone thinking, and "unaffected" is an
+      // instruction to stop.
+      if (/\bunaffected\b/i.test(text)) offenders.push(`${code}: "unaffected" claims trust, not delivery`);
       // American -ize/-yze spellings. British English is the house standard.
       if (/\b\w+(?:iz|yz)(?:e|es|ed|ing|ation)\b/.test(text)) offenders.push(`${code}: US spelling`);
       if (!/[.]$/.test(text.trim())) offenders.push(`${code}: no full stop`);
@@ -223,6 +334,41 @@ describe('inference-warning copy coverage', () => {
     );
   });
 
+  it('RED 15b — the severity premise RED 15 rests on is MEASURED at both producers', () => {
+    // ⛔ REVIEW F7. RED 15 above closes with "Severity CANNOT produce this split:
+    // both of these are `info` and they land in different buckets" — and until
+    // now that premise lived ONLY in that comment. Nothing asserted the severity
+    // of either code, so if one moved to `warning` the whole justification for a
+    // separate bucket map would evaporate with NO RED anywhere. A justification
+    // nothing can falsify is not a justification.
+
+    // (a) PLoT's own emitter, BY EXECUTION — never by reading its docstring.
+    const drop = describeEdgeEValueDrop(4, 0);
+    expect(drop, 'the emitter no longer produces a disclosure for a pure input-null drop').toBeDefined();
+    expect(drop!.code).toBe('EDGE_E_VALUE_NON_FINITE_DROPPED');
+    expect(drop!.severity).toBe('info');
+    expect(inferenceWarningBucket(drop!.code)).toBe('expected');
+
+    // (b) an ISL-ORIGINATED code in the OTHER bucket at the SAME severity, read
+    // out of a dated LIVE capture rather than a fixture written here.
+    const capture = JSON.parse(
+      readFileSync(
+        resolve(REPO_ROOT, 'tests/fixtures/isl-constraint-value-frame-20260807/A-control-no-frame.response.json'),
+        'utf8',
+      ),
+    ) as { inference_warnings: { code: string; severity: string }[] };
+    const anchor = capture.inference_warnings.find((w) => w.code === 'CONSTRAINT_NODE_DEFAULT_BASE');
+    expect(anchor, 'the capture this premise rests on no longer carries the anchor').toBeDefined();
+    expect(anchor!.severity).toBe('info');
+    expect(inferenceWarningBucket('CONSTRAINT_NODE_DEFAULT_BASE')).toBe('not_your_number');
+
+    // The premise itself, now as an assertion: same severity, different bucket.
+    expect(drop!.severity).toBe(anchor!.severity);
+    expect(inferenceWarningBucket(drop!.code)).not.toBe(
+      inferenceWarningBucket('CONSTRAINT_NODE_DEFAULT_BASE'),
+    );
+  });
+
   // =========================================================================
   // Wire behaviour
   // =========================================================================
@@ -249,6 +395,29 @@ describe('inference-warning copy coverage', () => {
     expect((input[0] as InferenceWarning).user_message).toBeUndefined();
   });
 
+  it('RED 16 — the disclosure bucket REACHES THE WIRE, so the taxonomy is not dark', () => {
+    // ⛔ REVIEW F6: the bucket map had ZERO references outside its own module and
+    // this suite, with a contrast control proving the sweep could see. A
+    // taxonomy nothing consumes cannot be wrong in production and cannot be
+    // right either — and it becomes a trap the moment a consumer arrives and
+    // inherits whichever reading it happens to carry. It now rides the warning.
+    const out = addInferenceWarningUserMessages([
+      warn('ROOT_NODE_DEFAULT_VALUE', { severity: 'info' }),
+      warn('EDGE_E_VALUE_NON_FINITE_DROPPED', { severity: 'info' }),
+      warn('SOME_FUTURE_ISL_CODE_XYZ'),
+    ]);
+    expect(out[0].disclosure_bucket).toBe('not_your_number');
+    expect(out[1].disclosure_bucket).toBe('expected');
+    // A code with no copy gets no bucket either, so absence keeps meaning the
+    // one thing it meant: no producer-grounded reading exists yet.
+    expect(out[2].disclosure_bucket).toBeUndefined();
+    // PIN THE PRECONDITION: the two buckets on THIS payload must differ, or a
+    // silent collapse to a single value would satisfy both assertions above.
+    expect(out[0].disclosure_bucket).not.toBe(out[1].disclosure_bucket);
+    // Additive only — the diagnostic channel is untouched.
+    for (const w of out) expect(w.message).toBe('internal debug text');
+  });
+
   it('RED 12 — a code with no copy gets NO user_message, rather than a vague sentence', () => {
     const out = addInferenceWarningUserMessages([warn('SOME_FUTURE_ISL_CODE_XYZ')]);
     expect(out[0].user_message).toBeUndefined();
@@ -267,6 +436,9 @@ describe('inference-warning copy coverage', () => {
     const humanised = addInferenceWarningUserMessages([warn('ROOT_NODE_DEFAULT_VALUE')]);
 
     expect(humanised[0].user_message).toBeDefined();
+    // review F6 ships a SECOND additive key on the same element; it needs the
+    // same proof, and it gets it in the same run rather than by analogy.
+    expect(humanised[0].disclosure_bucket).toBeDefined();
     expect(AnalysisEnrichmentSchema.safeParse({ inference_warnings: humanised }).success).toBe(true);
 
     // Contrast: a genuinely malformed element MUST be rejected, or the
@@ -324,16 +496,73 @@ describe('defaulted_assumptions[].note reaches the user with product copy', () =
     expect(note).not.toContain('forward-propagated');
   });
 
-  it('a code with NO copy still falls back to the producer message, so nothing is lost', () => {
-    const brief = assembleBrief(
-      makeInput([
-        { code: 'SOME_FUTURE_DEFAULT_CODE', message: 'raw producer text', severity: 'info' },
-      ]),
-    )!;
+  it('a code with NO copy puts NO ROW on the rendered brief, and keeps its diagnostic', () => {
+    // ⛔ REVIEW F8, and note what it replaces: this test previously asserted the
+    // FALLBACK, i.e. it pinned the leak. `user_message`'s own contract says a
+    // consumer should fall back to showing NOTHING rather than to `message`,
+    // because `message` interpolates raw node ids and internal field names.
+    const warnings: InferenceWarning[] = [
+      { code: 'SOME_FUTURE_DEFAULT_CODE', message: CAPTURED_ISL_PROSE, severity: 'info' },
+    ];
+    const brief = assembleBrief(makeInput(warnings))!;
     const rows = (brief.defaulted_assumptions ?? []).filter(
       (r) => (r as Record<string, unknown>).code === 'SOME_FUTURE_DEFAULT_CODE',
     );
-    expect(rows).toHaveLength(1);
-    expect((rows[0] as Record<string, unknown>).note).toBe('raw producer text');
+    expect(rows).toHaveLength(0);
+
+    // ⭐ CONTRAST CONTROL IN THE SAME RUN, or "0 rows" is equally consistent with
+    // the builder having stopped emitting default_disclosure rows at all.
+    const withCopy = assembleBrief(
+      makeInput(
+        addInferenceWarningUserMessages([
+          { code: 'CONSTRAINT_NODE_DEFAULT_BASE', message: CAPTURED_ISL_PROSE, severity: 'warning' },
+        ]),
+      ),
+    )!;
+    expect(
+      (withCopy.defaulted_assumptions ?? []).filter(
+        (r) => (r as Record<string, unknown>).code === 'CONSTRAINT_NODE_DEFAULT_BASE',
+      ),
+    ).toHaveLength(1);
+
+    // NOTHING IS LOST: the full diagnostic survives on the channel that carries
+    // it, which is where the advanced-details surface reads it from.
+    expect(addInferenceWarningUserMessages(warnings)[0].message).toBe(CAPTURED_ISL_PROSE);
+  });
+
+  it('F4 — the TWO rows in this one array speak with ONE vocabulary about ONE substitution', () => {
+    // ⭐ REVIEW F4. ISL's pinned OpenAPI on `value_defaulted`: "no observed value
+    // was provided, so it fell back to 0.0 ... Derived from the SAME
+    // observed-value check as the ROOT_NODE_DEFAULT_VALUE warning." So these two
+    // rows describe ONE substitution. The factor row said "a default" while the
+    // warning row said "zero ... not an estimate", and the factor row SORTS
+    // FIRST — a reader meeting both reconciles them by taking the milder one as
+    // the true reading. This binds the RELATIONSHIP, which is what F4 is about;
+    // a per-string assertion cannot see a divergence between two strings.
+    const input = makeInput(
+      addInferenceWarningUserMessages([
+        { code: 'ROOT_NODE_DEFAULT_VALUE', message: CAPTURED_ISL_PROSE, severity: 'info' },
+      ]),
+    );
+    input.factor_sensitivity = [
+      { factor_id: 'fac_team_maturity', factor_label: 'Team maturity', value_defaulted: true },
+    ] as never;
+
+    const rows = (assembleBrief(input)!.defaulted_assumptions ?? []) as Record<string, unknown>[];
+    // Bound by IDENTITY (source / code), never by position or by a value
+    // predicate the other row could satisfy.
+    const factorRow = rows.find((r) => r.source === 'value_defaulted');
+    const warnRow = rows.find((r) => r.code === 'ROOT_NODE_DEFAULT_VALUE');
+    expect(factorRow, 'no value_defaulted row — the precondition of this test').toBeDefined();
+    expect(warnRow, 'no ROOT_NODE_DEFAULT_VALUE row — the precondition of this test').toBeDefined();
+    // And they really are in ONE array, adjacent, factor row first.
+    expect(rows.indexOf(factorRow!)).toBeLessThan(rows.indexOf(warnRow!));
+
+    for (const r of [factorRow!, warnRow!]) {
+      const note = r.note as string;
+      expect(note).toContain('zero');
+      expect(note).toMatch(/not an estimate/i);
+      expect(note, 'the euphemism this finding is about').not.toMatch(/\ba default\b/i);
+    }
   });
 });

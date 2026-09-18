@@ -46,7 +46,161 @@
  * - Severity is never invented or changed here. Copy only.
  */
 
-import type { InferenceWarning } from './types/engine-v3.js';
+import type { DisclosureBucket, InferenceWarning } from './types/engine-v3.js';
+import type { ISLRangeFitRefusalPayload } from './integrations/isl/types/isl-types.js';
+
+/**
+ * The vocabulary stays exported from here, where every existing importer looks
+ * for it. It is DECLARED beside `InferenceWarning` in `types/engine-v3.js`
+ * because that is where the field carrying it lives; re-exporting rather than
+ * redeclaring is the difference between one definition and two that agree
+ * today (trap 12).
+ */
+export type { DisclosureBucket };
+
+/**
+ * ISL's CLOSED range-fit refusal vocabulary, READ OFF THE WIRE TYPE rather than
+ * retyped. Seven members at the pinned OpenAPI, pinned against ISL's own enum
+ * by RED 2b.
+ */
+type RangeFitRefusalCode = ISLRangeFitRefusalPayload['code'];
+
+/**
+ * The clause every refusal shares, and the ONLY cause-free string in the family.
+ * Separated out so RED 2d can assert by identity which codes use it.
+ */
+const RANGE_REFUSAL_NO_CAUSE_NAMED =
+  'A range you gave for one of your factors could not be turned into a spread of values. ' +
+  'Nothing was fitted to it and nothing was substituted in its place, so no part of this analysis rests on a guess about it. ' +
+  'The range is listed with this run exactly as you stated it, alongside the reason it was refused.';
+
+/**
+ * ⭐⭐ THE SEVEN RANGE-FIT REFUSALS — EXHAUSTIVE AT COMPILE TIME. This is the
+ * direct answer to review F5, including the part of F5 that was an argument
+ * about method rather than about a missing string.
+ *
+ * WHAT WAS WRONG. `ISL_FORWARDED_CODES` in the coverage suite is a HAND LIST,
+ * declared as one, on the reasoning that only a hand list can notice a SHORT
+ * list. It was short. `RANGE_INVALID_ORDER` is LIVE-CAPTURED on this exact
+ * channel (`tests/fixtures/isl-range-fit-live-20260807/C-invalid-order.response.json`)
+ * carrying a user-ready `detail.message` that PLoT's ISL merge promotes to
+ * `message` — and the contract this PR wrote tells consumers to show NOTHING for
+ * a code with no `user_message`. So a person who stated their own range, and had
+ * it refused, was to be shown nothing at all. On capability P4 that is the worst
+ * available outcome: the one place the product asks for the user's own judgement
+ * is the one place it went silent.
+ *
+ * ⭐ AND THIS RECORD CANNOT GO SHORT, WHICH IS THE POINT.
+ * `Record<RangeFitRefusalCode, string>` is EXHAUSTIVE BY CONSTRUCTION:
+ * `RangeFitRefusalCode` is ISL's own closed union read off the wire type, so an
+ * eighth refusal code is a COMPILE ERROR here, in the repo's required TypeScript
+ * check, with no list for anyone to remember to update. That is the
+ * completeness guarantee trap 12d says derivation cannot give you — and it can
+ * be given HERE precisely because this vocabulary is CLOSED and TYPED, which the
+ * open `inference_warnings` code space is not. The hand list is still right
+ * about the open space; it was wrong about this closed corner of it.
+ *
+ * WHAT EVERY ONE OF THE SEVEN MAY SAY, and why it is the same clause. ISL's own
+ * model documents the FAMILY, not the members:
+ *
+ *   "A refusal always means: the value stays disclosed as confirmed, NO
+ *    distribution is produced, compute is untouched. Never a fallback — a
+ *    Beta(1,1) minted on solver failure is a fabricated value wearing real
+ *    provenance, this estate's dominant defect."
+ *   (tests/fixtures/isl-pinned/isl-openapi.json, RangeFitRefusalPayload)
+ *
+ * That guarantee holds for all seven, so all seven state it.
+ *
+ * ⛔ THE CAUSE IS NAMED ONLY WHERE THE PRODUCER GUARANTEES IT. Three are
+ * grounded in this repo at the bytes:
+ *   RANGE_INVALID_ORDER      the live capture above, ISL's own sentence: "The
+ *                            lower bound is greater than the upper bound."
+ *   RANGE_OPEN_ENDED         pinned OpenAPI, UserStatedRange.lower/upper:
+ *                            "Absent = open-ended below ('no more than X'),
+ *                            which is refused RANGE_OPEN_ENDED".
+ *   RANGE_FIT_NONCONVERGENT  pinned OpenAPI, starts_tried: "how many starts of
+ *                            the deterministic two-start ladder were tried
+ *                            before refusing" — the solver ran and did not
+ *                            settle.
+ * The other four get NO cause. Their code NAMES suggest one; a name is not a
+ * producer guarantee (review F10, and trap 13c — an expectation written from
+ * what a field seemed to mean is a full mark on the wrong exam). They get the
+ * family sentence and a pointer to the row, which carries the bounds as stated
+ * and ISL's own sanitised reason. Pinned as an explicit set by RED 2d, so this
+ * is a recorded gap rather than an invisible one: it REDs if someone invents a
+ * cause, and it REDs if a grounded one quietly loses its.
+ *
+ * ⛔ AND NONE OF THEM MAY IMPLY THE RANGE WOULD OTHERWISE HAVE MOVED THE
+ * NUMBERS. `types/engine-v3.ts` is explicit: "CARRIED, NOT APPLIED (ISL stage
+ * S3) ... ISL's compute is BYTE-IDENTICAL whether or not this field is present
+ * ... Do not describe this to a user as 'your range now counts'." An apology for
+ * a lost effect the ACCEPTED path does not yet have would be a fresh false
+ * claim, bought while fixing a silence.
+ */
+const RANGE_FIT_REFUSAL_COPY: Record<RangeFitRefusalCode, string> = {
+  RANGE_INVALID_ORDER:
+    'The range you gave for one of your factors has its lower bound above its upper bound. ' +
+    'We have kept it exactly as you stated it and nothing was substituted in its place, because which way round you said it is part of what you meant. ' +
+    'Restate it with the smaller number first.',
+
+  RANGE_OPEN_ENDED:
+    'The range you gave for one of your factors names only one end, an upper bound or a lower bound but not both. ' +
+    'A one-sided statement leaves the other end undefined, so no spread was fitted to it and nothing was substituted in its place. ' +
+    'Give both ends if you want it read as a range.',
+
+  RANGE_FIT_NONCONVERGENT:
+    'The range you gave for one of your factors was tried, and no spread of values could be settled on that matches it. ' +
+    'Nothing was fitted to it and nothing was substituted in its place, so no part of this analysis rests on a guess about it. ' +
+    'The range is listed with this run exactly as you stated it, alongside the reason it was refused.',
+
+  // ⛔ Cause NOT named. See RANGE_REFUSAL_CAUSE_NOT_NAMED below and RED 2d.
+  RANGE_ZERO_WIDTH: RANGE_REFUSAL_NO_CAUSE_NAMED,
+  RANGE_NON_FINITE: RANGE_REFUSAL_NO_CAUSE_NAMED,
+  RANGE_OUT_OF_DOMAIN: RANGE_REFUSAL_NO_CAUSE_NAMED,
+  RANGE_AT_DOMAIN_EDGE: RANGE_REFUSAL_NO_CAUSE_NAMED,
+};
+
+/**
+ * ⭐ THE RECORDED GAP, PINNED EXACTLY (RED 2d) — the refusals whose CAUSE this
+ * repo cannot yet ground at a producer byte. Exported so the guard reads the set
+ * rather than a copy of it, and so it REDs if the set GROWS (a grounded cause
+ * was quietly dropped) or SHRINKS (a cause was invented from a code name).
+ * A gap recorded in the suite is honest; a gap invisible to it is how it comes
+ * back.
+ */
+export const RANGE_REFUSAL_CAUSE_NOT_NAMED: ReadonlySet<RangeFitRefusalCode> = new Set([
+  'RANGE_ZERO_WIDTH',
+  'RANGE_NON_FINITE',
+  'RANGE_OUT_OF_DOMAIN',
+  'RANGE_AT_DOMAIN_EDGE',
+]);
+
+/**
+ * DERIVED from the exhaustive record above, never listed again. The coverage
+ * guard folds these into its ALL_COVERED set through this export, so a code
+ * added to ISL's union is compelled to have copy by tsc AND is swept by every
+ * RED in that suite without anyone editing a list.
+ */
+export const RANGE_FIT_REFUSAL_CODES: readonly RangeFitRefusalCode[] =
+  Object.keys(RANGE_FIT_REFUSAL_COPY) as RangeFitRefusalCode[];
+
+/**
+ * ⚠ ALL SEVEN ARE `not_your_number`, AND THE THIRD LIMB IS THE ONE THAT CARRIES
+ * IT: "could not be evaluated". The user stated a range; no distribution was
+ * produced from it. The one thing this must never read as is REASSURANCE, which
+ * is exactly what the `expected` bucket is defined to read as — so the boundary
+ * case that review F3 left open for SAMPLES_REDUCED_FOR_COMPLEXITY does not
+ * arise here, and this file is not quietly settling that question by analogy.
+ */
+const RANGE_FIT_REFUSAL_BUCKETS: Record<RangeFitRefusalCode, DisclosureBucket> = {
+  RANGE_ZERO_WIDTH: 'not_your_number',
+  RANGE_INVALID_ORDER: 'not_your_number',
+  RANGE_NON_FINITE: 'not_your_number',
+  RANGE_OUT_OF_DOMAIN: 'not_your_number',
+  RANGE_AT_DOMAIN_EDGE: 'not_your_number',
+  RANGE_OPEN_ENDED: 'not_your_number',
+  RANGE_FIT_NONCONVERGENT: 'not_your_number',
+};
 
 /**
  * User-facing copy keyed by inference-warning code.
@@ -167,8 +321,8 @@ export const INFERENCE_WARNING_COPY: Record<string, string> = {
    */
   FLIP_THRESHOLDS_UNAVAILABLE:
     'The tipping-point calculation did not complete for this run, so no tipping points are shown. ' +
-    'This does not mean nothing could change the leading option, it means we could not check. ' +
-    'The rest of the analysis is unaffected.',
+    'This does not mean nothing could change the leading option. It means we could not check. ' +
+    'The rest of the analysis is unchanged.',
 
   /**
    * ISL seed-sweep flip-stability bands degraded all-or-nothing.
@@ -180,12 +334,12 @@ export const INFERENCE_WARNING_COPY: Record<string, string> = {
    */
   STABILITY_BANDS_UNAVAILABLE:
     'The stability ranges around the tipping points could not be produced for this run, so they are not shown. ' +
-    'The tipping-point values themselves and the rest of the analysis are unaffected.',
+    'The tipping-point values themselves are unchanged, but you are reading them as single figures with no range around them.',
 
   /** ISL edge E-value phase degraded. Cause deliberately unnamed, as above. */
   E_VALUES_UNAVAILABLE:
     'We could not work out how far each connection would have to move to change the result, so that detail is not shown. ' +
-    'The rest of the analysis is unaffected.',
+    'The rest of the analysis is unchanged.',
 
   /**
    * ⭐ ISL's per-factor value-of-information phase degraded.
@@ -201,12 +355,12 @@ export const INFERENCE_WARNING_COPY: Record<string, string> = {
    */
   EVPI_UNAVAILABLE:
     'We could not work out which of your unknowns would be most worth resolving first, so that guidance is not shown. ' +
-    'The comparison between your options is unaffected.',
+    'The option comparison itself is unchanged, but you are choosing where to dig next without that steer.',
 
   /** ISL structural path decomposition degraded. Cause deliberately unnamed. */
   PATH_DECOMPOSITION_UNAVAILABLE:
     'We could not break down how influence travels along each route through your model, so that breakdown is not shown. ' +
-    'The comparison between your options is unaffected.',
+    'The option comparison itself is unchanged, but you are reading it without the account of how it arises.',
 
   /**
    * Edge-level sensitivity was requested but the deployed ISL's wire omits the
@@ -216,7 +370,7 @@ export const INFERENCE_WARNING_COPY: Record<string, string> = {
    */
   EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE:
     'Sensitivity for individual connections is not available from the analysis engine on this run, so it is not shown. ' +
-    'That is a limit of the engine version in use rather than anything about your model, and sensitivity for factors is unaffected.',
+    'That is a limit of the engine version in use rather than anything about your model, and sensitivity for factors is unchanged.',
 
   /** Same shape as above for the edge E-value wire LOCATION being absent. */
   EDGE_E_VALUES_UNAVAILABLE_V2_WIRE:
@@ -230,7 +384,7 @@ export const INFERENCE_WARNING_COPY: Record<string, string> = {
    */
   STABILITY_THRESHOLDS_MISSING:
     'We could not work out how far each factor would have to move before the ranking of your options changes, so that detail is not shown. ' +
-    'The ranking itself and the rest of the analysis are unaffected.',
+    'The ranking itself is unchanged, but you cannot see how close it is to changing.',
 
   // =========================================================================
   // Data quality and internal disclosures
@@ -266,7 +420,7 @@ export const INFERENCE_WARNING_COPY: Record<string, string> = {
    */
   ENRICHMENT_CONTRACT_MISMATCH:
     'Part of this result did not match the format we expect, so some supporting detail may be missing or worth treating with caution. ' +
-    'The comparison between your options is unaffected, and the problem has been recorded on our side.',
+    'The option comparison itself is unchanged, and the problem has been recorded on our side.',
 
   /**
    * Factor entries arrived carrying two identifiers that disagree, so they were
@@ -274,7 +428,7 @@ export const INFERENCE_WARNING_COPY: Record<string, string> = {
    */
   FACTOR_ID_CONFLICT:
     'One or more factors arrived with identifiers that disagree, so they were left out of the sensitivity and influence results rather than reported under a guessed identity. ' +
-    'Everything else in this analysis is unaffected.',
+    'Everything else in this analysis is unchanged.',
 
   /**
    * Edge E-value entries dropped because a required number was non-finite.
@@ -301,25 +455,14 @@ export const INFERENCE_WARNING_COPY: Record<string, string> = {
   // precedent in this same map.
   EDGE_E_VALUE_NON_FINITE_DROPPED:
     'Some connections could not be given a tipping-point figure, so those entries were left out rather than shown as blanks. ' +
-    'The remaining connections and the rest of the analysis are unaffected.',
-};
+    'The remaining connections and the rest of the analysis are unchanged.',
 
-/**
- * How a disclosure should READ to a person.
- *
- * WHY THIS IS NOT `severity`. Both of the calibration anchors are `info`, and
- * for one of them ISL chose `info` deliberately so the disclosure "stays
- * quiet". Severity encodes how loudly to surface a row; it does not encode
- * whether a number the user is looking at can be trusted. Rendering 14 honest
- * notes as a flat list tells a person a healthy analysis has 14 problems, so
- * the split is derived from what each code MEANS at its emitting site.
- *
- *   'expected'        The engine behaved correctly and is saying so. Nothing is
- *                     wrong. Reads as reassurance.
- *   'not_your_number' A value on screen was substituted, defaulted, or could
- *                     not be evaluated. Must say plainly what happened.
- */
-export type DisclosureBucket = 'expected' | 'not_your_number';
+  // =========================================================================
+  // ISL range-fit refusals (review F5). Spread from a record that tsc keeps
+  // EXHAUSTIVE against ISL's closed vocabulary — see RANGE_FIT_REFUSAL_COPY.
+  // =========================================================================
+  ...RANGE_FIT_REFUSAL_COPY,
+};
 
 /**
  * ⭐⭐ CODES THAT DELIBERATELY HAVE NO `user_message`, AND THE SET IS PINNED
@@ -410,6 +553,9 @@ export const INFERENCE_WARNING_BUCKET: Record<string, DisclosureBucket> = {
    * not file this under "all clear".
    */
   SAMPLES_REDUCED_FOR_COMPLEXITY: 'expected',
+
+  // --- ISL range-fit refusals (review F5) ---------------------------------
+  ...RANGE_FIT_REFUSAL_BUCKETS,
 };
 
 /** The bucket for a code, or `undefined` when the code has no copy here. */
@@ -439,17 +585,28 @@ export type HumanisedInferenceWarning = InferenceWarning & { user_message: strin
  * as they were. Returns a new array and never mutates the input.
  *
  * `code`, `message`, `severity`, `field` and `elapsed_ms` are all preserved:
- * the diagnostic channel is additive-only, never replaced. `user_message` is an
- * ADDITIVE key on a passthrough element of `AnalysisEnrichmentSchema`, verified
- * by execution against the vendored schema with two failing contrast controls,
- * so it cannot itself raise ENRICHMENT_CONTRACT_MISMATCH.
+ * the diagnostic channel is additive-only, never replaced. `user_message` and
+ * `disclosure_bucket` are ADDITIVE keys on a passthrough element of
+ * `AnalysisEnrichmentSchema`, verified by execution against the vendored schema
+ * with failing contrast controls, so neither can itself raise
+ * ENRICHMENT_CONTRACT_MISMATCH.
  */
 export function addInferenceWarningUserMessages(
   warnings: readonly InferenceWarning[],
 ): InferenceWarning[] {
   return warnings.map((w) => {
     const userMessage = humaniseInferenceWarning(w.code);
-    return userMessage === undefined ? { ...w } : { ...w, user_message: userMessage };
+    // REVIEW F6 — the bucket travels WITH the copy, on the same element, so the
+    // taxonomy stops being dark. The two are looked up INDEPENDENTLY rather
+    // than one inferred from the other: RED 14 asserts they cover exactly the
+    // same codes, and a guard that ASSUMES its own invariant cannot notice it
+    // breaking.
+    const bucket = inferenceWarningBucket(w.code);
+    return {
+      ...w,
+      ...(userMessage !== undefined && { user_message: userMessage }),
+      ...(bucket !== undefined && { disclosure_bucket: bucket }),
+    };
   });
 }
 
