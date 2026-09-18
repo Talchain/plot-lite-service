@@ -866,6 +866,60 @@ export function normaliseEdge(
     result.edge_type = 'bidirected';
   }
 
+  // ---------------------------------------------------------------------------
+  // Producer provenance passthrough.
+  //
+  // `result` above is an EXPLICIT object literal, so anything the canonical
+  // type does not name is structurally deleted here — for every request,
+  // silently, whatever the producer sent. That is not a bug in any one field;
+  // it is a property of this function, and it is why a sweep of PLoT `src/`
+  // found ZERO reads of `.defaulted`, ZERO of `edge.origin` and ZERO of
+  // `edge.provenance` on the V2/V3 path, against a contrast control of
+  // `.exists_probability` present on 15 files across the same paths.
+  //
+  // WHAT THIS FIXES, precisely: CEE's factor enricher stamps enrichment-created
+  // edges with a literal `strength_mean: 0.5` / `strength_std: 0.2` and with
+  // `defaulted: true` — the invented number AND the producer's statement that
+  // it is invented, arriving together. The number survived to
+  // `computeFactorInfluence` and became a user-visible influence percentage;
+  // the statement died on this line. So the product presented a prior as a
+  // measurement and had, at the point of presenting it, no way left to know
+  // otherwise.
+  //
+  // ⚠ THIS CHANGES NO COMPUTED VALUE. The defaults themselves are untouched —
+  // a model is entitled to a prior. Only the flag now travels.
+  //
+  // ⚠ AND NOTHING READS EITHER FIELD YET. Carrying them is necessary and NOT
+  // sufficient; see the note on `EngineEdgeV3.defaulted`. Do not read this
+  // block as evidence that a user is told anything.
+  //
+  // Each is carried only when it matches its DECLARED type, so a malformed
+  // producer value cannot make the canonical type a lie (a non-boolean
+  // `defaulted` is dropped rather than coerced — a coerced `'no'` would read as
+  // `true`, which is the opposite of what the producer said).
+  //
+  // ⚠ `provenance` DELIBERATELY HAS NO `typeof === 'string'` GUARD. That guard
+  // is the obvious defensive move, it reads as careful, and it would drop 100%
+  // of CEE's provenance: `UpstreamEdge.provenance` was declared `string` from
+  // the flat EdgeV2.2 form, but CEE's `transformEdgeToV3` rebuilds it into an
+  // OBJECT (`{ source, reasoning? }`) before the graph is posted. PLoT already
+  // carries that exact bug at `src/trust/provenance.ts:35,161` — a
+  // `typeof raw !== 'string'` skip, on the V1 route. Both forms are admitted
+  // here; arrays are not, because neither producer emits one and admitting a
+  // shape nobody sends buys nothing.
+  if (typeof edge.defaulted === 'boolean') {
+    result.defaulted = edge.defaulted;
+  }
+  if (
+    typeof edge.provenance === 'string' ||
+    (typeof edge.provenance === 'object' && edge.provenance !== null && !Array.isArray(edge.provenance))
+  ) {
+    result.provenance = edge.provenance;
+  }
+  if (typeof edge.origin === 'string') {
+    result.origin = edge.origin;
+  }
+
   return result;
 }
 

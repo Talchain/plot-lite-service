@@ -174,6 +174,24 @@ export interface UpstreamNode {
 }
 
 /**
+ * An edge-level provenance claim, in either form that reaches this service.
+ *
+ * - `string` — the flat EdgeV2.2 / legacy / whiteboard form (e.g. `'template'`),
+ *   which the V1 route reads.
+ * - object — CEE's V3 egress form, `{ source, reasoning? }`, produced by its
+ *   `transformEdgeToV3` and carried on every graph posted to `/v2/run`. The
+ *   index signature is intentional: CEE declares that object `.passthrough()`,
+ *   so it may carry more than the two members named here, and dropping the
+ *   extras at PLoT's boundary would repeat the loss this type exists to stop.
+ *
+ * ⚠ UNVALIDATED EITHER WAY. PLoT does not Zod-parse the incoming graph, so
+ * this type describes what producers SEND, not what has been checked.
+ */
+export type EdgeProvenanceClaim =
+  | string
+  | { source?: string; reasoning?: string; [key: string]: unknown };
+
+/**
  * Upstream edge format - accepts various field naming conventions.
  * Normalized to EngineEdgeV3 before processing.
  */
@@ -202,7 +220,63 @@ export interface UpstreamEdge {
 
   // Metadata
   label?: string;
-  provenance?: string;
+  /**
+   * Producer claim about where this edge came from.
+   *
+   * ⚠ IT IS NOT A STRING ON THE LIVE V2/V3 WIRE, whatever this field's history
+   * says. It was declared `string` here (the EdgeV2.2 flat form), and CEE's
+   * `transformEdgeToV3` REBUILDS it into an OBJECT before the graph is posted:
+   * `{ source: 'cee_hypothesis' | 'brief_extraction' | 'domain_knowledge' |
+   * 'user_specified', reasoning?: string }` (CEE `schema-v3.ts:871`, `:881`;
+   * `cee-v3.ts:335-341`, and empirically in CEE's own persisted V3 fixtures).
+   * The flat string still occurs on the V1 route and on legacy/whiteboard
+   * graphs, so BOTH forms are real and the union is deliberate.
+   *
+   * This matters because a `typeof === 'string'` guard written from the old
+   * declaration would silently drop 100% of CEE's provenance while looking
+   * perfectly defensive — PLoT `src/trust/provenance.ts:35,161` does exactly
+   * that today, though only on the V1 route.
+   */
+  provenance?: EdgeProvenanceClaim;
+
+  /**
+   * Producer claim about what CREATED this edge. CEE's ingress enum
+   * (`schemas/graph.ts:481`) is `user | ai | default | repair | enrichment`,
+   * and its factor enricher stamps `'enrichment'` alongside `defaulted: true`.
+   *
+   * ⚠ Typed `string`, not a union, and deliberately: CEE's own V3 EGRESS
+   * schema (`cee-v3.ts:380`) declares it `z.string().optional()` with the five
+   * values only in a doc comment — a hand-maintained mirror of an enum one
+   * file away. Anything arriving here is therefore an unvalidated string whose
+   * domain is documented, not enforced. Any future reader must fail CLOSED on
+   * a value it does not recognise rather than assume the five.
+   */
+  origin?: string;
+
+  /**
+   * The producer's own claim that this edge's magnitude is a DEFAULT, not a
+   * measurement.
+   *
+   * CEE's factor enricher stamps every enrichment-created edge with a literal
+   * `strength_mean: 0.5` / `strength_std: 0.2` AND with `defaulted: true`. The
+   * magnitude reaches PLoT's compute — `transformEdgeToV3` reads the flat
+   * fields first, emits nested `strength:{mean,std}`, and the V3 persisted
+   * graph rides `plotPayload.graph` into `/v2/run`, where
+   * `computeFactorInfluence` turns `strength.mean` into a user-visible
+   * influence percentage. The MARKER did not: until this field existed,
+   * `normaliseEdge`'s explicit return object deleted it at PLoT's first hop.
+   *
+   * ⚠ IT IS AN UNVALIDATED PRODUCER CLAIM, NOT AN ATTESTATION — the same
+   * caveat that governs `observed_state.source` (ROADMAP 2.520 S1). PLoT does
+   * not Zod-parse the incoming graph, so there is no membership check and no
+   * server-side re-derivation. `defaulted: true` arriving means THE FIELD
+   * ARRIVED. It does not mean the number is invented, and its ABSENCE does not
+   * mean the number was measured: absence is silence, because most producers
+   * have never stamped it. Any slice that makes this WEIGH in the maths
+   * depends on closing forgeability upstream (ROADMAP 2.525) and must not
+   * treat it as trusted until then.
+   */
+  defaulted?: boolean;
 
   // Directionality (3A-trust)
   /** 'directed' (default) = A→B causal edge. 'bidirected' = A↔B unmeasured confounding. */
@@ -301,6 +375,47 @@ export interface EngineEdgeV3 {
   };
   /** Optional label */
   label?: string;
+  /**
+   * Producer claim that this edge's magnitude is a DEFAULT, not a measurement
+   * — carried verbatim from `UpstreamEdge.defaulted`, where the full caveat
+   * lives. Absent when the producer said nothing; `false` is an explicit
+   * not-defaulted claim and is NOT the same as absence.
+   *
+   * ⚠ THIS TYPE IS LOAD-BEARING, and invisibly so — exactly as
+   * `EngineNodeV3.observed_state.source` turned out to be. `normaliseEdge`
+   * returns an EXPLICIT object, so a field the canonical type cannot name is
+   * structurally deleted for every request, silently, whatever the producer
+   * sent. That is how this marker was lost, and how `provenance` below was
+   * lost, and it will be how the next one is lost.
+   *
+   * ⚠ NOTHING CONSUMES IT YET. It reaches `computeFactorInfluence` and the
+   * rest of the post-normalisation pipeline and is read by none of them. It is
+   * deliberately NOT in `canonicaliseEdge` (the request-hash canonical form,
+   * which excludes metadata by contract) and deliberately NOT in `toISLEdge`
+   * (an explicit five-field ISL wire object). Adding a reader is a separate,
+   * user-facing change.
+   */
+  defaulted?: boolean;
+  /**
+   * Producer provenance claim — carried verbatim from
+   * `UpstreamEdge.provenance`, where the two real wire forms are documented.
+   * On the live V2/V3 path this is an OBJECT (`{ source, reasoning? }`), not a
+   * string; the V1 path's flat string form is also admitted.
+   *
+   * The V3 path dropped it here for the same structural reason as `defaulted`,
+   * so a `provenance` the V1 route can read vanished entirely on V2.
+   * Unvalidated: no enum, no membership check, no re-derivation.
+   */
+  provenance?: EdgeProvenanceClaim;
+  /**
+   * Producer claim about what created this edge (`'enrichment'` for CEE's
+   * factor enricher) — carried verbatim from `UpstreamEdge.origin`, where the
+   * caveat about its documented-not-enforced domain lives. Correlates with
+   * `defaulted` on enrichment edges but is a DIFFERENT claim: `origin` says
+   * who made the edge, `defaulted` says whether its magnitude was invented.
+   * Do not treat either as the other.
+   */
+  origin?: string;
   /** Edge directionality. 'directed' (default) = A→B causal edge. 'bidirected' = A↔B unmeasured confounding. */
   edge_type?: 'directed' | 'bidirected';
 }
