@@ -254,17 +254,37 @@ describe('CONSTRAINT_TARGET_UNRELIABLE (item A — Paul\'s 20/% valueless-node c
       expect(warnings[0].message).toContain('Campaign effectiveness');
       // … says the numbers were withheld …
       expect(warnings[0].message).toContain('withheld');
-      // … and tells the user what to do about it.
+      // … and is honest about what the user can do about it.
       //
       // ⚠ L63 changed WHICH action this names, on purpose. This fixture's
       // target is BOTH un-scalable (no derivable range) AND unanchored (a
       // non-root node, so ISL reads no absolute base for it), and the
       // unanchored reason now takes priority in the copy: scaling the
       // threshold correctly would not make it comparable, so "set a range"
-      // would send the user to fix the lesser of the two problems. The
-      // message still names a concrete action — set a current value, or
-      // state the target as a change — which subsumes the old advice.
-      expect(warnings[0].message).toContain('Set a current value');
+      // would send the user to fix the lesser of the two problems.
+      //
+      // ⚠⚠ CORRECTED 18 Sep 2026. The assertion here USED TO BE
+      // `toContain('Set a current value')`, on the reasoning that the new
+      // message "still names a concrete action … which subsumes the old
+      // advice". That reasoning was wrong on this fixture, and the assertion
+      // was pinning the defect: `out_campaign_effectiveness` has an incoming
+      // edge (`fac_budget ->`, see GRAPH_VALUELESS_TARGET), and
+      // `resolveConstraintSampleFrameAnchor` returns at its
+      // `directedEdgeTargets` early return BEFORE it ever reads
+      // `observed_state`. So setting a current value on THIS node cannot move
+      // the verdict — the comment three lines up says "a non-root node" and the
+      // assertion then demanded the one remedy non-root-ness rules out.
+      //
+      // Measured live (deployed CEE 0168483, 18 Sep): a user followed exactly
+      // this advice and got graph_hash UNCHANGED, zero graph_patch blocks,
+      // win_probabilities BYTE-IDENTICAL and the same warning again.
+      //
+      // The message must therefore state the position without prescribing an
+      // inert edit. The ROOT arm keeps the advice and is pinned in
+      // tests/constraint-target-unreliable-root-remedy.test.ts (T2/T4/T5) —
+      // this fix discriminates by topology, it does not go quiet everywhere.
+      expect(warnings[0].message).not.toContain('Set a current value');
+      expect(warnings[0].message).toContain('recorded');
       // The raw suppressed numbers are never quoted in the warning.
       expect(warnings[0].message).not.toContain('0%');
     } finally {
