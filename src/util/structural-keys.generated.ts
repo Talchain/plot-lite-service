@@ -326,6 +326,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "near_tie",
   "node_id",
   "node_ids",
+  "node_label",
   "nodes",
   "nodes_normalised",
   "noise_distribution",
