@@ -2822,6 +2822,33 @@ export const INFERENCE_WARNING_CODES = {
 export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof INFERENCE_WARNING_CODES];
 
 /**
+ * How a disclosure should READ to a person.
+ *
+ * ⚠ THIS LIVES HERE, BESIDE `InferenceWarning`, BECAUSE IT IS A WIRE TYPE.
+ * It was declared in `inference-warning-humaniser.ts` and re-exported from
+ * there for its original importers; the MAP still lives there with the copy it
+ * belongs to, but the VOCABULARY belongs with the field that carries it, and
+ * putting it here is what lets `disclosure_bucket` below be typed by it instead
+ * of by a second hand-written union (trap 12).
+ *
+ * WHY THIS IS NOT `severity`. Both of the calibration anchors are `info`, and
+ * for one of them ISL chose `info` deliberately so the disclosure "stays
+ * quiet". Severity encodes how loudly to surface a row; it does not encode
+ * whether a number the user is looking at can be trusted. Rendering a dozen
+ * honest notes as a flat list tells a person a healthy analysis has a dozen
+ * problems, so the split is derived from what each code MEANS at its emitting
+ * site. That premise is MEASURED, not asserted in a comment: see RED 15b in
+ * `tests/inference-warning-copy-coverage.test.ts`, which reads one severity out
+ * of PLoT's own emitter by execution and the other out of a dated ISL capture.
+ *
+ *   'expected'        The engine behaved correctly and is saying so. Nothing is
+ *                     wrong. Reads as reassurance.
+ *   'not_your_number' A value on screen was substituted, defaulted, or could
+ *                     not be evaluated. Must say plainly what happened.
+ */
+export type DisclosureBucket = 'expected' | 'not_your_number';
+
+/**
  * Diagnostic warning emitted when inference metadata is inconsistent.
  * Code is typed as string to accept both PLoT-originated and ISL-forwarded codes.
  */
@@ -2829,6 +2856,22 @@ export interface InferenceWarning {
   code: InferenceWarningCode | string;
   message: string;
   severity: 'info' | 'warning';
+  /**
+   * Product copy for this warning, in plain British English, generated
+   * deterministically by `src/inference-warning-humaniser.ts`.
+   *
+   * Present only for codes that HAVE copy. Absent is meaningful: it means no
+   * producer-grounded sentence exists for this code yet, and a consumer should
+   * fall back to showing nothing rather than to `message` — `message`
+   * interpolates raw node ids and internal field names and is a DEBUG string,
+   * carried for the advanced-details surface and our logs.
+   *
+   * Additive on a passthrough element of `AnalysisEnrichmentSchema` (verified
+   * by execution against the vendored schema, with contrast controls that
+   * correctly FAIL), exactly like the `field` and `elapsed_ms` keys above, so
+   * it can never itself raise ENRICHMENT_CONTRACT_MISMATCH.
+   */
+  user_message?: string;
   /**
    * F4 (Codex deep review): the field path the warning is about, preserved
    * verbatim from ISL's real `InferenceWarning.field` (e.g. `factor_evpi`,
@@ -2847,6 +2890,27 @@ export interface InferenceWarning {
    * additive field never fails the contract.
    */
   elapsed_ms?: number;
+  /**
+   * ⭐ How this disclosure should READ, so a consumer can tell a note that means
+   * "nothing is wrong, we are telling you what we did" from one that means
+   * "a number you are looking at is not yours".
+   *
+   * REVIEW F6. The bucket map existed and was DARK — zero references outside its
+   * own module and its own test, with a contrast control proving the sweep could
+   * see. A taxonomy nothing consumes cannot be checked by anything, and becomes
+   * a trap the moment a consumer arrives. It now rides the warning, which is the
+   * surface a consumer actually reads.
+   *
+   * Present exactly when `user_message` is (RED 14 pins the map and the copy map
+   * to each other in both directions), so absence keeps meaning the same thing:
+   * no producer-grounded reading of this code exists yet.
+   *
+   * Additive on a passthrough element of `AnalysisEnrichmentSchema` — verified by
+   * execution with a contrast control that must FAIL (RED 13) — exactly like
+   * `user_message`, `field` and `elapsed_ms`, so it can never itself raise
+   * ENRICHMENT_CONTRACT_MISMATCH.
+   */
+  disclosure_bucket?: DisclosureBucket;
 }
 
 /**

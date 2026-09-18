@@ -94,6 +94,39 @@
  * canonicalisation changed, the computation did not. Verified by diffing the
  * regenerated golden against the committed one (14 diff lines total, all above).
  *
+ * REGENERATED again for the inference-warning copy lane (2026-09-17) — AN
+ * ADDITIVE USER-COPY KEY. `inference_warnings[]` elements now carry
+ * `user_message`, product copy generated deterministically by
+ * `src/inference-warning-humaniser.ts`, so the channel stops being
+ * engineer-prose-only. The regeneration changes EXACTLY 3 lines:
+ *   +1  `inference_warnings[0].user_message` (the new key), on the single
+ *       EDGE_E_VALUE_NON_FINITE_DROPPED warning this capture carries;
+ *   ~1  the trailing comma on the `severity` line above it;
+ *   ~1  `_meta.response_content_hash` a37066d3dad670d9 -> b14cfe4402559a8b,
+ *       which is the CORRECT direction for an additive content change.
+ * No option row, probability, label, factor id, ordering or existing key
+ * moved; `message` and `severity` are untouched (the diagnostic channel is
+ * additive-only, never replaced); `response_hash` is UNMOVED because the
+ * REQUEST did not change; and the four ISL captures in this fixture directory
+ * are byte-unchanged (sha256 verified against HEAD before and after).
+ *
+ * REGENERATED again for the F4-F9 review round (2026-09-18). TWO user-facing
+ * strings and ONE additive key; the regeneration changes EXACTLY 4 insertions
+ * and 3 deletions across the whole file, and every one is accounted for:
+ *   ~1  `inference_warnings[0].user_message`: "...are unaffected." becomes
+ *       "...are unchanged." (review F9);
+ *   +1  `inference_warnings[0].disclosure_bucket: "expected"` (review F6 — the
+ *       bucket map was dark, zero references outside its own module and test);
+ *   ~1  the trailing comma on the `user_message` line above that insertion;
+ *   ~1  `decision_brief.defaulted_assumptions[0].note` (review F4);
+ *   ~1  `_meta.response_content_hash` rch_v2:75f53275bab1fb03 ->
+ *       rch_v2:c276d9e6a03ab534, which is the correct direction for a
+ *       content change.
+ * No option row, probability, label, factor id or ordering moved; `message` and
+ * `severity` are byte-identical; `response_hash` is UNMOVED because the REQUEST
+ * did not change; and the four ISL captures in this fixture directory are
+ * sha256-identical before and after (verified, both directions recorded).
+ *
  * ⚠ The `60e3ac213554be4f` values in the 2.160 paragraph above are HISTORY and
  * are deliberately left alone — they record what was true at that regeneration.
  * A bulk find-and-replace across this header would falsify the record.
@@ -595,6 +628,38 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //          in this fixture directory are byte-unchanged (sha256 verified
     //          before and after regeneration); and `response_hash` is UNMOVED
     //          (the REQUEST did not change).)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:a37066d3dad670d9');
+    //  copy-   rch_v2:b14cfe4402559a8b (INFERENCE-WARNING USER COPY, 2026-09-17:
+    //  chan-   `inference_warnings[]` gained the additive `user_message` key.
+    //  nel     Producer copy IS hashed content, so the derived hash moves. The
+    //  2026-   golden diff is EXACTLY the one new key, its preceding comma and
+    //  09-17   this hash. `response_hash` is UNMOVED — the REQUEST did not
+    //          change — and `message`/`severity` are byte-identical.)
+    //  09-18   review F1: the EDGE_E_VALUE_NON_FINITE_DROPPED `user_message` no
+    //          longer asserts an overflow cause that the captured evidence
+    //          contradicts (4/4 input-null, 0 overflow), so the CONTENT hash
+    //          moves to rch_v2:75f53275bab1fb03. `response_hash` is again UNMOVED: the
+    //          REQUEST did not change, and `message`/`severity` are untouched.
+    //  09-18   review F4 + F6 + F9 (the second round on this PR). THREE content
+    //  round   lines move and the hash follows to rch_v2:c276d9e6a03ab534:
+    //  two     (a) F9 — `inference_warnings[0].user_message` ends "...are
+    //              unchanged" where it said "...are unaffected". "Unaffected" is
+    //              a claim about TRUST; this is a fact about DELIVERY, and the
+    //              reader takes the first reading. (b) F6 — the new additive key
+    //              `disclosure_bucket: "expected"`, so the bucket map stops being
+    //              dark (it had zero references outside its own module).
+    //          (c) F4 — `decision_brief.defaulted_assumptions[0].note`: the
+    //              value_defaulted row said "the analysis used a default" while
+    //              its SIBLING in the same rendered array said "zero ... not an
+    //              estimate", and this row sorts first. ISL's pinned OpenAPI
+    //              defines `value_defaulted` as "no observed value was provided,
+    //              so it fell back to 0.0 ... the SAME observed-value check as the
+    //              ROOT_NODE_DEFAULT_VALUE warning", so the default IS zero and
+    //              the row now says so.
+    //          Measured: 4 insertions / 3 deletions, whole file. No option row,
+    //          probability, label, factor id or ordering moved; `message` and
+    //          `severity` are byte-identical; `response_hash` is UNMOVED (the
+    //          REQUEST did not change); the four ISL captures in this directory
+    //          are sha256-identical before and after.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:c276d9e6a03ab534');
   });
 });

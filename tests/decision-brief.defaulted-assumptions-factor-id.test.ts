@@ -25,6 +25,8 @@
 
 import { describe, it, expect } from 'vitest';
 import { assembleBrief, type BriefAssemblyInput } from '../src/assembly/decision-brief.js';
+// Review F8: a run-level default_disclosure row now requires PRODUCT COPY.
+import { addInferenceWarningUserMessages, humaniseInferenceWarning } from '../src/inference-warning-humaniser.js';
 
 function makeInput(overrides: {
   factor_sensitivity?: unknown[];
@@ -69,9 +71,15 @@ describe('defaulted_assumptions[].factor_id — join key', () => {
     expect(row.factor_label).toBe('Market Size');
     expect(row.source).toBe('value_defaulted');
     expect(row.doctrine).toBe('provisional_doctrine_v0');
+    // Review F4 — one vocabulary for one substitution. ISL's pinned OpenAPI
+    // defines `value_defaulted` as "no observed value was provided, so it fell
+    // back to 0.0 ... the SAME observed-value check as the
+    // ROOT_NODE_DEFAULT_VALUE warning", so this row says zero, in the same
+    // words its run-level sibling in this array uses.
     expect(row.note).toBe(
-      'No starting value was provided for "Market Size", so the analysis used a default. ' +
-        'Setting a real value or range would make this more trustworthy.',
+      'No measured value was provided for "Market Size", so the analysis used zero for it. ' +
+        'Zero is a substitute, not an estimate of what that factor really is. ' +
+        'If zero is not the right starting point, set the real value or a range and run the analysis again.',
     );
     // The label is NOT silently replaced by the id.
     expect(row.factor_label).not.toBe(row.factor_id);
@@ -125,9 +133,11 @@ describe('defaulted_assumptions[].factor_id — join key', () => {
 
   it('run-level default_disclosure rows carry NO factor_id (no factor to join to)', () => {
     const brief = assembleBrief(makeInput({
-      inference_warnings: [
+      // Humanised as /v2/run does it: review F8 makes `user_message` the ONLY
+      // source for this note, so a raw warning would correctly yield no row.
+      inference_warnings: addInferenceWarningUserMessages([
         { code: 'ROOT_NODE_DEFAULT_VALUE', message: 'Root node used a default value', severity: 'info' },
-      ],
+      ]),
     }))!;
 
     const disclosures = brief.defaulted_assumptions!.filter((r) => r.source === 'default_disclosure');
@@ -137,7 +147,9 @@ describe('defaulted_assumptions[].factor_id — join key', () => {
     // PURELY ADDITIVE — existing run-level fields unchanged.
     expect(row.factor_label).toBeNull();
     expect(row.code).toBe('ROOT_NODE_DEFAULT_VALUE');
-    expect(row.note).toBe('Root node used a default value');
+    expect(row.note).toBe(humaniseInferenceWarning('ROOT_NODE_DEFAULT_VALUE'));
+    // The engineer prose stays OFF the rendered surface (review F8).
+    expect(row.note).not.toContain('Root node used a default value');
   });
 
   it('CLAIM SAFETY UNCHANGED: intervention-pinned levers emit no row, and therefore no factor_id', () => {

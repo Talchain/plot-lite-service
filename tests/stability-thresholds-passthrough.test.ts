@@ -170,6 +170,7 @@ vi.mock('../src/integrations/isl/index.ts', async () => {
 });
 
 import { createServer } from '../src/createServer.js';
+import { humaniseInferenceWarning, inferenceWarningBucket } from '../src/inference-warning-humaniser.js';
 
 // ---------------------------------------------------------------------------
 // ST1, ST2, ST4: Route-level integration tests
@@ -342,11 +343,31 @@ describe('stability_thresholds passthrough + hash_version in _meta', () => {
         (w: any) => w.code === 'STABILITY_THRESHOLDS_MISSING',
       );
       expect(stabilityWarnings).toHaveLength(1);
+      // Kept STRICT (toEqual, not toMatchObject) so an unintended extra key
+      // still REDs here. The additive `user_message` is product copy attached
+      // by `inference-warning-humaniser.ts`; it is bound to that module's
+      // output rather than to a copied sentence, so a reworded template moves
+      // both sides together and this test cannot decay into a stale mirror.
+      // `message` and `severity` are pinned unchanged: the diagnostic channel
+      // is added to, never replaced.
+      //
+      // ⭐ `disclosure_bucket` joined it deliberately (review F6 — the bucket map
+      // was dark, with zero references outside its own module and its own test).
+      // THIS GUARD IS WHY THE KEY IS HERE RATHER THAN SILENTLY ON THE WIRE: it
+      // RED-ed on the new key, exactly as its own comment above promised it
+      // would, so a second additive key could not arrive unnoticed. Bound to
+      // `inferenceWarningBucket(...)` for the same reason `user_message` is
+      // bound to `humaniseInferenceWarning(...)`: a literal here would be a
+      // hand-maintained mirror of the map it is checking.
       expect(stabilityWarnings[0]).toEqual({
         code: 'STABILITY_THRESHOLDS_MISSING',
         message: 'ISL returned factor-level stability fields but stability_thresholds metadata was absent or malformed — threshold classification context unavailable',
         severity: 'info',
+        user_message: humaniseInferenceWarning('STABILITY_THRESHOLDS_MISSING'),
+        disclosure_bucket: inferenceWarningBucket('STABILITY_THRESHOLDS_MISSING'),
       });
+      expect(stabilityWarnings[0].user_message, 'copy must exist, or the line above compares undefined with undefined').toBeDefined();
+      expect(stabilityWarnings[0].disclosure_bucket, 'bucket must exist, or the line above compares undefined with undefined').toBeDefined();
     } finally {
       forceOmitThresholds = false;
     }

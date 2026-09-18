@@ -691,7 +691,9 @@
     {
       "code": "EDGE_E_VALUE_NON_FINITE_DROPPED",
       "message": "4 edge E-value entries were omitted from edge_e_values: 4 carried no finite E-value from the analysis engine (an unflippable edge, whose current and flip means coincide, has no evidence ratio). edge_e_values is shorter because those entries could not be represented, not because they were computed empty. All other analyses are unaffected.",
-      "severity": "info"
+      "severity": "info",
+      "user_message": "Some connections could not be given a tipping-point figure, so those entries were left out rather than shown as blanks. The remaining connections and the rest of the analysis are unchanged.",
+      "disclosure_bucket": "expected"
     }
   ],
   "m1_coaching": {
@@ -1290,7 +1292,7 @@
       {
         "factor_id": "fac_team_maturity",
         "factor_label": "Team Technical Maturity",
-        "note": "No starting value was provided for \"Team Technical Maturity\", so the analysis used a default. Setting a real value or range would make this more trustworthy.",
+        "note": "No measured value was provided for \"Team Technical Maturity\", so the analysis used zero for it. Zero is a substitute, not an estimate of what that factor really is. If zero is not the right starting point, set the real value or a range and run the analysis again.",
         "source": "value_defaulted",
         "doctrine": "provisional_doctrine_v0"
       }
@@ -1611,7 +1613,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:a37066d3dad670d9"
+    "response_content_hash": "rch_v2:c276d9e6a03ab534"
   },
   "meta": {
     "seed_used": "2034401427",
