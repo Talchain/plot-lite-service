@@ -1268,12 +1268,16 @@ export interface ISLRobustnessAnalyzeV2Response {
     elapsed_ms?: number;
     /** Flat node id (older per-node captures). */
     node_id?: string;
+    /** Flat node label (older captures); real shape carries it under `detail`. */
+    node_label?: string;
     /** The real nested payload. */
     detail?: {
       reason?: string;
       message?: string;
       elapsed_ms?: number;
       node_id?: string;
+      /** Human label for the node, so a disclosure can name it (ISL #174). */
+      node_label?: string;
       field?: string;
       [key: string]: unknown;
     };

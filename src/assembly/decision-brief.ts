@@ -703,8 +703,20 @@ function buildDefaultedAssumptions(input: BriefAssemblyInput): BriefDefaultedAss
   for (const w of defaultWarnings) {
     if (seenCodes.has(w.code)) continue;
     seenCodes.add(w.code);
+    // THE PRODUCER'S OWN LABEL, OR NOTHING. ISL emits `node_label` on the
+    // genuinely-defaulted-root disclosure precisely so this row can name the
+    // input a person has to go and set. It is NOT parsed out of the note and
+    // NOT backfilled from a node id: a fabricated name on a true sentence is
+    // worse than a true sentence with no name, and the id-shaped strings a
+    // backfill would produce are exactly what a consumer's raw-identifier
+    // guard withholds anyway.
+    //
+    // This does NOT make the row factor-scoped. `source` stays
+    // 'default_disclosure' and no `factor_id` is minted here — that remains a
+    // fabricated join target (decision-brief.defaulted-assumptions-factor-id).
+    const producerLabel = typeof w.node_label === 'string' ? w.node_label.trim() : '';
     out.push({
-      factor_label: null,
+      factor_label: producerLabel !== '' ? producerLabel : null,
       note: w.message,
       source: 'default_disclosure',
       code: w.code,

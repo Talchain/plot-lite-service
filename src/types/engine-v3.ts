@@ -2847,6 +2847,18 @@ export interface InferenceWarning {
    * additive field never fails the contract.
    */
   elapsed_ms?: number;
+  /**
+   * Human label for the node this warning is about, carried verbatim from the
+   * producer's `detail.node_label`. ISL emits it on ROOT_NODE_DEFAULT_VALUE so
+   * the defaulted-input disclosure can NAME the input a person has to go and
+   * set, instead of a raw node id that nothing downstream can resolve — the
+   * label exists on ISL's request graph and nowhere else. Present only when the
+   * source warning carried a non-empty one; a blank label is no label and is
+   * NEVER backfilled from the id. The egress enrichment envelope's
+   * inference_warnings element is passthrough, so this additive field never
+   * fails the contract.
+   */
+  node_label?: string;
 }
 
 /**

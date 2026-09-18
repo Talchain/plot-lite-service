@@ -3976,6 +3976,17 @@ function buildResponse(
         // F4: preserve `field` from the real ISL shape (top-level, or detail-nested).
         const rawField = w?.field ?? w?.detail?.field;
         const field = typeof rawField === 'string' && rawField !== '' ? rawField : undefined;
+        // Carry the producer's HUMAN LABEL for the node this warning is about.
+        // ISL emits it on ROOT_NODE_DEFAULT_VALUE so the defaulted-input
+        // disclosure can name the input instead of a raw id; that label lives on
+        // ISL's request graph and NOWHERE downstream, so dropping it here is what
+        // makes the disclosure unactionable. Trimmed + non-empty only — a blank
+        // label is no label, and it is never backfilled from the id.
+        const rawNodeLabel = w?.detail?.node_label ?? w?.node_label;
+        const nodeLabel =
+          typeof rawNodeLabel === 'string' && rawNodeLabel.trim() !== ''
+            ? rawNodeLabel.trim()
+            : undefined;
         inferenceWarnings.push({
           code: w.code,
           message,
@@ -3987,6 +3998,7 @@ function buildResponse(
           severity: (w.severity == null || w.severity === 'info') ? 'info' : 'warning',
           ...(field !== undefined && { field }),
           ...(elapsedMs !== undefined && { elapsed_ms: elapsedMs }),
+          ...(nodeLabel !== undefined && { node_label: nodeLabel }),
         });
         existingKeys.add(dedupKey);
       }
