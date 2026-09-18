@@ -593,13 +593,58 @@ function computeGraphHash(graph: GraphState): string {
     if (a.to > b.to) return 1;
     return 0;
   });
-  // Project onto the field allowlists BEFORE serialising. Without this the
+  // Project onto the field allowlist BEFORE serialising. Without this the
   // hash is `JSON.stringify` over whole objects, so every producer claim
   // `normaliseEdge` carries — including a `.passthrough()` provenance object
   // whose key order and free text are the producer's — lands in a value this
   // route's contract calls deterministic.
+  //
+  // ===========================================================================
+  // ⛔ EDGES ONLY. `sortedNodes` IS DELIBERATELY UNPROJECTED, AND PROJECTING IT
+  // WAS A LIVE DEFECT. Corrected 18 Sep 2026 on an independent review.
+  //
+  // `HASHED_NODE_FIELDS` lists the 10 DECLARED members of `EngineNodeV3`. But
+  // `normaliseNode` returns `{ ...declared, ...ceeConstraintFields } as
+  // EngineNodeV3` (graph-normaliser.ts:438-468), adding `deadline_metadata`,
+  // `unit`, `source_quote`, `confidence` and `provenance` on constraint nodes.
+  // A `keyof`-typed allowlist CANNOT name them — they are not in the type —
+  // so `pickHashedFields` dropped all five and `tsc` had nothing to complain
+  // about.
+  //
+  // ⛔ THE FIELDS ARE NOT COSMETIC. `deadline_metadata` fires DROP RULE 1
+  // (constraint-filter.ts:105), which removes the constraint from the compute
+  // ENTIRELY, and `unit` drives DROP RULE 2. So two graphs with DIFFERENT
+  // COMPUTE OUTCOMES shared a `graph_hash` — the hash stopped discriminating
+  // exactly the thing it exists to discriminate, and silently.
+  //
+  // ⚠ AND IT FALSIFIED TWO CLAIMS MADE IN THIS CHANGE'S OWN WORDS: the commit
+  // message's "NO GRAPH CHANGES ITS HASH" and the docblock's "Nothing is
+  // excluded on the node side ... the node hash is unchanged in both content
+  // and bytes". Both were false at the bytes. A docblock asserting byte
+  // identity is the sentence nobody re-checks, which is why it is worth
+  // recording that this one was wrong rather than quietly deleting it.
+  //
+  // ⭐ LEAVING NODES WHOLE RESTORES BYTE IDENTITY BY CONSTRUCTION rather than
+  // by a second allowlist that would need maintaining alongside the first —
+  // and it costs nothing, because ALL THREE original vectors this projection
+  // was written for are EDGE-SIDE. The edge projection is kept in full.
+  //
+  // ⚠ CONSEQUENCE, STATED SO IT IS NOT A FALSE LABEL: `HASHED_NODE_FIELDS`
+  // and `HASH_EXCLUDED_NODE_FIELDS` NO LONGER AFFECT THIS HASH. They are
+  // retained because `validate-patch-graph-hash-determinism.test.ts:366`
+  // imports them for a derived completeness assertion (every declared
+  // `EngineNodeV3` field is classified exactly once), which is still a true
+  // and useful statement ABOUT THE TYPE — but it is no longer a statement
+  // about what gets hashed, and that test will stay green either way.
+  //
+  // A reader who finds a node allowlist next to a hash function will assume
+  // nodes are projected. They are not. Retiring the node-side lists and that
+  // assertion together is a separate, reviewable change; leaving them
+  // undocumented would be the same defect one level up, because the most
+  // convincing stale artefact is a correct-looking one nobody re-reads.
+  // ===========================================================================
   const canonical = {
-    nodes: sortedNodes.map((node) => pickHashedFields(node, HASHED_NODE_FIELDS)),
+    nodes: sortedNodes,
     edges: sortedEdges.map((edge) => pickHashedFields(edge, HASHED_EDGE_FIELDS)),
   };
   return createHash('sha256')
