@@ -85,7 +85,7 @@ import { filterTemporalConstraints } from '../../normalisation/constraint-filter
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, InternalMetadata } from '../../types/engine-v3.js';
-import { toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, parseGoalThresholdFrame } from '../../integrations/isl/translator-v3.js';
+import { toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
@@ -1512,6 +1512,11 @@ const runV3Schema = {
         type: 'array',
         items: { type: 'object' },
       },
+      // ROADMAP 2.920 — enumerated AT THE GATE so an unrecognised sense is
+      // refused here with a 400 naming the field, rather than reaching ISL's
+      // `extra: "ignore"` and being dropped in silence while the maximiser keeps
+      // running unattested.
+      goal_direction: { type: 'string', enum: ['maximise', 'minimise', 'target'] },
       include_thresholds: { type: 'boolean' },
       include_e_values: { type: 'boolean' },
       include_voi: { type: 'boolean' },
@@ -7420,7 +7425,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           factorParameterUncertainties,  // Reuse the factor PUs already built for the admission plan (same nodes → byte-identical)
           body.factor_correlations,  // Capability #100 (D-23.4): forward client-supplied factor correlations verbatim (request-gated omit inside the translator)
           nodeGoalThresholdFrame,  // ROADMAP 2.258: producer-stamped frame, forwarded if present; never minted (see below)
-          body.user_stated_ranges  // ROADMAP 2.720 (P4): the user's own stated ranges, projected onto ISL's declared members inside the translator (request-gated omit)
+          body.user_stated_ranges,  // ROADMAP 2.720 (P4): the user's own stated ranges, projected onto ISL's declared members inside the translator (request-gated omit)
+          parseGoalDirection(body.goal_direction)  // ROADMAP 2.920: attested objective sense; unrecognised ⇒ undefined ⇒ today's unattested maximiser
         );
 
         req.log.info(

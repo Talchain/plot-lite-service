@@ -834,6 +834,20 @@ export interface RunRequestV3 {
   goal_threshold?: number | null;
 
   /**
+   * ROADMAP 2.920 — the user's ATTESTED objective sense for the goal node.
+   *
+   * Decides what "this option wins this draw" means. Absent ⇒ ISL runs the
+   * maximiser UNATTESTED and discloses it (`GOAL_DIRECTION_UNATTESTED`); PLoT
+   * never infers it from a node label, because a guessed direction INVERTS the
+   * ranking and is strictly worse than the current error.
+   *
+   * Typed `unknown` deliberately: it crosses the wire from a producer and is
+   * narrowed by `parseGoalDirection` at the single forwarding site, so an
+   * unrecognised sense becomes an omitted key rather than a cast that lies.
+   */
+  goal_direction?: unknown;
+
+  /**
    * Original decision description/brief.
    * When provided, CEE can generate contextualised review output
    * (e.g., "Hiring a senior developer is recommended for your goal

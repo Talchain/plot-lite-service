@@ -31,6 +31,11 @@ export const V2_RUN_ALLOWED_KEYS: ReadonlySet<string> = new Set([
   // either drops the field before it reaches the handler, and the failure is
   // shaped like a 200.
   'user_stated_ranges',
+  // ⭐ ROADMAP 2.920: the user's attested objective sense for the goal node.
+  // BOTH gates must know this key — this allowlist (preValidation) AND
+  // runV3Schema.properties (Ajv, additionalProperties:false) — and it MUST also
+  // appear on runRequestV3 in contracts/openapi.yaml or the drift gate fails.
+  'goal_direction',
 ]);
 
 // ISL top-level correlated-factors ENRICHMENT outputs (capability #100 + VOI

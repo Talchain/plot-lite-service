@@ -5485,6 +5485,21 @@ components:
           type: string
           minLength: 1
           description: Target node for outcome measurement
+        goal_direction:
+          type: string
+          enum: [maximise, minimise, target]
+          description: |
+            The user's attested objective sense for the goal node, which decides what
+            "this option wins this draw" MEANS.
+            maximise = largest goal value wins (the historical rule).
+            minimise = smallest wins; required whenever the goal is a quantity to reduce
+            (cost, churn, risk), where the historical rule crowned the worst option.
+            target = closest to goal_threshold wins; REQUIRES goal_threshold and
+            goal_threshold_frame, and is dropped to the unattested maximiser when either
+            is absent (ISL refuses an unsatisfiable target sense at parse with a 422 that
+            would fail the whole analysis).
+            When omitted, ISL runs the maximiser UNATTESTED and discloses this via
+            GOAL_DIRECTION_UNATTESTED. PLoT never infers it from a node label.
         seed:
           oneOf:
             - type: string
