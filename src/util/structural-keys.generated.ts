@@ -227,6 +227,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "given_constraint_index",
   "goal_alignment",
   "goal_constraints",
+  "goal_direction",
   "goal_fit_basis",
   "goal_node_exists",
   "goal_node_id",

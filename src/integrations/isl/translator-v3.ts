@@ -50,6 +50,48 @@ export type { GoalThresholdFrameType };
  * reject the whole request at Pydantic validation, turning a producer typo into
  * a failed analysis instead of a disclosed missing frame.
  */
+/**
+ * ROADMAP 2.920 — the user's objective sense for the goal node.
+ *
+ * ISL's deployed contract (`build c00f507`) accepts
+ * `goal_direction: 'maximise' | 'minimise' | 'target' | null` and honours it:
+ * MEASURED on a reduce-goal, one variable, `isl-staging`:
+ *
+ *     absent      : opt_high 0.98125  ← the option that MAXIMISES churn
+ *     'minimise'  : opt_low  0.98125  ← ranking flips
+ *     'maximise'  : opt_high 0.98125  ← byte-identical to absent
+ *
+ * The `maximise` arm is the control: it proves absent ⇒ maximise, which is why
+ * ISL emits `GOAL_DIRECTION_UNATTESTED` on every unstamped run and says in terms
+ * that "the historical rule crowned the worst option" for a quantity to reduce.
+ *
+ * ⚠ DEFINED LOCALLY, NOT IMPORTED. `@talchain/schemas` 0.55.0 exports
+ * `GoalThresholdFrame` but has NO `GoalDirection` (verified against the vendored
+ * tarball, with `GoalThresholdFrame` as the contrast control). When CEE wires the
+ * producer side the shared package should carry it and this local type should be
+ * replaced by the import — exactly as `value_frame` uses `GoalThresholdFrameType`.
+ */
+export type GoalDirectionType = 'maximise' | 'minimise' | 'target';
+
+const GOAL_DIRECTIONS: ReadonlySet<string> = new Set([
+  'maximise',
+  'minimise',
+  'target',
+]);
+
+/**
+ * Narrow an unknown to a `GoalDirectionType`, or `undefined`.
+ *
+ * Returns `undefined` for anything unrecognised rather than defaulting: an
+ * omitted key reproduces today's behaviour EXACTLY, whereas a guessed direction
+ * INVERTS the ranking and is strictly worse than the current error.
+ */
+export function parseGoalDirection(value: unknown): GoalDirectionType | undefined {
+  return typeof value === 'string' && GOAL_DIRECTIONS.has(value)
+    ? (value as GoalDirectionType)
+    : undefined;
+}
+
 export function parseGoalThresholdFrame(value: unknown): GoalThresholdFrameType | undefined {
   const parsed = GoalThresholdFrame.safeParse(value);
   return parsed.success ? parsed.data : undefined;
@@ -294,6 +336,13 @@ export interface ISLRobustnessRequestV3 {
    * the only constraint is the auto-synthesised goal target.
    */
   goal_constraints?: ISLGoalConstraint[];
+
+  /**
+   * ROADMAP 2.920 — the user's attested objective sense for the goal node.
+   * Omitted when unknown: ISL then runs the maximiser UNATTESTED and says so
+   * (`GOAL_DIRECTION_UNATTESTED`). PLoT never infers it from a node label.
+   */
+  goal_direction?: GoalDirectionType;
 
   // CIL 0.1: forward seed to ISL for deterministic Monte Carlo runs
   seed?: string | number;
@@ -957,7 +1006,11 @@ export function toISLRobustnessRequest(
   // request. Appended for the same reason as `goalThresholdFrame` above — the
   // call sites pass these positionally and reshuffling them is a mis-wire
   // waiting to happen.
-  userStatedRanges?: ISLUserStatedRange[]
+  userStatedRanges?: ISLUserStatedRange[],
+  // ROADMAP 2.920: the user's attested objective sense. Appended for the same
+  // reason as `goalThresholdFrame` and `userStatedRanges` above — the call sites
+  // pass these positionally and reshuffling them is a mis-wire waiting to happen.
+  goalDirection?: GoalDirectionType
 ): ISLRobustnessRequestV3 {
   // Bidirected edges are trust-layer only (identifiability + warnings).
   // ISL operates on directed edges only. Phase 3A-inference will add inference semantics.
@@ -1019,6 +1072,29 @@ export function toISLRobustnessRequest(
       // channel has to arrange positionally for `goal_threshold_frame`).
       ...(c.value_frame !== undefined && { value_frame: c.value_frame }),
     }));
+  }
+
+  // ROADMAP 2.920 — the user's attested objective sense, request-gated.
+  //
+  // Omitted when absent. PLoT does NOT substitute a default, for the same reason
+  // it does not default `goal_threshold_frame`: absent reproduces today's
+  // behaviour exactly (ISL runs the maximiser and DISCLOSES that it is
+  // unattested), whereas a guessed direction INVERTS the ranking silently and is
+  // strictly worse than the current error.
+  //
+  // ⛔ THE 'target' GUARD IS NOT DEFENSIVE POLISH. ISL's contract: a 'target'
+  // sense "REQUIRES goal_threshold and goal_threshold_frame (a target sense with
+  // no target is refused at parse, never silently downgraded to maximise)". That
+  // refusal is a 422 that fails the WHOLE analysis, not just the direction — so
+  // forwarding an unsatisfiable 'target' would convert a missing-nicety into a
+  // total outage. Dropping it back to the unattested maximiser is the same
+  // outcome the user gets today, with the disclosure intact.
+  if (goalDirection !== undefined) {
+    const targetIsSatisfiable =
+      request.goal_threshold !== undefined && request.goal_threshold_frame !== undefined;
+    if (goalDirection !== 'target' || targetIsSatisfiable) {
+      request.goal_direction = goalDirection;
+    }
   }
 
   // CIL 0.1: forward seed to ISL for deterministic Monte Carlo runs
