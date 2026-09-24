@@ -224,14 +224,9 @@ describe('ROADMAP 2.1024 — the freshness hash covers every analysis-changing i
   // T2 — EACH FIELD ALONE. A single combined assertion could pass on one field
   // doing all the work while the other three stayed invisible.
   // -------------------------------------------------------------------------
-  // ⚠ REACHABILITY, MEASURED — NOT ASSUMED. This case must run WITHOUT root
-  // `goal_constraints`. With them present the route takes the multi-constraint
-  // path, `effectiveGoalThreshold` is undefined, and neither `goal_threshold`
-  // NOR its frame reaches ISL at all — so the frame cannot change the
-  // computation and the hash is RIGHT to collide. T2a-inert pins exactly that,
-  // so this pair states where the field is live and where it is inert instead
-  // of implying it is always live. (A fixture outside the producer's reachable
-  // domain proves nothing about the wire.)
+  // The independent goal target and its frame now reach ISL with or without
+  // explicit constraints. Both paths must bind freshness to that computation;
+  // adding a target must not change or replace the independently supplied limits.
   it('T2a DEFECT: goal_threshold_frame alone changes the hash (no root constraints)', async () => {
     const a = await hashOf(noConstraintPayload());
     const b = await hashOf(noConstraintPayload({}, (g) => { g.nodes[0].goal_threshold_frame = 'delta'; }));
@@ -241,14 +236,24 @@ describe('ROADMAP 2.1024 — the freshness hash covers every analysis-changing i
     expect(b.hash).not.toBe(a.hash);
   });
 
-  it('T2a-inert PIN: on the multi-constraint path the frame reaches neither ISL nor the hash', async () => {
+  it('T2a constrained: the independent target frame reaches ISL and changes the hash', async () => {
     const a = await hashOf(basePayload());
     const b = await hashOf(basePayload({}, (g) => { g.nodes[0].goal_threshold_frame = 'delta'; }));
-    // The frame is genuinely absent from the computation on this path...
-    expect(a.isl.goal_threshold).toBeUndefined();
-    expect(b.isl.goal_threshold_frame).toBeUndefined();
-    // ...so an identical hash is the TRUTH, not a collision.
-    expect(b.hash).toBe(a.hash);
+    expect(a.isl.goal_threshold).toBe(0.8);
+    expect(b.isl.goal_threshold).toBe(0.8);
+    expect(a.isl.goal_threshold_frame).toBeUndefined();
+    expect(b.isl.goal_threshold_frame).toBe('delta');
+    expect(b.isl.goal_constraints).toEqual(a.isl.goal_constraints);
+    expect(b.hash).not.toBe(a.hash);
+  });
+
+  it('T2a constrained target: changing only the target preserves the limit and changes freshness', async () => {
+    const a = await hashOf(basePayload());
+    const b = await hashOf(basePayload({}, (g) => { g.nodes[0].goal_threshold = 0.9; }));
+    expect(a.isl.goal_threshold).toBe(0.8);
+    expect(b.isl.goal_threshold).toBe(0.9);
+    expect(b.isl.goal_constraints).toEqual(a.isl.goal_constraints);
+    expect(b.hash).not.toBe(a.hash);
   });
 
   it('T2b DEFECT: constraint value_frame alone changes the hash', async () => {
