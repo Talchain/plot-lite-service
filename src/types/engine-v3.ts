@@ -859,7 +859,7 @@ export interface RunRequestV3 {
   /**
    * Multiple success constraints for joint evaluation.
    * When present and non-empty, activates multi-constraint analysis mode.
-   * Takes precedence over goal_threshold if both are provided.
+   * Evaluated independently of goal_threshold when both are provided.
    *
    * @example
    * goal_constraints: [

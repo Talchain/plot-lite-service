@@ -116,7 +116,7 @@ describe('T1: Auto-constraint fallback triggers', () => {
       'goal_node',
       'test-request-id',
       1000,
-      undefined, // effectiveGoalThreshold cleared when using multi-constraint path
+      undefined, // This translator control supplies no independent goal target
       [autoConstraint]
     );
 
@@ -129,7 +129,7 @@ describe('T1: Auto-constraint fallback triggers', () => {
       value: 0.2, // F-20: canonical "value" field
       label: 'Goal target',
     });
-    // goal_threshold should NOT be set (cleared by precedence routing)
+    // The translator must not invent a goal target from a constraint.
     expect(islRequest.goal_threshold).toBeUndefined();
   });
 });
@@ -999,25 +999,9 @@ describe('T7: Log assertions for auto-constraint events', () => {
     vi.restoreAllMocks();
   });
 
-  it('T10: goal_threshold_no_probability WARNS when precedence routing clears a stated target (2.239)', async () => {
-    // ⚠ THIS TEST WAS INVERTED BY ROADMAP 2.239, DELIBERATELY. It used to assert
-    // the opposite — "no warning when multi-constraint path clears
-    // effectiveGoalThreshold" — on the reasoning that "the threshold path was
-    // intentionally disabled". That reasoning codified the defect: the alarm was
-    // gated on `effectiveGoalThreshold`, precedence routing clears
-    // `effectiveGoalThreshold` in exactly the cases where the target fails to
-    // reach ISL, and so the alarm was silent by construction in the one scenario
-    // it exists to catch. This test was the lock on that door — it would have
-    // failed anyone who tried to fix it.
-    //
-    // The user DID state a target (goal_threshold: 0.7). PLoT routed it away and
-    // ISL returned no probability_of_goal. That is a defect, and a warn-level log
-    // is the right place to say so. Routing away a stated target is precisely
-    // what the operator needs told.
-    //
-    // The structural half of the original assertion is KEPT: precedence routing
-    // still activates and still clears the threshold for a genuine user
-    // constraint. Only the silence is gone.
+  it('T10: goal_threshold_no_probability still warns when a target is sent but ISL returns no probability', async () => {
+    // Threshold and constraints are independent. A missing probability remains
+    // a disclosed gap even when the target was correctly carried to ISL.
     const logCalls: any[] = [];
     const warnCalls: any[] = [];
     const originalChildLogger = app.log.child.bind(app.log);
@@ -1053,22 +1037,19 @@ describe('T7: Log assertions for auto-constraint events', () => {
 
     expect(res.statusCode).toBe(200);
 
-    // Unchanged: a genuine user constraint still activates the multi-constraint
-    // path and still clears the threshold. The 2.239 carry-through applies ONLY
-    // to the auto-synthesised constraint, which is derived from the target.
+    // The explicit constraint and the independent goal target both travel.
     const multiLog = logCalls.find(
       (c: any) => c?.event === 'multi_constraint_path_activated'
     );
     expect(multiLog).toBeDefined();
-    expect(multiLog.goal_threshold_carried).toBe(false);
+    expect(multiLog.goal_threshold_carried).toBe(true);
 
-    // Inverted (2.239): the warning MUST appear. A target was stated, nothing
-    // was sent to ISL, and no probability came back.
+    // The mock returns no probability: correct transport does not invent one.
     const thresholdWarning = warnCalls.find(
       (c: any) => c?.event === 'goal_threshold_no_probability'
     );
     expect(thresholdWarning).toBeDefined();
-    expect(thresholdWarning.goal_threshold).toBeNull();  // nothing reached ISL
+    expect(thresholdWarning.goal_threshold).toBe(0.7);   // threshold reached ISL
     expect(thresholdWarning.goal_target).toBe(0.7);      // but the user asked for 0.7
     expect(thresholdWarning.goal_target_source).toBe('request');
 

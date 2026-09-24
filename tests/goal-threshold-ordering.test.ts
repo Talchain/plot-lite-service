@@ -345,12 +345,11 @@ describe('ROADMAP 2.239 — goal target reaches the ISL request', () => {
   });
 
   // =========================================================================
-  // NARROWNESS GUARD — a genuine user constraint must still take precedence.
-  // Without this, the hole-B fix could be widened into "always send both",
-  // which would silently override a user's explicit multi-constraint intent.
+  // Independent channels: explicit constraints do not replace a stated goal target.
+  // Assert the actual outbound request, not probabilities fabricated by a mock.
   // =========================================================================
 
-  it('a real user constraint still clears goal_threshold (precedence routing unchanged)', async () => {
+  it('carries a root goal target alongside an explicit constraint without changing either', async () => {
     const { status, isl, body } = await run({
       graph: graphWithGoal(),
       options: OPTIONS,
@@ -363,17 +362,90 @@ describe('ROADMAP 2.239 — goal target reaches the ISL request', () => {
     });
 
     expect(status).toBe(200);
-    expect(isl.goal_threshold).toBeUndefined();
+    expect(isl.goal_threshold).toBe(0.7);
+    expect(isl.goal_threshold_frame).toBe('delta');
     const sent = (isl.goal_constraints ?? []) as any[];
-    expect(sent.map((c) => c.constraint_id)).toEqual(['lever_floor']);
+    expect(sent).toEqual([{ constraint_id: 'lever_floor', node_id: 'lever', operator: '>=', value: 0.6 }]);
 
     const repairs = (body._meta?.repairs_applied ?? []) as Array<Record<string, unknown>>;
     expect(
       repairs.find((r) => r.field === 'goal_threshold' && r.to_value === 'ignored')
-    ).toBeDefined();
+    ).toBeUndefined();
 
     const multiLog = logCalls.find((c: any) => c?.event === 'multi_constraint_path_activated');
-    expect(multiLog?.goal_threshold_carried).toBe(false);
+    expect(multiLog?.goal_threshold_carried).toBe(true);
+  });
+
+  it.each(['delta', 'level', undefined])('carries a goal-node target beside constraints without inventing its %s frame', async (frame) => {
+    const { status, isl } = await run({
+      graph: graphWithGoal({ goal_threshold: 0.65, goal_threshold_frame: frame }),
+      options: OPTIONS, goal_node_id: 'goal_arr', seed: '42', goal_direction: 'minimise',
+      goal_constraints: [{ constraint_id: 'goal_ceiling', node_id: 'goal_arr', operator: '<=', value: 0.8, value_frame: 'level' }],
+    });
+    expect(status).toBe(200);
+    expect(isl.goal_threshold).toBe(0.65);
+    expect(isl.goal_threshold_frame).toBe(frame);
+    expect(isl.goal_direction).toBe('minimise');
+    expect(isl.goal_constraints).toEqual([{ constraint_id: 'goal_ceiling', node_id: 'goal_arr', operator: '<=', value: 0.8, value_frame: 'level' }]);
+  });
+
+  it('keeps constraints-only requests target-free', async () => {
+    const { status, isl } = await run({
+      graph: graphWithGoal(), options: OPTIONS, goal_node_id: 'goal_arr', seed: '42',
+      goal_constraints: [{ constraint_id: 'lever_floor', node_id: 'lever', operator: '>=', value: 0.6 }],
+    });
+    expect(status).toBe(200);
+    expect(isl).not.toHaveProperty('goal_threshold');
+    expect(isl).not.toHaveProperty('goal_threshold_frame');
+    expect(isl.goal_constraints).toHaveLength(1);
+  });
+
+  it.each(['delta', 'level'])('withholds a mismatched target frame (%s) without withdrawing explicit constraints', async (frame) => {
+    const constraint = { constraint_id: 'lever_floor', node_id: 'lever', operator: '>=', value: 0.6, value_frame: 'delta' };
+    const { status, isl, body } = await run({
+      graph: graphWithGoal({ goal_threshold: 0.4, goal_threshold_frame: frame }),
+      options: OPTIONS, goal_node_id: 'goal_arr', seed: '42',
+      goal_threshold: 0.7, goal_constraints: [constraint],
+    });
+    expect(status).toBe(200);
+    // Preserve the root target for the existing ISL missing-frame disclosure,
+    // but never attach the attestation made about the node's different number.
+    expect(isl.goal_threshold).toBe(0.7);
+    expect(isl).not.toHaveProperty('goal_threshold_frame');
+    expect(isl.goal_constraints).toEqual([constraint]);
+    expect(body._meta.repairs_applied).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'GOAL_THRESHOLD_ATTESTATION_MISMATCH',
+        field_path: 'goal_threshold_frame', before: frame, after: null,
+      }),
+    ]));
+    expect(warnCalls.some((entry: any) => entry.event === 'goal_threshold_attestation_mismatch')).toBe(true);
+  });
+
+  it.each(['delta', 'level'])('retains a matching target/frame pair (%s) alongside explicit constraints', async (frame) => {
+    const constraint = { constraint_id: 'lever_floor', node_id: 'lever', operator: '>=', value: 0.6, value_frame: 'delta' };
+    const { status, isl, body } = await run({
+      graph: graphWithGoal({ goal_threshold: 0.7, goal_threshold_frame: frame }),
+      options: OPTIONS, goal_node_id: 'goal_arr', seed: '42',
+      goal_threshold: 0.7, goal_constraints: [constraint],
+    });
+    expect(status).toBe(200);
+    expect(isl.goal_threshold).toBe(0.7);
+    expect(isl.goal_threshold_frame).toBe(frame);
+    expect(isl.goal_constraints).toEqual([constraint]);
+    expect((body._meta.repairs_applied ?? []).some((entry: any) => entry.code === 'GOAL_THRESHOLD_ATTESTATION_MISMATCH')).toBe(false);
+  });
+
+  it.each([0, 1, 20000])('still refuses an out-of-domain goal target %s alongside constraints', async (threshold) => {
+    const { status, isl } = await run({
+      graph: graphWithGoal(), options: OPTIONS, goal_node_id: 'goal_arr', seed: '42',
+      goal_threshold: threshold,
+      goal_constraints: [{ constraint_id: 'lever_floor', node_id: 'lever', operator: '>=', value: 0.6 }],
+    });
+    expect(status).toBe(200);
+    expect(isl).not.toHaveProperty('goal_threshold');
+    expect(isl).not.toHaveProperty('goal_threshold_frame');
+    expect(isl.goal_constraints).toHaveLength(1);
   });
 
   it('the synthesised constraint still goes through the temporal filter safety gate', async () => {
@@ -532,11 +604,9 @@ describe('ROADMAP 2.239 — goal target reaches the ISL request', () => {
       expect(w.goal_target_source).toBe('goal_node');
     });
 
-    it('FIRES when precedence routing cleared the threshold — the case it was blind to', async () => {
-      // The old gate (`effectiveGoalThreshold !== undefined`) made this exact
-      // scenario impossible to observe: a stated target, routed away, no
-      // probability back, and total silence. This assertion is the inversion of
-      // the old T10 in tests/auto-constraint-fallback.test.ts.
+    it('FIRES when both channels were sent but ISL omitted goal probability', async () => {
+      // Both request channels travel; a mock omitting goal probability must
+      // still produce a disclosure rather than an invented result.
       await run({
         graph: graphWithGoal(),
         options: OPTIONS,
@@ -550,7 +620,7 @@ describe('ROADMAP 2.239 — goal target reaches the ISL request', () => {
 
       const w = warned();
       expect(w).toBeDefined();
-      expect(w.goal_threshold).toBeNull();   // nothing was sent to ISL
+      expect(w.goal_threshold).toBe(0.7);    // the independent target was sent to ISL
       expect(w.goal_target).toBe(0.7);       // but the user did state a target
       expect(w.goal_target_source).toBe('request');
     });
