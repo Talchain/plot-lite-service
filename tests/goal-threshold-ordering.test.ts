@@ -400,14 +400,40 @@ describe('ROADMAP 2.239 — goal target reaches the ISL request', () => {
     expect(isl.goal_constraints).toHaveLength(1);
   });
 
-  it('retains root target precedence over a different node target beside constraints', async () => {
-    const { status, isl } = await run({
-      graph: graphWithGoal({ goal_threshold: 0.4 }), options: OPTIONS, goal_node_id: 'goal_arr', seed: '42',
-      goal_threshold: 0.7,
-      goal_constraints: [{ constraint_id: 'lever_floor', node_id: 'lever', operator: '>=', value: 0.6 }],
+  it.each(['delta', 'level'])('withholds a mismatched target frame (%s) without withdrawing explicit constraints', async (frame) => {
+    const constraint = { constraint_id: 'lever_floor', node_id: 'lever', operator: '>=', value: 0.6, value_frame: 'delta' };
+    const { status, isl, body } = await run({
+      graph: graphWithGoal({ goal_threshold: 0.4, goal_threshold_frame: frame }),
+      options: OPTIONS, goal_node_id: 'goal_arr', seed: '42',
+      goal_threshold: 0.7, goal_constraints: [constraint],
+    });
+    expect(status).toBe(200);
+    // Preserve the root target for the existing ISL missing-frame disclosure,
+    // but never attach the attestation made about the node's different number.
+    expect(isl.goal_threshold).toBe(0.7);
+    expect(isl).not.toHaveProperty('goal_threshold_frame');
+    expect(isl.goal_constraints).toEqual([constraint]);
+    expect(body._meta.repairs_applied).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        code: 'GOAL_THRESHOLD_ATTESTATION_MISMATCH',
+        field_path: 'goal_threshold_frame', before: frame, after: null,
+      }),
+    ]));
+    expect(warnCalls.some((entry: any) => entry.event === 'goal_threshold_attestation_mismatch')).toBe(true);
+  });
+
+  it.each(['delta', 'level'])('retains a matching target/frame pair (%s) alongside explicit constraints', async (frame) => {
+    const constraint = { constraint_id: 'lever_floor', node_id: 'lever', operator: '>=', value: 0.6, value_frame: 'delta' };
+    const { status, isl, body } = await run({
+      graph: graphWithGoal({ goal_threshold: 0.7, goal_threshold_frame: frame }),
+      options: OPTIONS, goal_node_id: 'goal_arr', seed: '42',
+      goal_threshold: 0.7, goal_constraints: [constraint],
     });
     expect(status).toBe(200);
     expect(isl.goal_threshold).toBe(0.7);
+    expect(isl.goal_threshold_frame).toBe(frame);
+    expect(isl.goal_constraints).toEqual([constraint]);
+    expect((body._meta.repairs_applied ?? []).some((entry: any) => entry.code === 'GOAL_THRESHOLD_ATTESTATION_MISMATCH')).toBe(false);
   });
 
   it.each([0, 1, 20000])('still refuses an out-of-domain goal target %s alongside constraints', async (threshold) => {

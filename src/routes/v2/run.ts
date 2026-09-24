@@ -5812,6 +5812,34 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const nodeGoalThresholdFrame = parseGoalThresholdFrame(
           rawGoalNode?.goal_threshold_frame ?? rawGoalNode?.data?.goal_threshold_frame
         );
+        // Resolve the number and its attestation together, before either explicit
+        // constraints or auto-synthesis can select a path. A node frame can cover
+        // a root-only target, but not a root target that contradicts the node's.
+        const targetAttestationMismatch =
+          goalThreshold !== undefined &&
+          nodeGoalThreshold !== undefined &&
+          goalThreshold !== nodeGoalThreshold;
+        const resolvedGoalTarget = {
+          value: goalThreshold ?? nodeGoalThreshold,
+          frame: targetAttestationMismatch ? undefined : nodeGoalThresholdFrame,
+        };
+        if (targetAttestationMismatch) {
+          appendRepair(repairs, {
+            code: 'GOAL_THRESHOLD_ATTESTATION_MISMATCH',
+            field_path: 'goal_threshold_frame',
+            before: nodeGoalThresholdFrame ?? null,
+            after: null,
+            reason: 'Root and goal-node targets disagree. The node frame cannot attest the root target; ' +
+              'the target is sent without a frame so ISL withholds goal probability. Explicit constraints are retained.',
+            severity: 'warn',
+          });
+          req.log.warn({
+            event: 'goal_threshold_attestation_mismatch',
+            goal_node_id: body.goal_node_id,
+            refusal: 'attestation_mismatch',
+            reason: 'Root and goal-node targets disagree; the node frame is not bound to the selected target.',
+          });
+        }
         /**
          * "The user stated a success target somewhere in this request."
          *
@@ -5958,7 +5986,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // Resolve threshold: prefer request-level goal_threshold (already parsed),
           // fall back to goal_threshold on the raw upstream goal node (CEE may set
           // it on the node even if the request root field is absent).
-          autoThreshold = goalThreshold ?? nodeGoalThreshold;
+          autoThreshold = resolvedGoalTarget.value;
 
           // =============================================================
           // ROADMAP 2.266 — SYNTHESISE ONLY IN THE FRAME ISL EVALUATES IN
@@ -6019,51 +6047,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // SCOPE: this gate governs ONLY the auto-synthesised constraint.
           // User-authored `goal_constraints` are untouched — they never reach
           // this branch, which runs only when the compiled set is empty.
-          const frameIsSampleFrame = nodeGoalThresholdFrame === 'delta';
-
-          // =============================================================
-          // 2.266 AMENDMENT — THE ATTESTATION MUST BE ABOUT THE NUMBER WE
-          // ARE ACTUALLY SENDING (adversarial review of #304, probe-proven)
-          // =============================================================
-          // `autoThreshold` resolves REQUEST-ROOT first (`goalThreshold ??
-          // nodeGoalThreshold`), but the frame is read off the NODE. So a
-          // producer that sends root `goal_threshold: 0.9` while the node
-          // carries `{goal_threshold: 0.8, goal_threshold_frame: 'delta'}`
-          // would ship `value: 0.9` under an attestation made about 0.8 —
-          // the gate satisfied by a stamp describing a different number.
-          //
-          // Reachability, stated honestly: this needs a producer-inconsistent
-          // caller, and CEE stamps node-only today, so it is not the live
-          // shape. It is closed anyway because the whole point of this row is
-          // that an attestation is only worth what it is attached to.
-          //
-          // ⚠ WHY REFUSE RATHER THAN SYNTHESISE THE NODE'S OWN VALUE (the
-          // other option the review offered). Precedence routing leaves
-          // `effectiveGoalThreshold` at the ROOT value, and the 2.239 carry
-          // below only re-derives it from the constraint when synthesis
-          // fired. Synthesising 0.8 while the root ships 0.9 would put BOTH
-          // numbers on one wire and make ISL answer "P(goal >= 0.9)" and
-          // "P(constraint goal >= 0.8)" in the same response — precisely the
-          // divergence the "derive, never mirror" carry exists to prevent.
-          // Refusing keeps the invariant that the target and the constraint
-          // describe the same number, or there is no constraint.
-          //
-          // A node frame WITHOUT a node threshold is NOT a mismatch: the
-          // frame describes what this goal node's samples mean, so it
-          // legitimately covers a root-supplied target. Only two PRESENT and
-          // UNEQUAL numbers are refused.
-          const targetAttestationMismatch =
-            goalThreshold !== undefined &&
-            nodeGoalThreshold !== undefined &&
-            goalThreshold !== nodeGoalThreshold;
-
+          const frameIsSampleFrame = resolvedGoalTarget.frame === 'delta';
           const synthesisRefusal: 'unattested' | 'level' | 'attestation_mismatch' | undefined =
-            !frameIsSampleFrame
-              ? nodeGoalThresholdFrame === undefined
-                ? 'unattested'
-                : 'level'
-              : targetAttestationMismatch
-                ? 'attestation_mismatch'
+            targetAttestationMismatch
+              ? 'attestation_mismatch'
+              : !frameIsSampleFrame
+                ? resolvedGoalTarget.frame === undefined
+                  ? 'unattested'
+                  : 'level'
                 : undefined;
 
           if (
@@ -6229,7 +6220,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // For auto-synthesis only, defer the target to its normalised constraint
         // below so the same threshold cannot reach ISL on two different scales.
         let activeGoalConstraints: GoalConstraint[] | undefined;
-        let effectiveGoalThreshold: number | undefined = goalThreshold ?? nodeGoalThreshold;
+        let effectiveGoalThreshold: number | undefined = resolvedGoalTarget.value;
         const autoSynthesisOnly =
           autoSynthesisFired &&
           constraintCompilation.constraints.length === 1 &&
@@ -6491,7 +6482,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // request whose threshold is later dropped — the conservative direction,
           // and the same rule uniqueParamUncertainties follows. Under-charging
           // here is what produces a pass-then-422.
-          levelFramedGoalThreshold: goalTargetStated && nodeGoalThresholdFrame === 'level',
+          levelFramedGoalThreshold: goalTargetStated && resolvedGoalTarget.frame === 'level',
           // The base /v2/run request always sends these phases (see
           // toISLRobustnessRequest); path decomposition is a request-gated opt-in.
           //
@@ -7341,7 +7332,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           body.include_path_decomposition === true,  // Lane PLoT-W4: request-gated opt-in, forwarded only on explicit true
           factorParameterUncertainties,  // Reuse the factor PUs already built for the admission plan (same nodes → byte-identical)
           body.factor_correlations,  // Capability #100 (D-23.4): forward client-supplied factor correlations verbatim (request-gated omit inside the translator)
-          nodeGoalThresholdFrame,  // ROADMAP 2.258: producer-stamped frame, forwarded if present; never minted (see below)
+          resolvedGoalTarget.frame,  // Only the attestation bound to the selected target; never borrowed from a conflicting node target
           body.user_stated_ranges,  // ROADMAP 2.720 (P4): the user's own stated ranges, projected onto ISL's declared members inside the translator (request-gated omit)
           parseGoalDirection(body.goal_direction)  // ROADMAP 2.920: attested objective sense; unrecognised ⇒ undefined ⇒ today's unattested maximiser
         );

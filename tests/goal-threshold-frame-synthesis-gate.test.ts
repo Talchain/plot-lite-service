@@ -355,7 +355,7 @@ describe('ROADMAP 2.266 — auto-synthesis is gated on the ISL sample frame', ()
   // about a different number.
   // -------------------------------------------------------------------------
   it('T8: root target != node target (frame on the node) — synthesis is REFUSED', async () => {
-    const { isl } = await run(
+    const { res, isl } = await run(
       basePayload(
         { ...GOAL_TARGET_UNSTAMPED, goal_threshold_frame: 'delta' }, // node target 0.8
         { goal_threshold: 0.9 },                                    // root target 0.9
@@ -367,6 +367,10 @@ describe('ROADMAP 2.266 — auto-synthesis is gated on the ISL sample frame', ()
 
     // The target still reaches ISL — refusing the constraint never withdraws it.
     expect(isl.goal_threshold).toBe(0.9);
+    expect(isl).not.toHaveProperty('goal_threshold_frame');
+    expect(res.json()._meta.repairs_applied).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'GOAL_THRESHOLD_ATTESTATION_MISMATCH' }),
+    ]));
   });
 
   it('T8b: CONTROL — root target EQUAL to node target still synthesises', async () => {
