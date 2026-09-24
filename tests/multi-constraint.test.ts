@@ -5,7 +5,7 @@
  * - T1: Type compilation
  * - T2: Critique codes
  * - T3: Constraint validation
- * - T4: Precedence routing
+ * - T4: Independent goal channels
  * - T5: Constraint normalisation
  * - T6: Constraint node compilation
  * - T7: ISL request extension
@@ -374,84 +374,21 @@ describe('T3: Constraint Validation Function', () => {
 });
 
 // =============================================================================
-// T4: Precedence Routing Tests
+// T4: Independent Goal Channels
 // =============================================================================
 
-describe('T4: Precedence Routing', () => {
-  // Note: Precedence routing is integrated into run.ts
-  // These tests validate the logic conceptually
-
-  it('goal_constraints takes precedence over goal_threshold', () => {
-    // When goal_constraints is present and non-empty, goal_threshold is ignored
-    const goalConstraints: GoalConstraint[] = [
-      createTestConstraint({ constraint_id: 'c1', value: 100 }),
-    ];
-    const goalThreshold = 80;
-
-    // Simulate precedence logic
-    const useMultiConstraint = goalConstraints.length > 0;
-    const effectiveThreshold = useMultiConstraint ? undefined : goalThreshold;
-
-    expect(useMultiConstraint).toBe(true);
-    expect(effectiveThreshold).toBeUndefined();
+describe('T4: Independent Goal Channels', () => {
+  it.each([undefined, []])('does not invent constraints when only a goal target is supplied (%s)', (constraints) => {
+    const request = toISLRobustnessRequest(createTestGraph(), [], 'goal_node', 'target-only', 1000, 0.8, constraints);
+    expect(request.goal_threshold).toBe(0.8);
+    expect(request).not.toHaveProperty('goal_constraints');
   });
 
-  it('falls back to goal_threshold when goal_constraints is empty', () => {
-    const goalConstraints: GoalConstraint[] = [];
-    const goalThreshold = 80;
-
-    const useMultiConstraint = goalConstraints.length > 0;
-    const effectiveThreshold = useMultiConstraint ? undefined : goalThreshold;
-
-    expect(useMultiConstraint).toBe(false);
-    expect(effectiveThreshold).toBe(80);
-  });
-
-  it('falls back to goal_threshold when goal_constraints is undefined', () => {
-    const goalConstraints: GoalConstraint[] | undefined = undefined;
-    const goalThreshold = 80;
-
-    const useMultiConstraint = (goalConstraints ?? []).length > 0;
-    const effectiveThreshold = useMultiConstraint ? undefined : goalThreshold;
-
-    expect(useMultiConstraint).toBe(false);
-    expect(effectiveThreshold).toBe(80);
-  });
-
-  it('detects conflict when goal_threshold targets same node with different value', () => {
-    const goalConstraints: GoalConstraint[] = [
-      createTestConstraint({ constraint_id: 'c1', node_id: 'goal_node', operator: '>=', value: 100 }),
-    ];
-    const goalThreshold = 80;
-    const goalNodeId = 'goal_node';
-
-    const conflictingConstraint = goalConstraints.find(
-      c => c.node_id === goalNodeId
-    );
-    const isConflicting = conflictingConstraint && (
-      conflictingConstraint.value !== goalThreshold ||
-      conflictingConstraint.operator === '<='
-    );
-
-    expect(isConflicting).toBe(true);
-  });
-
-  it('detects no conflict when goal_threshold matches constraint', () => {
-    const goalConstraints: GoalConstraint[] = [
-      createTestConstraint({ constraint_id: 'c1', node_id: 'goal_node', operator: '>=', value: 80 }),
-    ];
-    const goalThreshold = 80;
-    const goalNodeId = 'goal_node';
-
-    const conflictingConstraint = goalConstraints.find(
-      c => c.node_id === goalNodeId
-    );
-    const isConflicting = conflictingConstraint && (
-      conflictingConstraint.value !== goalThreshold ||
-      conflictingConstraint.operator === '<='
-    );
-
-    expect(isConflicting).toBe(false);
+  it('keeps the target distinct from a constraint on the same node', () => {
+    const constraint = createTestConstraint({ constraint_id: 'upper_limit', node_id: 'goal_node', operator: '<=', value: 0.9 });
+    const request = toISLRobustnessRequest(createTestGraph(), [], 'goal_node', 'both', 1000, 0.8, [constraint]);
+    expect(request.goal_threshold).toBe(0.8);
+    expect(request.goal_constraints).toEqual([constraint]);
   });
 });
 
@@ -1115,7 +1052,7 @@ describe('Integration: Precedence Routing via /v2/run', () => {
     },
   ];
 
-  it('goal_constraints takes precedence when both goal_threshold and goal_constraints provided', async () => {
+  it('retains explicit constraints alongside an independent goal target', async () => {
     vi.resetModules();
     server = await spawnServer({ env: ENV });
 
@@ -1126,7 +1063,7 @@ describe('Integration: Precedence Routing via /v2/run', () => {
         graph: VALID_GRAPH,
         options: VALID_OPTIONS,
         goal_node_id: 'goal',
-        goal_threshold: 80, // Should be IGNORED
+        goal_threshold: 0.8, // Independent target, distinct from the factor limits
         goal_constraints: [
           { constraint_id: 'mrr_target', node_id: 'mrr_factor', operator: '>=', value: 20000, label: 'MRR Target' },
           { constraint_id: 'churn_cap', node_id: 'churn_factor', operator: '<=', value: 0.04, label: 'Churn Cap' },
@@ -1136,16 +1073,13 @@ describe('Integration: Precedence Routing via /v2/run', () => {
 
     expect(status).toBe(200);
 
-    // Verify multi-constraint path was activated by checking for repair record about ignored goal_threshold
-    // _meta.repairs_applied should contain a record showing goal_threshold was ignored
-    expect(data?._meta?.repairs_applied).toBeDefined();
+    // Constraints still have an evaluation status; neither channel suppresses the other.
+    expect(data?.constraints_status).toBeDefined();
     const repairs = data?._meta?.repairs_applied as Array<{ field: string; action: string; reason: string }>;
     const goalThresholdRepair = repairs?.find(
       (r) => r.field === 'goal_threshold' && r.action === 'inferred'
     );
-    expect(goalThresholdRepair).toBeDefined();
-    expect(goalThresholdRepair?.reason).toContain('goal_constraints');
-    expect(goalThresholdRepair?.reason).toContain('ignored');
+    expect(goalThresholdRepair).toBeUndefined();
   });
 
   it('auto-generates constraint from goal_threshold when goal_constraints is empty', async () => {
@@ -1328,7 +1262,7 @@ describe('Regression: Graph-Only Constraint Flow', () => {
     // - Request contains explicit goal_constraints (simulating CEE, template, or UI input)
     // - No brief field is provided
     // - PLoT validates constraints and activates multi-constraint path
-    // - goal_threshold is ignored when goal_constraints is present
+    // - an independent goal_threshold does not disable the constraints
     //
     // This guards against future regressions where someone might think "we need brief parsing".
 
@@ -1379,7 +1313,7 @@ describe('Regression: Graph-Only Constraint Flow', () => {
         graph: simpleGraph,
         options,
         goal_node_id: 'goal',
-        goal_threshold: 80, // Should be IGNORED when goal_constraints is present
+        goal_threshold: 0.8, // Independent target, distinct from the factor limits
         // NO brief field - constraints come from explicit goal_constraints only
         // Explicit goal_constraints (could come from CEE, template, or UI)
         goal_constraints: [
@@ -1392,16 +1326,13 @@ describe('Regression: Graph-Only Constraint Flow', () => {
     // Request should succeed (200 status)
     expect(status).toBe(200);
 
-    // Verify multi-constraint path was activated by checking for repair record showing goal_threshold was ignored
-    // This proves the constraint pipeline executed successfully without brief parsing
-    expect(data?._meta?.repairs_applied).toBeDefined();
+    // The constraint pipeline executes without brief parsing or discarding the target.
+    expect(data?.constraints_status).toBeDefined();
     const repairs = data?._meta?.repairs_applied as Array<{ field: string; action: string; reason: string }>;
     const goalThresholdRepair = repairs?.find(
       (r) => r.field === 'goal_threshold' && r.action === 'inferred'
     );
-    expect(goalThresholdRepair).toBeDefined();
-    expect(goalThresholdRepair?.reason).toContain('goal_constraints');
-    expect(goalThresholdRepair?.reason).toContain('ignored');
+    expect(goalThresholdRepair).toBeUndefined();
   });
 
   it('rejects invalid goal_constraints targeting non-existent node without brief text', async () => {

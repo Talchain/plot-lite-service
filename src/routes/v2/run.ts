@@ -6222,44 +6222,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // =================================================================
-        // Phase 1e: Precedence Routing (goal_constraints vs goal_threshold)
+        // Phase 1e: Independent goal target and constraint channels
         // =================================================================
-        // Determine which goal mechanism to use:
-        // - If goal_constraints present and non-empty: use multi-constraint path
-        // - Otherwise: use existing goal_threshold path (unchanged)
+        // Explicit constraints do not replace the user's goal target. ISL evaluates
+        // both independently; keep their numbers, operators and frame attestations.
+        // For auto-synthesis only, defer the target to its normalised constraint
+        // below so the same threshold cannot reach ISL on two different scales.
         let activeGoalConstraints: GoalConstraint[] | undefined;
-        let effectiveGoalThreshold: number | undefined = goalThreshold;
-
-        /**
-         * ROADMAP 2.239 (hole B). The auto-synthesised constraint is DERIVED FROM
-         * the goal target — it is not a competing user constraint, so it must not
-         * trigger the precedence branch that discards the target.
-         *
-         * Before this fix the fallback destroyed the very threshold it recovered:
-         * one synthesised constraint tripped `constraints.length > 0`, which set
-         * `effectiveGoalThreshold = undefined`, which made the translator omit
-         * `goal_threshold` (translator-v3.ts:534-536), which made ISL skip
-         * `probability_of_goal` (it is gated SOLELY on `request.goal_threshold is
-         * not None` — robustness_analyzer_v2.py:3073-3077 @35149dd1). Net effect,
-         * measured at the outbound request on pristine `2f6e997`: NO request
-         * routed through auto-synthesis has ever produced a goal probability,
-         * deadline or no deadline — including one carrying an explicit
-         * root-level `goal_threshold`.
-         *
-         * Sending both is legal and independently computed by ISL:
-         * `probability_of_goal` (:3073-3077) and `constraint_analysis`
-         * (:3079-3083) sit in the same option loop, neither suppressing the
-         * other, and `RobustnessRequestV2` declares no mutual-exclusion
-         * validator (models/robustness_v2.py:856, :895, :931-938, :994-1002).
-         * ISL is in fact built for the pair: `_align_goal_constraint_samples`
-         * (:3005-3035) exists so a constraint on the goal node and
-         * `probability_of_goal` are computed from IDENTICAL samples.
-         *
-         * `_internal.source` is the unspoofable witness — client-supplied
-         * `_internal` is deleted at ingress (see Phase 1c above), so a
-         * user-supplied constraint that happens to reuse the id
-         * `auto_goal_threshold` (pinned by T9) cannot reach this branch.
-         */
+        let effectiveGoalThreshold: number | undefined = goalThreshold ?? nodeGoalThreshold;
         const autoSynthesisOnly =
           autoSynthesisFired &&
           constraintCompilation.constraints.length === 1 &&
@@ -6267,57 +6237,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             ?._internal?.source === 'auto_from_goal_threshold';
 
         if (constraintCompilation.constraints.length > 0) {
-          // Multi-constraint path activated
           activeGoalConstraints = constraintCompilation.constraints;
-
-          // Check for conflict with goal_threshold
-          if (goalThreshold !== undefined && !autoSynthesisOnly) {
-            const goalNodeConstraint = activeGoalConstraints.find(
-              c => c.node_id === body.goal_node_id
-            );
-            const isConflicting = goalNodeConstraint && (
-              goalNodeConstraint.value !== goalThreshold ||
-              goalNodeConstraint.operator === '<='
-            );
-
-            if (isConflicting) {
-              repairs.push({
-                field: 'goal_threshold',
-                action: 'inferred',
-                from_value: goalThreshold,
-                to_value: 'ignored',
-                reason: `goal_constraints present and contains conflicting constraint on goal_node_id="${body.goal_node_id}". goal_threshold=${goalThreshold} ignored in favor of constraint ${goalNodeConstraint!.constraint_id} (${goalNodeConstraint!.operator} ${goalNodeConstraint!.value})`,
-              });
-              req.log.warn({
-                event: 'goal_threshold_conflict',
-                goal_threshold: goalThreshold,
-                conflicting_constraint: goalNodeConstraint,
-              });
-            } else {
-              repairs.push({
-                field: 'goal_threshold',
-                action: 'inferred',
-                from_value: goalThreshold,
-                to_value: 'ignored',
-                reason: `goal_constraints present. goal_threshold=${goalThreshold} ignored (goal_constraints take precedence)`,
-              });
-            }
-          }
-
-          // Clear goal_threshold when using multi-constraint path.
-          // 2.239: this stays UNCONDITIONAL on purpose. When the only constraint
-          // IS the goal target the threshold is re-established exactly once,
-          // just before the ISL request is built, from the POST-normalisation
-          // constraint value (see "2.239 threshold carry" below). Re-establishing
-          // it here too would create a second, always-overwritten authority — a
-          // hunk that could be reverted without a single test noticing.
-          effectiveGoalThreshold = undefined;
+          if (autoSynthesisOnly) effectiveGoalThreshold = undefined;
 
           req.log.info({
             event: 'multi_constraint_path_activated',
             constraint_count: activeGoalConstraints.length,
             constraint_ids: activeGoalConstraints.map(c => c.constraint_id),
-            goal_threshold_carried: autoSynthesisOnly,
+            goal_threshold_carried: autoSynthesisOnly || effectiveGoalThreshold !== undefined,
           });
         }
 
@@ -7294,18 +7221,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           effectiveGoalThreshold = sentAutoConstraint?.value ?? autoThreshold;
         }
 
-        // === 2.266 carry: refusing the CONSTRAINT must not withdraw the TARGET
-        // When the synthesis is refused on frame grounds the compiled set stays
-        // empty, so the precedence branch above never runs and never clears
-        // `effectiveGoalThreshold`. That is correct for a target supplied at the
-        // request root — but a target read off the GOAL NODE
-        // (`nodeGoalThreshold`) was never in `effectiveGoalThreshold` in the
-        // first place; only the now-refused synthesis put it back, via the
-        // carry above. Without this line, refusing the constraint would ALSO
-        // stop the target reaching ISL, and ISL would return `(None, None)` —
-        // "nothing to disclose" — converting a DISCLOSED gap into a SILENT one.
-        // That is exactly the trade the 2.258 block below refuses to make, so
-        // it must not be made here by omission either.
+        // A refused auto-constraint must not withdraw its independently stated
+        // target. Retain the existing fallback and the unstamped-frame disclosure.
         if (autoSynthesisFrameRefusal !== undefined) {
           effectiveGoalThreshold = effectiveGoalThreshold ?? autoThreshold;
         }
@@ -7418,7 +7335,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           body.goal_node_id,
           requestId,
           nSamples,
-          effectiveGoalThreshold,  // Use effective threshold (undefined if multi-constraint)
+          effectiveGoalThreshold,  // Independent goal target, after existing frame/domain safeguards
           constraintsForISL,       // Normalised constraint values (undefined if not using multi-constraint)
           plotSeedUsed,  // Always forward PLoT's seed (PLoT is seed authority)
           body.include_path_decomposition === true,  // Lane PLoT-W4: request-gated opt-in, forwarded only on explicit true
