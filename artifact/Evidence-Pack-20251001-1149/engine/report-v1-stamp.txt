@@ -1,4 +1,0 @@
-schema:
-null
-meta.seed:
-null
