@@ -540,6 +540,55 @@ const _canonicalGraphCanCarryEveryDeclaredField: _CanonicalGraphCanCarryEveryDec
 void _canonicalGraphCanCarryEveryDeclaredField;
 
 /**
+ * ISL's DECLARED string-length bounds on `ObservedState`
+ * (isl/src/models/robustness_v2.py:180-187 @ 3c4ab84d, staging; identical in
+ * the pinned OpenAPI @ 686fcb7f):
+ *
+ *   unit:   Optional[str] = Field(None, max_length=50,  description="Display unit …")
+ *   source: Optional[str] = Field(None, max_length=100, description="Data provenance …")
+ *
+ * No other `ObservedState` member is bounded. `tests/isl-observed-state-string-
+ * bounds.test.ts` derives this map from the pinned OpenAPI's `maxLength`s and
+ * REDs if the two disagree in either direction.
+ *
+ * ⚠ 25 Sep 2026 — a factor unit longer than 50 characters made ISL answer 422
+ * (`graph -> nodes -> 4 -> observed_state -> unit: String should have at most
+ * 50 characters`) and PLoT failed the WHOLE Run: 8 staging Runs, 00:40–05:42Z,
+ * produced no analysis. One over-long display string cost the user every number.
+ *
+ * An over-bound value is OMITTED from the ISL request, NEVER clipped. ISL only
+ * echoes these fields back (e.g. `split_unit` on a conditional-winner row); it
+ * never computes with them. A clipped unit would be echoed to the user as if it
+ * were the real one — an untruthful label on a real number. PLoT keeps the FULL
+ * value on its own graph (normaliser, preflight's % detection, flip displays
+ * all read that, not the ISL request).
+ */
+export const ISL_OBSERVED_STATE_UNIT_MAX_LENGTH = 50;
+export const ISL_OBSERVED_STATE_SOURCE_MAX_LENGTH = 100;
+
+export const ISL_OBSERVED_STATE_STRING_MAX_LENGTHS: Readonly<
+  Partial<Record<(typeof ISL_DECLARED_OBSERVED_STATE_FIELDS)[number], number>>
+> = {
+  unit: ISL_OBSERVED_STATE_UNIT_MAX_LENGTH,
+  source: ISL_OBSERVED_STATE_SOURCE_MAX_LENGTH,
+};
+
+/**
+ * True when `value` is a string longer than ISL's declared bound for `field`.
+ *
+ * Length is counted in Unicode CODE POINTS, as Pydantic counts (Python `len()`),
+ * not in UTF-16 code units (JS `.length`): a unit ending in an emoji can be 50
+ * code points and 51 UTF-16 units, and ISL accepts it.
+ */
+function exceedsIslDeclaredStringBound(
+  field: (typeof ISL_DECLARED_OBSERVED_STATE_FIELDS)[number],
+  value: unknown,
+): boolean {
+  const max = ISL_OBSERVED_STATE_STRING_MAX_LENGTHS[field];
+  return max !== undefined && typeof value === 'string' && [...value].length > max;
+}
+
+/**
  * Project a PLoT-internal `observed_state` onto the fields ISL declares.
  *
  * Slice 6: the previous code forwarded `node.observed_state` VERBATIM, so any
@@ -555,6 +604,11 @@ void _canonicalGraphCanCarryEveryDeclaredField;
  * absent on the wire rather than becoming an explicit `undefined`, so the
  * serialized bytes are unchanged for every field PLoT already sent.
  *
+ * ONE exception: a string longer than ISL's declared bound
+ * (`ISL_OBSERVED_STATE_STRING_MAX_LENGTHS`) is OMITTED, never clipped — sending
+ * it would make ISL 422 the whole request. Every in-bound value is forwarded
+ * byte-for-byte as before.
+ *
  * Shared with the `/v1/run` producer (`integrations/isl/index.ts`) so the two
  * ISL request builders cannot drift apart into two different allowlists.
  */
@@ -565,7 +619,10 @@ export function toISLObservedState(observedState: unknown): ISLNodeV3['observed_
   const os = observedState as Record<string, unknown>;
   const projected: Record<string, unknown> = {};
   for (const field of ISL_DECLARED_OBSERVED_STATE_FIELDS) {
-    if (os[field] !== undefined) projected[field] = os[field];
+    const value = os[field];
+    if (value === undefined) continue;
+    if (exceedsIslDeclaredStringBound(field, value)) continue;
+    projected[field] = value;
   }
   return projected as ISLNodeV3['observed_state'];
 }
