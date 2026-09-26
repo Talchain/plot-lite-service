@@ -42,6 +42,8 @@ interface Scenario {
   win: Record<string, number>;
   /** prob_satisfied per option id (every constraint row of that option). */
   prob: Record<string, number>;
+  /** Per option, per constraint id: overrides `prob` for that one row. */
+  probBy?: Record<string, Record<string, number>>;
   /** level_out_of_domain_fraction per option id, per constraint id. Absent key => absent field. */
   fraction: Record<string, Record<string, number>>;
   /** False = an ISL build older than #181: never returns the field. */
@@ -64,7 +66,7 @@ function constraintAnalysis(optionId: string, goalConstraints: any[] | undefined
         node_id: c.node_id,
         operator: c.operator,
         value: c.value,
-        prob_satisfied: scenario.prob[optionId] ?? 0.9,
+        prob_satisfied: scenario.probBy?.[optionId]?.[c.constraint_id] ?? scenario.prob[optionId] ?? 0.9,
         near_miss_fraction: 0.1,
         binding: false,
         ...(emits && { level_out_of_domain_fraction: f }),
@@ -410,6 +412,59 @@ describe('route — a level limit scored on impossible levels is not decision-gr
     scenario = paulsNumbers({ [LEADER]: above });
     const over = await run(paulsShape());
     expect(provenanceOf(over, 'gc_churn')).toMatchObject({ decision_grade: false, level_out_of_domain: { fraction: above } });
+  });
+
+  // ---------------------------------------------------------------------------
+  // WHICH ROW IS "THE LEADER'S" — the crown as it stands AND the argmax
+  // win_probability are both judged. They differ only when the argmax is
+  // excluded from the crown (step 5: P = 0 on a decision-grade limit). Here the
+  // argmax "Raise price with AI" breaks the £ limit in every draw, so before the
+  // gate the crown is "Release AI at £49".
+  // ---------------------------------------------------------------------------
+
+  const COST_LIMIT = { constraint_id: 'gc_cost', node_id: 'fac_cost', operator: '<=', value: 250000, unit: '£', value_frame: 'level' };
+
+  function crownDiffersFromArgmax(fractions: Partial<Record<string, number>>): Scenario {
+    return { ...paulsNumbers(fractions), probBy: { [LEADER]: { gc_cost: 0 } } };
+  }
+
+  it('CONTROL — the crown differs from the argmax, and neither row trips: the crown stays "Release AI at £49"', async () => {
+    scenario = crownDiffersFromArgmax({ [LEADER]: 0.04, [RELEASE]: 0.04 });
+    const body = await run(paulsShape([CHURN_LIMIT, COST_LIMIT]));
+    expect(provenanceOf(body, 'gc_churn').decision_grade).toBe(true);
+    expect(provenanceOf(body, 'gc_cost').decision_grade).toBe(true);
+    expect(body.robustness.recommended_option_id).toBe(RELEASE);
+    expect(levelDomainCritiques(body)).toEqual([]);
+  });
+
+  it('the ARGMAX row trips while the crown as it stands does not: the limit is still withdrawn, naming the argmax', async () => {
+    scenario = crownDiffersFromArgmax({ [LEADER]: 0.815, [RELEASE]: 0.04 });
+    const body = await run(paulsShape([CHURN_LIMIT, COST_LIMIT]));
+    expect(provenanceOf(body, 'gc_churn')).toMatchObject({
+      decision_grade: false,
+      level_out_of_domain: { option_id: LEADER, fraction: 0.815 },
+    });
+    // Only the tripped limit is withdrawn; the £ limit keeps its grade.
+    expect(provenanceOf(body, 'gc_cost')).toEqual({ source: 'explicit_cap', range_unified: true, decision_grade: true });
+    // Fixed point: the tripped limit is non-decision-grade for every option, so
+    // eligibility excludes nothing and the crown is the argmax — a JUDGED row.
+    expect(body.robustness.recommended_option_id).toBe(LEADER);
+    expect(body.robustness.recommended_option_compliance).toBe('unverified');
+    expect(levelDomainCritiques(body)[0].affected_option_ids).toEqual([LEADER]);
+  });
+
+  it('the CROWN row trips while the argmax does not: the limit is still withdrawn, naming the crown', async () => {
+    scenario = crownDiffersFromArgmax({ [LEADER]: 0.04, [RELEASE]: 0.815 });
+    const body = await run(paulsShape([CHURN_LIMIT, COST_LIMIT]));
+    expect(provenanceOf(body, 'gc_churn')).toMatchObject({
+      decision_grade: false,
+      level_out_of_domain: { option_id: RELEASE, fraction: 0.815 },
+    });
+    expect(provenanceOf(body, 'gc_cost').decision_grade).toBe(true);
+    // The crown moves to the (judged) argmax, and says it could not check it.
+    expect(body.robustness.recommended_option_id).toBe(LEADER);
+    expect(body.robustness.recommended_option_compliance).toBe('unverified');
+    expect(levelDomainCritiques(body)[0].affected_option_ids).toEqual([RELEASE]);
   });
 
   it('CONTROL — an ISL older than #181 (field absent): the response is byte-identical to 71ab168 but for the request hashes', async () => {
