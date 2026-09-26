@@ -898,6 +898,46 @@ export function needsNormalisation(options: OptionV3[]): boolean {
   return false;
 }
 
+/**
+ * Node ids whose EVERY option intervention reached ISL at exactly the value the
+ * producer stated — the frame proof the sample-frame gate's
+ * `observed_baseline_level` limb needs for a target only SOME options set
+ * (`isObservedBaselineLevelTarget`, `lib/constraint-reliability.ts`).
+ *
+ * Derived from the RECORDED Phase-4a diagnostics — the same source the route's
+ * per-node intervention scale (`interventionScaleByNodeId`) and clamp map are
+ * built from — never from the options' values, which reach the response
+ * builder un-normalised. A node is forwarded as stated when:
+ *   - Phase 4a did not run (no diagnostics: every value was already in [0,1]
+ *     and `optionsForISL` IS the stated options); or
+ *   - every diagnostic for it has an IDENTITY scale (`isIdentityRange`) and did
+ *     not clamp — `(v − 0) / (1 − 0)` is `v` exactly.
+ *
+ * ⚠ WHY THE SCALE, NOT JUST THE VALUE. A non-identity scale can leave one
+ * value numerically unchanged (0 on `[0, k]`) while the THRESHOLD still moves
+ * onto that scale (`normaliseGoalConstraints` ladder rung 1: a measured
+ * intervention scale wins). The baseline ISL converts the free options against
+ * travels verbatim, so "same number" is not "same frame"; the identity scale is.
+ */
+export function collectInterventionsForwardedAsStated(
+  options: ReadonlyArray<{ interventions?: Record<string, unknown> | null }>,
+  diagnostics: ReadonlyArray<Pick<NormalisationDiagnostic, 'factor_id' | 'range' | 'clamped'>>,
+): Set<string> {
+  const notAsStated = new Set<string>();
+  for (const d of diagnostics) {
+    if (d.clamped || !isIdentityRange(d.range)) notAsStated.add(d.factor_id);
+  }
+  const out = new Set<string>();
+  for (const option of options) {
+    const interventions = option?.interventions;
+    if (interventions === null || typeof interventions !== 'object') continue;
+    for (const nodeId of Object.keys(interventions)) {
+      if (!notAsStated.has(nodeId)) out.add(nodeId);
+    }
+  }
+  return out;
+}
+
 // -----------------------------------------------------------------------------
 // ISL Result Denormalisation
 // -----------------------------------------------------------------------------

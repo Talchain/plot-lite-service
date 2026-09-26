@@ -162,7 +162,11 @@ const OPTIONS = [
   { id: 'opt_hold', label: 'Hold at 49', interventions: { fac_price: { value: 0.49, source: 'user_specified' } } },
   { id: 'opt_raise', label: 'Raise to 59', interventions: { fac_price: { value: 0.59, source: 'user_specified' } } },
 ];
-/** opt_raise also sets the level target itself — ISL refuses a level constraint on ANY pin. */
+/**
+ * opt_raise also sets the level target itself. ISL #179 scores this (the pinned
+ * option by identity, the other against the baseline), and PLoT now anchors it
+ * when the pinned level reached ISL as stated (N1).
+ */
 const OPTIONS_ONE_PINS_SUBS = [
   OPTIONS[0],
   { id: 'opt_raise', label: 'Raise to 59 and buy subscribers', interventions: {
@@ -343,13 +347,22 @@ describe('observed_baseline_level — a LEVEL limit on an outcome the options mo
     expect(warnings(body, 'CONSTRAINT_TARGET_UNRELIABLE')).toHaveLength(1);
   });
 
-  it('CONTROL pinned by ONE option: unchanged — pinned and withheld', async () => {
+  // SUPERSEDES "CONTROL pinned by ONE option: unchanged — pinned and withheld"
+  // (N1, MG's review of ISL #179). That row pinned the defect: one option setting
+  // the target withheld the limit — and, through the run-level suppression, every
+  // other limit. All interventions here are already in [0,1], so Phase 4a leaves
+  // the pinned 0.6 as stated, and the limb opens. The full N1 matrix (frame
+  // guard, controls, the unrelated-limit row) is
+  // `constraint-level-some-pinned-anchor.route.test.ts`.
+  it('pinned by ONE option (level, baseline, pinned level forwarded as stated): DELIVERED — N1', async () => {
     const { body, isl } = await run(graph(SUB_WITH_BASELINE), [GC_L2B], OPTIONS_ONE_PINS_SUBS);
 
     expect(islPuFor(isl, 'out_subscribers')).toHaveLength(1);
-    expect(byOption(body).opt_hold.constraint_probabilities).toBeUndefined();
-    expect(byOption(body).opt_raise.constraint_probabilities).toBeUndefined();
-    expect(warnings(body, 'CONSTRAINT_TARGET_UNRELIABLE')).toHaveLength(1);
+    const sentRaise = (isl.options ?? []).find((o: any) => o.id === 'opt_raise');
+    expect(sentRaise?.interventions?.out_subscribers).toBe(0.6);
+    expect(byOption(body).opt_hold.constraint_probabilities).toEqual({ gc_l2b: 0.4895 });
+    expect(byOption(body).opt_raise.constraint_probabilities).toEqual({ gc_l2b: 0.781 });
+    expect(warnings(body, 'CONSTRAINT_TARGET_UNRELIABLE')).toEqual([]);
   });
 
   // (Real ISL scores a root target option-INVARIANT — C50 L1, 0.842 / 0.842.

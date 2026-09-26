@@ -135,6 +135,12 @@ export function detectUnreliableConstraintTargets(
     nodes: readonly AnchorNodeLike[] | undefined;
     directedEdgeTargets: ReadonlySet<string>;
     options: readonly AnchorOptionLike[] | undefined;
+    /**
+     * The same proof the gate reads for a target only SOME options set (see
+     * `isObservedBaselineLevelTarget`). Absent ⇒ such a target keeps the reason,
+     * exactly as the gate keeps it unanchored — one predicate, one answer.
+     */
+    interventionsForwardedAsStated?: ReadonlySet<string>;
   },
 ): UnreliableConstraintTarget[] {
   if (!goalConstraints || goalConstraints.length === 0) return [];
@@ -161,6 +167,7 @@ export function detectUnreliableConstraintTargets(
           levelPlan.nodes,
           levelPlan.directedEdgeTargets,
           levelPlan.options,
+          levelPlan.interventionsForwardedAsStated,
         )
       )
     ) {
@@ -188,9 +195,17 @@ export type ConstraintSampleFrameAnchor =
   | 'root_observed_level'
   /**
    * NON-root node, constraint stated as a `'level'`, node carries a finite
-   * `observed_state.baseline`, and no option intervenes on it: ISL converts
-   * the samples to levels per draw against its own status-quo reference. See
-   * `isObservedBaselineLevelTarget` for the derivation.
+   * `observed_state.baseline`, and NOT every option intervenes on it: ISL
+   * converts each free option's samples to levels per draw against its own
+   * status-quo reference, and (ISL #179) compares an option that SETS the node
+   * at the level it sets. See `isObservedBaselineLevelTarget` for the
+   * derivation and the frame proof a some-pinned target needs.
+   *
+   * ONE code for both shapes, deliberately: every consumer of this value reads
+   * only `!== null` (`detectUnanchoredSampleFrameTargets`), and the one other
+   * reader of the predicate — the defaulted-base exemption in
+   * `detectUnreliableConstraintTargets` — needs the same answer for both. A
+   * second code would be a distinction no consumer reads.
    */
   | 'observed_baseline_level';
 
@@ -241,11 +256,60 @@ function optionIntervenesOn(option: AnchorOptionLike | null | undefined, nodeId:
  *      (ISL reads `constraint.value_frame`, not the node's stamp).
  *   2. NON-ROOT — a root has its own limb (`root_observed_level`); ISL's root
  *      path is the identity, not this conversion.
- *   3. NO option intervenes on the target — ISL refuses a level constraint on
- *      a target ANY option pins (`target_pinned_by_intervention`), so this is
- *      "none", not "not every". An empty option list proves nothing.
+ *   3. NOT EVERY option intervenes on the target (every option setting it is
+ *      `pinned_by_every_option`, a different limb) — and where SOME options
+ *      do, the caller has PROVED their pinned levels reached ISL as stated
+ *      (see "SOME OPTIONS SET THE TARGET" below). An empty option list proves
+ *      nothing.
  *   4. a FINITE `observed_state.baseline` — ISL refuses without one
  *      (`missing_target_baseline`) and belt-and-braces refuses a non-finite one.
+ *      Still required when some options set the target: the options that do
+ *      NOT set it are converted against it.
+ *
+ * SOME OPTIONS SET THE TARGET (N1 — MG's review of ISL #179, EXECUTED at PLoT
+ * `4638dee`). Until ISL #179, ISL refused a level constraint on a target ANY
+ * option pinned (`target_pinned_by_intervention`), so this predicate said
+ * "none". The cost: one option that states its own level for the limited
+ * quantity (a win-back offer that "cuts churn to 3%") left the limit
+ * unanchored, and `suppressConstraintProbabilities` then withheld EVERY limit
+ * on the run. ISL #179 compares an option that sets the target at the level it
+ * sets — `SCMEvaluatorV2.evaluate` writes `node_values[T] = x` on every draw
+ * before propagation, so under that option the samples ARE `x`
+ * (`GoalThresholdPlan.identity_option_ids`) — and converts every other option
+ * as above. Both halves compare a LEVEL with the threshold.
+ *
+ * ⚠ THE FRAME PROOF, and why it is the caller's. ISL compares the pinned levels
+ * PLoT SENT with the threshold PLoT SENT, and converts the free options against
+ * the `observed_state.baseline` PLoT sent verbatim; inside |1.5| it cannot see
+ * a frame mismatch among the three (ISL #179 review, N2: `0.25` vs `0.08`
+ * scored silently). Phase 4a (`normaliseOptions`) rescales EVERY intervention
+ * once any one is outside [0,1]; the target then carries a non-identity
+ * intervention scale, and the threshold follows it (`normaliseGoalConstraints`
+ * ladder rung 1) — while the baseline does not. The pinned level and the
+ * threshold then share a frame the baseline is not on. A pinned level Phase 4a
+ * CLAMPED is not the level the option set at all. So a some-pinned target
+ * opens this limb only when `interventionsForwardedAsStated` (derived by the
+ * route from the recorded Phase-4a diagnostics —
+ * `collectInterventionsForwardedAsStated`) names it: every intervention on it
+ * reached ISL at exactly the value stated, on the same verbatim frame as the
+ * baseline. Absent set, or target absent from it ⇒ false (FAIL CLOSED).
+ *
+ * What the proof does NOT cover, stated rather than implied: the THRESHOLD's
+ * frame against that verbatim frame. That is the reliance the no-pin shape
+ * already has (baseline vs threshold), and its one known hole is the `'%'`
+ * rung reading `[0,100]` whatever the target's own frame — AI Quality's
+ * "Fix 2" (PLoT branch `claude/pct-rung-defers-to-target-frame`). This limb
+ * must therefore merge WITH or AFTER Fix 2. A pinned level forwarded as
+ * stated is, like the baseline, the producer's own number untouched by PLoT,
+ * so it adds no reliance on PLoT's normalisation that the baseline does not
+ * already carry.
+ *
+ * DEPLOY ORDER. An ISL without #179 still refuses a some-pinned target
+ * (`target_pinned_by_intervention` omits the whole constraint block: no number
+ * for any option — EXECUTED engine-direct in MG's #179 review against its base
+ * `2795a8c`, probe `P1_witness_some_pinned`). So opening this limb before ISL
+ * #179 deploys changes WHO refuses, never whether a number is delivered.
+ *
  * A ParameterUncertainty on the target (the constraint-PU injector's
  * std-0.001 pin, or the translator's factor PU) is NOT a precondition: ISL
  * #177 converts it, because the status-quo reference is drawn with the SAME
@@ -270,11 +334,22 @@ export function isObservedBaselineLevelTarget(
   nodes: readonly AnchorNodeLike[] | undefined,
   directedEdgeTargets: ReadonlySet<string>,
   options: readonly AnchorOptionLike[] | undefined,
+  /**
+   * Node ids whose every option intervention reached ISL at exactly the value
+   * stated (`collectInterventionsForwardedAsStated`). Read ONLY when some — not
+   * every — option sets `nodeId`; optional so a caller without the Phase-4a
+   * diagnostics gets the fail-closed "no" for that shape and nothing else moves.
+   */
+  interventionsForwardedAsStated?: ReadonlySet<string>,
 ): boolean {
   if (valueFrame !== 'level') return false;
   if (!directedEdgeTargets.has(nodeId)) return false;
   if (!Array.isArray(options) || options.length === 0) return false;
-  if (options.some((o) => optionIntervenesOn(o, nodeId))) return false;
+  const pinningOptionCount = options.filter((o) => optionIntervenesOn(o, nodeId)).length;
+  // EVERY option sets it: that is `pinned_by_every_option`'s shape, not this plan.
+  if (pinningOptionCount === options.length) return false;
+  // SOME options set it: only on proof their levels reached ISL as stated.
+  if (pinningOptionCount > 0 && interventionsForwardedAsStated?.has(nodeId) !== true) return false;
   const node = Array.isArray(nodes) ? nodes.find((n) => n?.id === nodeId) : undefined;
   const baseline = node?.observed_state?.baseline;
   return typeof baseline === 'number' && Number.isFinite(baseline);
@@ -318,12 +393,15 @@ export function isObservedBaselineLevelTarget(
  * because ISL does not compare against the raw sample at all:
  *
  *   4. `observed_baseline_level` — a non-root target, constraint stated as a
- *      `'level'`, finite `observed_state.baseline`, no option intervening.
- *      ISL rebuilds each draw as `baseline + (option_i − status_quo_i)` and
- *      compares THAT (the same per-draw plan the 2.286 correction below gave
- *      `probability_of_goal`). Derivation and ISL's preconditions:
- *      `isObservedBaselineLevelTarget`. Checked AFTER the three limbs above,
- *      so every verdict they give is unchanged.
+ *      `'level'`, finite `observed_state.baseline`, and not every option
+ *      intervening. ISL rebuilds each free option's draw as
+ *      `baseline + (option_i − status_quo_i)` and compares THAT (the same
+ *      per-draw plan the 2.286 correction below gave `probability_of_goal`);
+ *      an option that sets the target is compared at the level it sets (ISL
+ *      #179), which needs the caller's `interventionsForwardedAsStated` proof.
+ *      Derivation and ISL's preconditions: `isObservedBaselineLevelTarget`.
+ *      Checked AFTER the three limbs above, so every verdict they give is
+ *      unchanged.
  *
  * ⚠ WHY A NON-ROOT NODE IS NOT ANCHORED, EVEN WHEN ITS PARENTS ALL CARRY DATA
  * (outside limb 4, which does not read the sample's absolute position).
@@ -366,6 +444,12 @@ export function resolveConstraintSampleFrameAnchor(
    * constraint in hand gets exactly the pre-existing three-limb verdict.
    */
   valueFrame?: unknown,
+  /**
+   * Node ids whose interventions reached ISL exactly as stated — the proof the
+   * `observed_baseline_level` limb needs for a target only SOME options set.
+   * Read by that limb only (see the predicate); optional, fail closed.
+   */
+  interventionsForwardedAsStated?: ReadonlySet<string>,
 ): ConstraintSampleFrameAnchor | null {
   if (goalThresholdFrameByNodeId?.get(nodeId) === 'delta') return 'attested_delta';
 
@@ -400,7 +484,14 @@ export function resolveConstraintSampleFrameAnchor(
     // Non-root ⇒ base = 0.0, so the RAW sample is anchored to nothing. The one
     // way back is ISL's per-draw level conversion against a stated baseline —
     // available only to a constraint stated as a level (see the predicate).
-    return isObservedBaselineLevelTarget(nodeId, valueFrame, nodes, directedEdgeTargets, options)
+    return isObservedBaselineLevelTarget(
+      nodeId,
+      valueFrame,
+      nodes,
+      directedEdgeTargets,
+      options,
+      interventionsForwardedAsStated,
+    )
       ? 'observed_baseline_level'
       : null;
   }
@@ -442,6 +533,8 @@ export function detectUnanchoredSampleFrameTargets(
   directedEdgeTargets: ReadonlySet<string>,
   options: readonly AnchorOptionLike[] | undefined,
   goalThresholdFrameByNodeId: ReadonlyMap<string, string> | undefined,
+  /** See `resolveConstraintSampleFrameAnchor`. Optional; absent ⇒ fail closed for a some-pinned target. */
+  interventionsForwardedAsStated?: ReadonlySet<string>,
 ): UnreliableConstraintTarget[] {
   if (!goalConstraints || goalConstraints.length === 0) return [];
 
@@ -454,6 +547,7 @@ export function detectUnanchoredSampleFrameTargets(
       options,
       goalThresholdFrameByNodeId,
       gc.value_frame,
+      interventionsForwardedAsStated,
     );
     if (anchor === null) {
       out.push({
