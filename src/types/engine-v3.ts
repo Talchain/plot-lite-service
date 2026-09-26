@@ -529,6 +529,30 @@ export interface GoalConstraint {
    * members the node channel uses) rather than a local literal union — trap 12.
    */
   value_frame?: GoalThresholdFrameType;
+  /**
+   * Release gate (ii), olumi-programme-docs#70 5844820853 — the levels the
+   * target can physically take, in the SAME normalised frame as `value`, sent
+   * to ISL so it can report `level_out_of_domain_fraction` per option.
+   *
+   * ⛔ PLoT-MINTED ONLY. Set by `normaliseGoalConstraints` (the one writer) on a
+   * 'level' constraint the '%' rung read (`unit_percent`), and never read from
+   * the caller: the route strips an inbound `level_domain` at ingress, exactly
+   * as it strips `_internal`, because PLoT owns the frame this is stated in.
+   * Declared HERE, not only on the translator's wire type, for the same
+   * structural-keys reason as `value_frame` above.
+   */
+  level_domain?: ConstraintLevelDomain;
+}
+
+/**
+ * The levels a constraint's target can take, in the constraint's normalised
+ * frame. Mirrors ISL #181's `LevelDomain` (`src/models/robustness_v2.py`):
+ * inclusive, finite, `min <= max`, at least one bound (ISL answers 422
+ * otherwise). PLoT mints only `{min: 0, max: 1}` today (see `level_domain`).
+ */
+export interface ConstraintLevelDomain {
+  min?: number;
+  max?: number;
 }
 
 /**
@@ -631,6 +655,16 @@ export interface ConstraintScaleProvenance {
     scale_unit: string;
   };
   /**
+   * Release gate (ii) — present ONLY when more than the tolerance of the
+   * LEADING option's draws put this limit's target at a level it cannot take
+   * (ISL's `level_out_of_domain_fraction` against the `level_domain` PLoT sent).
+   * Its presence forces `decision_grade: false`: the probability of meeting the
+   * limit rests on impossible levels, so it licenses neither a pass nor a fail.
+   * Additive; absent on every run where ISL sends no fraction.
+   * See `src/routes/v2/level-domain-gate.ts`.
+   */
+  level_out_of_domain?: ConstraintLevelOutOfDomain;
+  /**
    * Producer-owned trust marker. See `DECISION_GRADE_SOURCES` +
    * `buildConstraintScaleProvenance` in `routes/v2/run.ts` for the authoritative
    * derivation (whitelist form; the OR-disjunct was removed in the F-A1
@@ -638,6 +672,18 @@ export interface ConstraintScaleProvenance {
    * no new suppression rides on it.
    */
   decision_grade: boolean;
+}
+
+/** Why a limit's scale is not decision-grade on its draws (release gate (ii)). */
+export interface ConstraintLevelOutOfDomain {
+  /** Typed reason — the one member today. */
+  reason: 'level_draws_out_of_domain';
+  /** The option whose row was judged: the leading option (see level-domain-gate.ts). */
+  option_id: string;
+  /** That option's `level_out_of_domain_fraction`, verbatim from ISL. */
+  fraction: number;
+  /** The share above which the grade is withdrawn (strictly greater than). */
+  tolerance: number;
 }
 
 export interface ConstraintResult {
@@ -723,6 +769,14 @@ export interface ConstraintMargin {
    *   precision claim", never an implicit 'exact'.
    */
   margin_precision?: 'exact' | 'lower_bound';
+  /**
+   * Release gate (ii) — THIS option's share of draws whose LEVEL lies outside
+   * the `level_domain` PLoT sent for the limit, in [0,1], verbatim from ISL
+   * (#181). Carried for every option so a consumer can judge any option it
+   * names; PLoT itself judges only the leading option's. OMITTED when ISL sent
+   * none (no domain, a 'delta' limit, or an ISL older than #181).
+   */
+  level_out_of_domain_fraction?: number;
 }
 
 /**
@@ -1041,6 +1095,7 @@ export const INLINE_CRITIQUE_CODES = [
   'ISL_NOT_ENABLED',
   'CONSTRAINT_OUT_OF_DOMAIN',
   'CONSTRAINT_FILTERED_TEMPORAL',
+  'CONSTRAINT_LEVEL_DRAWS_OUT_OF_DOMAIN', // release gate (ii): the leader's limit rests on impossible levels (level-domain-gate.ts)
   'ISL_REQUEST_INVALID',
   'ISL_CALL_FAILED',
   'ISL_EMPTY_RESULTS',
