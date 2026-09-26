@@ -3055,7 +3055,15 @@ function buildResponse(
   // was derived from. Deriving it twice would be two things to drift.
   const directedEdgeTargets = collectDirectedEdgeTargets(graph?.edges);
   const unreliableConstraintTargets = mergeUnreliableConstraintTargets(
-    detectUnreliableConstraintTargets(goalConstraints, constraintNormRanges, islResult),
+    // The level-plan context: a constraint the sample-frame gate anchors as
+    // `observed_baseline_level` is scored by ISL against its baseline, so ISL's
+    // defaulted-base warning does not describe the delivered number (see the
+    // parameter's own doc). Same graph/options/topology as the gate below.
+    detectUnreliableConstraintTargets(goalConstraints, constraintNormRanges, islResult, {
+      nodes: graph?.nodes,
+      directedEdgeTargets,
+      options,
+    }),
     detectUnanchoredSampleFrameTargets(
       goalConstraints,
       graph?.nodes,
