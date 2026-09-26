@@ -1,0 +1,196 @@
+{
+  "producer_head": "abe1d526916a078cecc425ff3f2d869922167dac",
+  "request": {
+    "goal_node_id": "goal",
+    "graph": {
+      "edges": [
+        {
+          "exists_probability": 1.0,
+          "from": "input",
+          "strength": {
+            "mean": 1,
+            "std": 0.1
+          },
+          "to": "goal"
+        }
+      ],
+      "nodes": [
+        {
+          "id": "input",
+          "kind": "factor",
+          "label": "Input",
+          "observed_state": {
+            "value": 0.5
+          }
+        },
+        {
+          "id": "goal",
+          "kind": "outcome",
+          "label": "Goal"
+        }
+      ]
+    },
+    "n_samples": 100,
+    "options": [
+      {
+        "id": "a",
+        "interventions": {
+          "input": 0.3
+        },
+        "label": "A"
+      },
+      {
+        "id": "b",
+        "interventions": {
+          "input": 0.7
+        },
+        "label": "B"
+      }
+    ],
+    "request_id": "science-transport-current-source",
+    "seed": 42
+  },
+  "response": {
+    "analysis_status": "computed",
+    "auto_noise_applied": false,
+    "build": "dev",
+    "critiques": [],
+    "decision_evpi": 0.0,
+    "edge_existence_rates": {
+      "input->goal": 1.0
+    },
+    "endpoint_version": "analyze/v2",
+    "engine_version": "1.0.0",
+    "factor_sensitivity_status": "skipped",
+    "inference_warnings": [],
+    "options": [
+      {
+        "downside": {
+          "cvar_10": 0.24436343838855407,
+          "expected_regret": 0.3688353670566227,
+          "p05": 0.24815448895855677
+        },
+        "id": "a",
+        "label": "A",
+        "outcome": {
+          "mean": 0.276626525292467,
+          "n_samples": 100,
+          "n_valid_samples": 100,
+          "p10": 0.25608593021422793,
+          "p50": 0.2776178842884244,
+          "p90": 0.2953071883170251,
+          "percentiles_source": "samples",
+          "std": 0.015941737934630044,
+          "validity_ratio": 1.0
+        },
+        "status": "computed",
+        "win_probability": 0.0
+      },
+      {
+        "downside": {
+          "cvar_10": 0.5701813562399594,
+          "expected_regret": 0.0,
+          "p05": 0.5790271409032991
+        },
+        "id": "b",
+        "label": "B",
+        "outcome": {
+          "mean": 0.6454618923490898,
+          "n_samples": 100,
+          "n_valid_samples": 100,
+          "p10": 0.5975338371665319,
+          "p50": 0.6477750633396568,
+          "p90": 0.6890501060730587,
+          "percentiles_source": "samples",
+          "std": 0.03719738851413677,
+          "validity_ratio": 1.0
+        },
+        "status": "computed",
+        "win_probability": 1.0
+      }
+    ],
+    "processing_time_ms": 4,
+    "request_echo": {
+      "goal_node_id_hash": "0304523efff5",
+      "graph_edge_count": 1,
+      "graph_node_count": 2,
+      "include_diagnostics": false,
+      "n_samples": 100,
+      "options_count": 2,
+      "response_version_requested": 2
+    },
+    "request_id": "science-transport-current-source",
+    "robustness": {
+      "confidence": 1.0,
+      "confidence_basis": "recommendation_stability_uncalibrated",
+      "edge_sensitivity": [
+        {
+          "direction": "positive",
+          "edge_id": "input->goal",
+          "elasticity": 1.0218201536786728,
+          "from_id": "input",
+          "importance_rank": 1,
+          "interpretation": "Decision is highly sensitive to input->goal existence - consider validating this relationship",
+          "sensitivity_score": 1.0,
+          "sensitivity_type": "existence",
+          "to_id": "goal"
+        },
+        {
+          "direction": "positive",
+          "edge_id": "input->goal",
+          "elasticity": 0.05195732529678062,
+          "from_id": "input",
+          "importance_rank": 2,
+          "interpretation": "Decision is moderately sensitive to input->goal effect size",
+          "sensitivity_score": 0.05084781809179251,
+          "sensitivity_type": "magnitude",
+          "to_id": "goal"
+        }
+      ],
+      "fragile_edges": [
+        {
+          "edge_id": "input->goal",
+          "from_id": "input",
+          "marginal_switch_probability": 0.0,
+          "switch_probability": 0.0,
+          "to_id": "goal"
+        }
+      ],
+      "fragile_edges_v1": [
+        "input->goal"
+      ],
+      "is_robust": true,
+      "level": "high",
+      "recommendation_stability": 1.0,
+      "robust_edges": []
+    },
+    "robustness_status": "computed",
+    "sample_population_provenance": {
+      "auto_scaled_noise_applied": false,
+      "calibration_status": "uncalibrated_poc_heuristic",
+      "metric_populations": {
+        "cvar_10": "model_only",
+        "decision_evpi": "model_only",
+        "expected_regret": "model_only",
+        "factor_evpc": "model_only",
+        "factor_evppi": "model_only",
+        "mean": "model_only",
+        "p05": "model_only",
+        "p10": "model_only",
+        "p50": "model_only",
+        "p90": "model_only",
+        "probability_of_goal": "model_only",
+        "win_probability": "model_only"
+      },
+      "unnoised_constraint_node_ids": []
+    },
+    "seed_source": "client_provided",
+    "seed_used": "42",
+    "sensitivity_reference_option_id": "a",
+    "tie_rate": 0.0,
+    "timestamp": "2026-08-31T15:09:36.730327Z",
+    "version": "2.0"
+  },
+  "status": 200,
+  "uncommitted_source": false
+}

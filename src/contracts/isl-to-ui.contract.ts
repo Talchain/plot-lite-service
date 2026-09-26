@@ -8,6 +8,11 @@
  * Both PLoT→ISL and ISL→UI are whitelist constructions (not passthrough).
  * This contract governs declared source fields — unknown ISL keys are NOT
  * expected to survive the boundary.
+ *
+ * The enhanced response's top-level `tie_rate` and `edge_existence_rates`
+ * pass through at the same paths and values after finite [0,1] validation.
+ * No legacy `_metadata` fallback, new score, or recommendation interpretation.
+ * Absent stays absent; measured zero and a computed empty map remain present.
  */
 
 import type { BoundaryContract } from './plot-to-isl.contract.js';
@@ -104,6 +109,8 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
    * @see src/lib/constraint-reliability.ts
    */
   filtered: [
+    'tie_rate (malformed/non-finite/outside [0,1] — unavailable with ISL_SAMPLING_DIAGNOSTICS_INVALID)',
+    'edge_existence_rates (any malformed entry refuses the whole map — unavailable with ISL_SAMPLING_DIAGNOSTICS_INVALID)',
     'constraint_analysis.joint_probability (when CONSTRAINT_TARGET_UNRELIABLE)',
     'constraint_analysis.constraints[].prob_satisfied (when CONSTRAINT_TARGET_UNRELIABLE)',
     'constraint_results[] / constraint_diagnostics[] / conditional_probabilities[] (top-level block, when CONSTRAINT_TARGET_UNRELIABLE — constraints_status: unavailable)',
