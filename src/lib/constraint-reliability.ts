@@ -138,17 +138,99 @@ export type ConstraintSampleFrameAnchor =
   /** Every option intervenes on this node, so each sample IS that absolute value. */
   | 'pinned_by_every_option'
   /** Root node with an observed value — the evaluator seeds it as the sample's base. */
-  | 'root_observed_level';
+  | 'root_observed_level'
+  /**
+   * NON-root node, constraint stated as a `'level'`, node carries a finite
+   * `observed_state.baseline`, and no option intervenes on it: ISL converts
+   * the samples to levels per draw against its own status-quo reference. See
+   * `isObservedBaselineLevelTarget` for the derivation.
+   */
+  | 'observed_baseline_level';
 
 /** Minimal shape of a graph node this module needs. Structural, not nominal. */
 interface AnchorNodeLike {
   id?: unknown;
-  observed_state?: { value?: unknown } | null;
+  observed_state?: { value?: unknown; baseline?: unknown } | null;
 }
 
 /** Minimal shape of an option this module needs. Structural, not nominal. */
 interface AnchorOptionLike {
   interventions?: Record<string, unknown> | null;
+}
+
+/**
+ * Does this option carry an intervention KEY for `nodeId`? Keys only — see the
+ * `pinned_by_every_option` limb for why a VALUE must never be read here.
+ */
+function optionIntervenesOn(option: AnchorOptionLike | null | undefined, nodeId: string): boolean {
+  const interventions = option?.interventions;
+  return (
+    interventions !== null &&
+    typeof interventions === 'object' &&
+    Object.prototype.hasOwnProperty.call(interventions, nodeId)
+  );
+}
+
+/**
+ * THE ONE PREDICATE for the `observed_baseline_level` anchor, read by the
+ * sample-frame gate below.
+ *
+ * WHAT ISL DOES WITH THIS SHAPE (CODE-READ `robustness_analyzer_v2.py`
+ * `_resolve_threshold_in_sample_frame` + `_resolve_constraint_series`
+ * @`3c4ab84d`). For a constraint whose `value_frame` is `'level'` on a
+ * NON-ROOT target, ISL does not compare the threshold against the raw sample.
+ * It converts every draw to a level against a status-quo reference evaluated
+ * on the SAME draw (common random numbers, no interventions)::
+ *
+ *     level_i = observed_state.baseline + (option_sample_i - status_quo_sample_i)
+ *
+ * The target's defaulted base (0.0), its intercept, the factors' current
+ * values and the sampled edge strengths appear in BOTH terms and cancel, so
+ * the compared quantity IS a level anchored to the producer's stated baseline
+ * — and it DIFFERS BY OPTION, which no other limb of this gate can say.
+ *
+ * ISL's own preconditions for that plan, each mirrored here and FAIL CLOSED:
+ *   1. `value_frame === 'level'` — the plan is keyed on the CONSTRAINT's frame
+ *      (ISL reads `constraint.value_frame`, not the node's stamp).
+ *   2. NON-ROOT — a root has its own limb (`root_observed_level`); ISL's root
+ *      path is the identity, not this conversion.
+ *   3. NO option intervenes on the target — ISL refuses a level constraint on
+ *      a target ANY option pins (`target_pinned_by_intervention`), so this is
+ *      "none", not "not every". An empty option list proves nothing.
+ *   4. a FINITE `observed_state.baseline` — ISL refuses without one
+ *      (`missing_target_baseline`) and belt-and-braces refuses a non-finite one.
+ * A ParameterUncertainty on the target (the constraint-PU injector's
+ * std-0.001 pin, or the translator's factor PU) is NOT a precondition: ISL
+ * #177 converts it, because the status-quo reference is drawn with the SAME
+ * factor values, so the per-draw base cancels (ISL retired
+ * `target_parameter_uncertainty_shifts_base`). An ISL build without #177
+ * refuses that constraint block instead, which is a refusal and never a wrong
+ * number. Deploy order: ISL #177 first.
+ * ISL's remaining refusals (epsilon on an ancestor, operands outside the
+ * normalised domain) likewise end in an omitted block, never a number. So if
+ * this predicate says yes and ISL disagrees, the cost is PLoT's own
+ * CONSTRAINT_TARGET_UNRELIABLE disclosure giving way to ISL's refusal — no
+ * probability ISL did not compute under the level plan can be delivered.
+ *
+ * ⚠ WHAT THIS DOES NOT PROVE: that the BASELINE is a measurement. It proves
+ * the comparison is anchored to the baseline the producer sent. Whether that
+ * number is a user's figure or an estimate is the producer's provenance to
+ * disclose, not this gate's.
+ */
+export function isObservedBaselineLevelTarget(
+  nodeId: string,
+  valueFrame: unknown,
+  nodes: readonly AnchorNodeLike[] | undefined,
+  directedEdgeTargets: ReadonlySet<string>,
+  options: readonly AnchorOptionLike[] | undefined,
+): boolean {
+  if (valueFrame !== 'level') return false;
+  if (!directedEdgeTargets.has(nodeId)) return false;
+  if (!Array.isArray(options) || options.length === 0) return false;
+  if (options.some((o) => optionIntervenesOn(o, nodeId))) return false;
+  const node = Array.isArray(nodes) ? nodes.find((n) => n?.id === nodeId) : undefined;
+  const baseline = node?.observed_state?.baseline;
+  return typeof baseline === 'number' && Number.isFinite(baseline);
 }
 
 /**
@@ -185,7 +267,19 @@ interface AnchorOptionLike {
  *      neither has PLoT; what it buys is that a wrong number is then the
  *      producer's stated frame, not a silent assumption by us.
  *
- * ⚠ WHY A NON-ROOT NODE IS NOT ANCHORED, EVEN WHEN ITS PARENTS ALL CARRY DATA.
+ * And ONE case where the raw sample is NOT absolute but the COMPARISON is,
+ * because ISL does not compare against the raw sample at all:
+ *
+ *   4. `observed_baseline_level` — a non-root target, constraint stated as a
+ *      `'level'`, finite `observed_state.baseline`, no option intervening.
+ *      ISL rebuilds each draw as `baseline + (option_i − status_quo_i)` and
+ *      compares THAT (the same per-draw plan the 2.286 correction below gave
+ *      `probability_of_goal`). Derivation and ISL's preconditions:
+ *      `isObservedBaselineLevelTarget`. Checked AFTER the three limbs above,
+ *      so every verdict they give is unchanged.
+ *
+ * ⚠ WHY A NON-ROOT NODE IS NOT ANCHORED, EVEN WHEN ITS PARENTS ALL CARRY DATA
+ * (outside limb 4, which does not read the sample's absolute position).
  * The tempting reading is that `intercept + SUM(parent * strength)` is a
  * CALIBRATED LEVEL: the parents hold their absolute current values, so the sum
  * ought to predict the node's actual level. ISL tried exactly that reading and
@@ -219,6 +313,12 @@ export function resolveConstraintSampleFrameAnchor(
   directedEdgeTargets: ReadonlySet<string>,
   options: readonly AnchorOptionLike[] | undefined,
   goalThresholdFrameByNodeId: ReadonlyMap<string, string> | undefined,
+  /**
+   * The CONSTRAINT's own `value_frame` (not the node's stamp). Opens the
+   * `observed_baseline_level` limb only; optional so a caller that has no
+   * constraint in hand gets exactly the pre-existing three-limb verdict.
+   */
+  valueFrame?: unknown,
 ): ConstraintSampleFrameAnchor | null {
   if (goalThresholdFrameByNodeId?.get(nodeId) === 'delta') return 'attested_delta';
 
@@ -244,19 +344,19 @@ export function resolveConstraintSampleFrameAnchor(
   if (
     Array.isArray(options) &&
     options.length > 0 &&
-    options.every((o) => {
-      const interventions = o?.interventions;
-      return (
-        interventions !== null &&
-        typeof interventions === 'object' &&
-        Object.prototype.hasOwnProperty.call(interventions, nodeId)
-      );
-    })
+    options.every((o) => optionIntervenesOn(o, nodeId))
   ) {
     return 'pinned_by_every_option';
   }
 
-  if (directedEdgeTargets.has(nodeId)) return null; // non-root ⇒ base = 0.0
+  if (directedEdgeTargets.has(nodeId)) {
+    // Non-root ⇒ base = 0.0, so the RAW sample is anchored to nothing. The one
+    // way back is ISL's per-draw level conversion against a stated baseline —
+    // available only to a constraint stated as a level (see the predicate).
+    return isObservedBaselineLevelTarget(nodeId, valueFrame, nodes, directedEdgeTargets, options)
+      ? 'observed_baseline_level'
+      : null;
+  }
 
   const node = Array.isArray(nodes) ? nodes.find((n) => n?.id === nodeId) : undefined;
   const observedValue = node?.observed_state?.value;
@@ -306,6 +406,7 @@ export function detectUnanchoredSampleFrameTargets(
       directedEdgeTargets,
       options,
       goalThresholdFrameByNodeId,
+      gc.value_frame,
     );
     if (anchor === null) {
       out.push({
@@ -597,8 +698,10 @@ export function buildConstraintTargetUnreliableMessage(
    * ⚠ WHY IT IS A PROOF AND NOT A HINT, AND WHY `undefined` TAKES THE NON-ROOT
    * ARM. It decides whether the L63-only message may prescribe "set a current
    * value" — a remedy that WORKS for a root and is INERT for a non-root, because
-   * `resolveConstraintSampleFrameAnchor` returns at the `directedEdgeTargets`
-   * early return BEFORE it ever reads `observed_state`. The two failure
+   * `resolveConstraintSampleFrameAnchor`'s `directedEdgeTargets` branch never
+   * reads `observed_state.value` (it reads only `observed_state.baseline`, and
+   * only for a constraint stated as a `'level'` — `isObservedBaselineLevelTarget`;
+   * setting a current VALUE still cannot move it). The two failure
    * directions are not symmetric: withholding the advice from a root costs a
    * suggestion, while offering it to a non-root sends the user to perform an
    * edit the resolver provably ignores. So the advice is emitted only on PROOF,
@@ -622,9 +725,11 @@ export function buildConstraintTargetUnreliableMessage(
   // ranking the unit collision first displaced the L63 message and left the user
   // with "restate the target in the same units", which PROVABLY CANNOT UNBLOCK
   // this target — `resolveConstraintSampleFrameAnchor` returns null for any node
-  // with a directed parent before it ever looks at units. A more precise
-  // diagnosis that removes the user's only working remedy is a worse message,
-  // however correct its internals. Both causes must be resolved, so name both.
+  // with a directed parent (outside the `observed_baseline_level` limb, which
+  // never co-occurs with `sample_frame_unanchored`) before it ever looks at
+  // units. A more precise diagnosis that removes the user's only working
+  // remedy is a worse message, however correct its internals. Both causes must
+  // be resolved, so name both.
   //
   // ⚠ WHY THE FRAME REMEDY HERE IS THE **DELTA** LIMB AND NOT "set a current
   // value", which the L63-only message offers. The two limbs do NOT have the
@@ -687,7 +792,9 @@ export function buildConstraintTargetUnreliableMessage(
   // WHY IT IS IMPOSSIBLE RATHER THAN BROKEN. Read the resolver's limb ORDER:
   // `directedEdgeTargets.has(nodeId) -> return null` executes BEFORE the
   // `root_observed_level` limb, so for ANY target with >=1 directed incoming
-  // edge the resolver never looks at `observed_state` at all. Setting a value
+  // edge the resolver never reads `observed_state.value`. (Its one non-root
+  // limb, `observed_baseline_level`, reads `observed_state.baseline` for a
+  // constraint stated as a `'level'` — never the `value`.) Setting a value
   // cannot move the verdict. Measured on the live graph: the goal node had 4
   // directed incoming edges, "Runway Remaining" had 2.
   //
