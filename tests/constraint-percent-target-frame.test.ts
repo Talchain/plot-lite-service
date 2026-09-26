@@ -438,3 +438,239 @@ describe('collectScaleFrameByNodeId — the raw-node carrier', () => {
     expect(collectScaleFrameByNodeId(undefined).size).toBe(0);
   });
 });
+
+// =============================================================================
+// 6. ROUND 2 — the (value, raw_value) PAIR is a frame carrier, and a declared
+//    NON-percent unit refuses with no frame at all
+// =============================================================================
+//
+// THE DEFECT (adversarial verify of acc80d1, EXECUTED): a '%' factor whose
+// frame is carried ONLY by its `{value, raw_value}` pair — CEE's "capless
+// framed pair": records projector pass 3d writes `{value: raw/frame,
+// raw_value: raw}` and deliberately no cap, and CEE's own `recoverScaleFrame`
+// (d1-shared/scale-frame.ts at fbb12b8) reads the frame back as
+// raw_value / value — was still read on [0,100], decision_grade true.
+// `{0.06, 12}` under `<= 10 '%'` put 0.1 on the wire against a level of 0.06:
+// MET, although 12% > 10%. `{0.575, 115}` under `>= 100 '%'` put 1.0 against
+// 0.575: BROKEN, although 115% >= 100%.
+//
+// Every expected threshold is DERIVED from the row's own pair
+// (limit ÷ (raw_value ÷ value)) — never typed in from the author's head.
+
+describe("round 2 — a '%' limit on a PAIR-framed target (no cap, no scale_frame)", () => {
+  /** fac_churn carries ONLY the given observed_state: no cap, no scale_frame (the verifier's probe shape). */
+  function pairOnly(variant: string, observed_state: Record<string, unknown>): CorpusRequest {
+    const req = withChurn(variant, { observed_state });
+    const churn = node(req, 'fac_churn');
+    // PRECONDITION: the pair is the ONLY frame carrier on the row.
+    expect(churn.observed_state.cap, 'no cap on the row').toBeUndefined();
+    expect(churn.scale_frame, 'no scale_frame on the row').toBeUndefined();
+    return req;
+  }
+
+  function pairFrame(req: CorpusRequest): number {
+    const os = node(req, 'fac_churn').observed_state;
+    return os.raw_value / os.value;
+  }
+
+  it("pair on 200 ({0.06, 12}): the 10% limit reads 0.05 — the 12% level BREAKS it, as in the world", () => {
+    const req = pairOnly('lvl12_cap200', { value: 0.06, raw_value: 12, unit: '%', std: 0.005 });
+    const r = normaliseRow(req);
+    expect(sent(r, 'gc_churn')).toBeCloseTo(limit(req, 'gc_churn').value / pairFrame(req), 12);
+    expect(sent(r, 'gc_churn')).toBeCloseTo(0.05, 12);
+    // The wrong-pass value, named so a regression is unmistakable.
+    expect(sent(r, 'gc_churn')).not.toBeCloseTo(0.1, 12);
+    expect(diag(r, 'gc_churn')!.range).toEqual({ min: 0, max: 200, source: 'unit_percent' });
+    expect(r.refused).toEqual([]);
+    expect(node(req, 'fac_churn').observed_state.value).toBeGreaterThan(sent(r, 'gc_churn')!);
+  });
+
+  it("pair on 20 ({0.2, 4}): the 10% limit reads 0.5 — the 4% level MEETS it", () => {
+    const req = pairOnly('lvl4_cap20', { value: 0.2, raw_value: 4, unit: '%', std: 0.05 });
+    const r = normaliseRow(req);
+    expect(sent(r, 'gc_churn')).toBeCloseTo(limit(req, 'gc_churn').value / pairFrame(req), 12);
+    expect(sent(r, 'gc_churn')).toBeCloseTo(0.5, 12);
+    expect(diag(r, 'gc_churn')!.range).toEqual({ min: 0, max: 20, source: 'unit_percent' });
+    expect(r.refused).toEqual([]);
+    expect(node(req, 'fac_churn').observed_state.value).toBeLessThan(sent(r, 'gc_churn')!);
+  });
+
+  it("NRR pair ({0.575, 115}) under '>= 100 %': reads 0.5 — 115% MEETS it, as in the world", () => {
+    const req = pairOnly('lvl12_cap200', { value: 0.575, raw_value: 115, unit: '%' });
+    req.goal_constraints = [
+      { constraint_id: 'gc_churn', node_id: 'fac_churn', operator: '>=', value: 100, unit: '%', value_frame: 'level' } as GoalConstraint & { unit: string },
+    ];
+    const r = normaliseRow(req);
+    expect(sent(r, 'gc_churn')).toBeCloseTo(limit(req, 'gc_churn').value / pairFrame(req), 12);
+    expect(sent(r, 'gc_churn')).toBeCloseTo(0.5, 12);
+    // Wrong-pass value at acc80d1: 100 on [0,100] = 1.0, which 0.575 never reaches.
+    expect(sent(r, 'gc_churn')).not.toBeCloseTo(1, 6);
+    expect(diag(r, 'gc_churn')!.range.max).toBeCloseTo(200, 9);
+    expect(r.refused).toEqual([]);
+    expect(node(req, 'fac_churn').observed_state.value).toBeGreaterThanOrEqual(sent(r, 'gc_churn')!);
+  });
+
+  it('THE PROPERTY on the pair carrier: the same real-world level answers the same way on every pair frame', () => {
+    for (const [variant, os, op, lim] of [
+      ['lvl12_cap200', { value: 0.06, raw_value: 12, unit: '%' }, '<=', 10],
+      ['lvl4_cap20', { value: 0.2, raw_value: 4, unit: '%' }, '<=', 10],
+      ['lvl4_cap100', { value: 0.04, raw_value: 4, unit: '%' }, '<=', 10],
+      ['lvl12_cap200', { value: 0.575, raw_value: 115, unit: '%' }, '>=', 100],
+      ['lvl12_cap200', { value: 0.575, raw_value: 115, unit: '%' }, '<=', 100],
+    ] as const) {
+      const req = pairOnly(variant, { ...os });
+      req.goal_constraints = [
+        { constraint_id: 'gc_churn', node_id: 'fac_churn', operator: op, value: lim, unit: '%', value_frame: 'level' } as GoalConstraint & { unit: string },
+      ];
+      const r = normaliseRow(req);
+      const level = node(req, 'fac_churn').observed_state;
+      const threshold = sent(r, 'gc_churn')!;
+      const inTheWorld = op === '<=' ? level.raw_value <= lim : level.raw_value >= lim;
+      const onTheWire = op === '<=' ? level.value <= threshold : level.value >= threshold;
+      expect(onTheWire, `${variant} ${JSON.stringify(os)} ${op} ${lim}`).toBe(inTheWorld);
+    }
+  });
+
+  it('CONTROL — a pair framed on 100 ({0.04, 4}, no cap): the legacy [0,100] reading, unchanged', () => {
+    const req = pairOnly('lvl4_cap100', { value: 0.04, raw_value: 4, unit: '%', std: 0.01 });
+    const r = normaliseRow(req);
+    expect(sent(r, 'gc_churn')).toBeCloseTo(0.1, 12);
+    expect(diag(r, 'gc_churn')!.range).toEqual({ min: 0, max: 100, source: 'unit_percent' });
+    expect(r.refused).toEqual([]);
+    expect(r.repairs.map((x) => x.reason)).toEqual(['normalised range=[0,100] source=unit_percent']);
+  });
+
+  it("CONTROL — Paul's churn estimate with NO scale_frame ({0.07, 7}, '% per month'): legacy, not refused", () => {
+    // 7 / 0.07 is 99.99999999999999 in IEEE-754: the pair coheres with frame 100
+    // under CEE's own tolerance (`checkPairCoherence`, relative 1e-9), so it IS
+    // the legacy frame — an unrecognised spelling off 100 would otherwise refuse.
+    const req = pairOnly('lvl4_cap100', { value: 0.07, raw_value: 7, unit: '% per month' });
+    expect(pairFrame(req)).not.toBe(100);
+    const r = normaliseRow(req);
+    expect(sent(r, 'gc_churn')).toBeCloseTo(0.1, 12);
+    expect(diag(r, 'gc_churn')!.range).toEqual({ min: 0, max: 100, source: 'unit_percent' });
+    expect(r.refused).toEqual([]);
+  });
+
+  it('CONTROL — pairs outside CEE recoverScaleFrame\'s domain are NOT a frame: legacy [0,100]', () => {
+    for (const os of [
+      { value: 0.07, raw_value: 0.07, unit: '%' }, // unframed writer {x, x}: raw_value > value fails
+      { value: 0.08, raw_value: 0.04, unit: '%' }, // raw below the level: frame 0.5 is not > 1
+      { value: 0, raw_value: 5, unit: '%' }, // zero level: scale-ambiguous
+      { value: -0.06, raw_value: 12, unit: '%' }, // negative level
+      { value: 0.06, raw_value: Number.POSITIVE_INFINITY, unit: '%' }, // non-finite raw
+    ]) {
+      const req = pairOnly('lvl4_cap100', os);
+      const r = normaliseRow(req);
+      expect(sent(r, 'gc_churn'), JSON.stringify(os)).toBeCloseTo(0.1, 12);
+      expect(diag(r, 'gc_churn')!.range, JSON.stringify(os)).toEqual({ min: 0, max: 100, source: 'unit_percent' });
+    }
+  });
+
+  it('the pair is the THIRD carrier: cap, then scale_frame, then the pair', () => {
+    const capWins = withChurn('lvl4_cap20', { observed_state: { value: 0.06, raw_value: 12, cap: 20, unit: '%' } });
+    expect(sent(normaliseRow(capWins), 'gc_churn')).toBe(0.5);
+    const sfWins = withChurn('lvl4_cap20', { observed_state: { value: 0.06, raw_value: 12, unit: '%' }, scale_frame: 20 });
+    expect(
+      sent(normaliseRow(sfWins, { scaleFrameByNodeId: new Map([['fac_churn', 20]]) }), 'gc_churn'),
+    ).toBe(0.5);
+  });
+
+  it('resolvePercentTargetFrame names the pair verdicts (identity-bound, by node)', () => {
+    const n = (os: Record<string, unknown>) => ({ id: 'fac_churn', kind: 'factor', label: 'x', observed_state: os }) as unknown as EngineNodeV3;
+    expect(resolvePercentTargetFrame(n({ value: 0.06, raw_value: 12, unit: '%' }), undefined)).toEqual({
+      verdict: 'deferred', frame: 200, percent_extent: 200,
+    });
+    expect(resolvePercentTargetFrame(n({ value: 0.2, raw_value: 4, unit: '%' }), undefined)).toEqual({
+      verdict: 'deferred', frame: 20, percent_extent: 20,
+    });
+    expect(resolvePercentTargetFrame(n({ value: 0.04, raw_value: 4, unit: '%' }), undefined)).toEqual({ verdict: 'legacy' });
+    expect(resolvePercentTargetFrame(n({ value: 0.07, raw_value: 7, unit: '% per month' }), undefined)).toEqual({ verdict: 'legacy' });
+    // A pair on an UNDECLARED unit off 100 refuses exactly as a cap would.
+    expect(resolvePercentTargetFrame(n({ value: 0.2, raw_value: 4 }), undefined)).toEqual({
+      verdict: 'refused', frame: 20, frame_unit: undefined,
+    });
+  });
+});
+
+describe("round 2 — a '%' limit on a declared NON-percent unit with NO frame is refused", () => {
+  const unframedNonPercent: Array<[string, Record<string, unknown>]> = [
+    ['£ unframed', { value: 0.4, unit: '£' }],
+    ['count unframed', { value: 0.4, unit: 'count' }],
+    ['duration unframed', { value: 0.4, unit: 'months' }],
+  ];
+
+  for (const [name, observed_state] of unframedNonPercent) {
+    it(`${name}: withheld with the typed reason, never scored on [0,100]`, () => {
+      const req = withChurn('lvl4_cap100', { observed_state });
+      expect(node(req, 'fac_churn').observed_state.cap, 'precondition: no cap').toBeUndefined();
+      expect(node(req, 'fac_churn').scale_frame, 'precondition: no scale_frame').toBeUndefined();
+      const r = normaliseRow(req);
+      expect(sent(r, 'gc_churn'), name).toBeUndefined();
+      expect(diag(r, 'gc_churn'), name).toBeUndefined();
+      expect(r.refused.map((x) => [x.constraint_id, x.node_id, x.reason, x.stated_value]), name).toEqual([
+        ['gc_churn', 'fac_churn', PERCENT_UNIT_DISAGREES_WITH_TARGET_FRAME, 10],
+      ]);
+      const removed = r.repairs.find((x) => x.field === 'constraint.value.gc_churn');
+      expect(removed, name).toMatchObject({ action: 'removed', from_value: 10, to_value: 'refused' });
+      expect(removed!.reason, name).toContain('frame=none');
+    });
+  }
+
+  it('resolvePercentTargetFrame: refused with NO frame for a declared non-percent unit', () => {
+    const n = (os: Record<string, unknown>) => ({ id: 'fac_churn', kind: 'factor', label: 'x', observed_state: os }) as unknown as EngineNodeV3;
+    expect(resolvePercentTargetFrame(n({ value: 0.4, unit: '£' }), undefined)).toEqual({
+      verdict: 'refused', frame: undefined, frame_unit: '£',
+    });
+    expect(resolvePercentTargetFrame(n({ value: 0.4, unit: 'count' }), undefined)).toEqual({
+      verdict: 'refused', frame: undefined, frame_unit: 'count',
+    });
+  });
+
+  it('CONTROL — unframed percent-compatible or unrecognised units keep the legacy [0,100] reading', () => {
+    for (const os of [
+      { value: 0.04, unit: 'fraction' }, // a fraction level IS percent ÷ 100
+      { value: 0.04, unit: '%' },
+      { value: 0.07, unit: '% per month' }, // unrecognised spelling, unframed: CEE's "PLoT flags it" shape
+      { value: 0.07 }, // the unitless control
+    ]) {
+      const req = withChurn('lvl4_cap100', { observed_state: os });
+      const r = normaliseRow(req);
+      expect(sent(r, 'gc_churn'), JSON.stringify(os)).toBeCloseTo(0.1, 12);
+      expect(r.refused, JSON.stringify(os)).toEqual([]);
+    }
+  });
+
+  it("a fractional '%' on an unframed £ target is refused alone AND batched (one predicate)", () => {
+    const req = withChurn('lvl4_cap100', { observed_state: { value: 0.4, unit: '£' } });
+    const nodes = req.graph.nodes.map(engineNode);
+    const frac: GoalConstraint = { constraint_id: 'gc_churn', node_id: 'fac_churn', operator: '<=', value: 0.04 } as GoalConstraint;
+    const opener: GoalConstraint = { constraint_id: 'gc_gate_opener', node_id: 'fac_cost', operator: '<=', value: 250000 } as GoalConstraint;
+    const units = new Map([['gc_churn', '%']]);
+    expect(constraintsNeedPercentTargetFrame([frac], nodes, { unitsByConstraintId: units })).toBe(true);
+    for (const batch of [[frac], [frac, opener]]) {
+      const r = normaliseGoalConstraints(batch, nodes, {
+        unitsByConstraintId: units,
+        normaliseWithoutScale: constraintsNeedNormalisation(batch),
+      });
+      expect(sent(r, 'gc_churn'), `batch of ${batch.length}`).toBeUndefined();
+      expect(r.refused.map((x) => [x.constraint_id, x.reason]), `batch of ${batch.length}`).toEqual([
+        ['gc_churn', PERCENT_UNIT_DISAGREES_WITH_TARGET_FRAME],
+      ]);
+    }
+  });
+
+  it("a fractional '%' on a PAIR-framed target reads the same alone AND batched (one predicate)", () => {
+    const req = withChurn('lvl4_cap20', { observed_state: { value: 0.2, raw_value: 4, unit: '%' } });
+    const nodes = req.graph.nodes.map(engineNode);
+    const frac: GoalConstraint = { constraint_id: 'gc_churn', node_id: 'fac_churn', operator: '<=', value: 0.04 } as GoalConstraint;
+    const opener: GoalConstraint = { constraint_id: 'gc_gate_opener', node_id: 'fac_cost', operator: '<=', value: 250000 } as GoalConstraint;
+    const units = new Map([['gc_churn', '%']]);
+    expect(constraintsNeedNormalisation([frac])).toBe(false);
+    expect(constraintsNeedPercentTargetFrame([frac], nodes, { unitsByConstraintId: units })).toBe(true);
+    const alone = normaliseGoalConstraints([frac], nodes, { unitsByConstraintId: units, normaliseWithoutScale: false });
+    const batched = normaliseGoalConstraints([frac, opener], nodes, { unitsByConstraintId: units, normaliseWithoutScale: true });
+    expect(sent(alone, 'gc_churn')).toBeCloseTo(0.2, 12);
+    expect(sent(batched, 'gc_churn')).toBe(sent(alone, 'gc_churn'));
+  });
+});

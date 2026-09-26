@@ -335,4 +335,111 @@ describe("route — a '%' limit on a ROOT '%' factor is read on the factor's own
       expect(p).toEqual({ source: 'explicit_cap', range_unified: true, decision_grade: true });
     }
   });
+
+  // ===========================================================================
+  // ROUND 2 — the (value, raw_value) PAIR is a frame carrier; a declared
+  // non-percent unit with NO frame refuses; the fractional-delta cell is pinned.
+  // The verifier's probe shapes (adversarial verify of acc80d1), POSTed verbatim.
+  // ===========================================================================
+
+  /** fac_churn framed ONLY by its pair: no cap, no scale_frame on the raw node. */
+  function pairOnly(req: any, observed_state: any): any {
+    const churn = churnOf(req);
+    churn.observed_state = observed_state;
+    expect(churn.observed_state.cap, 'precondition: no cap').toBeUndefined();
+    expect(churn.scale_frame, 'precondition: no scale_frame').toBeUndefined();
+    return req;
+  }
+
+  it('PAIR on 200 ({0.06, 12}, no cap): the wire threshold is 10/200 = 0.05, not 0.1', async () => {
+    const req = pairOnly(corpus('lvl12_cap200'), { value: 0.06, raw_value: 12, unit: '%', std: 0.005 });
+    const body = await run(req);
+    const os = churnOf(req).observed_state;
+    for (const v of wireValues('gc_churn')) {
+      expect(v).toBeCloseTo(10 / (os.raw_value / os.value), 12);
+      expect(v).toBeCloseTo(0.05, 12);
+      // The node's level 0.06 sits ABOVE the threshold: the broken limit is visible to ISL.
+      expect(os.value).toBeGreaterThan(v);
+    }
+    for (const p of provenanceOf(body, 'gc_churn')) {
+      expect(p).toEqual({ source: 'unit_percent', range_unified: true, decision_grade: true });
+    }
+    const repair = (body._meta?.repairs_applied ?? []).find((r: any) => r.field === 'constraint.value.gc_churn');
+    expect(repair).toMatchObject({ action: 'normalised', from_value: 10, reason: 'normalised range=[0,200] source=unit_percent' });
+    expect(body._meta?.filtered_constraints).toBeUndefined();
+  });
+
+  it('PAIR on 20 ({0.2, 4}, no cap): the wire threshold is 10/20 = 0.5, not 0.1', async () => {
+    const req = pairOnly(corpus('lvl4_cap20'), { value: 0.2, raw_value: 4, unit: '%', std: 0.05 });
+    await run(req);
+    for (const v of wireValues('gc_churn')) expect(v).toBeCloseTo(0.5, 12);
+  });
+
+  it("NRR PAIR ({0.575, 115}, no cap) under '>= 100 %': the wire threshold is 0.5, not 1.0", async () => {
+    const req = pairOnly(corpus('lvl12_cap200'), { value: 0.575, raw_value: 115, unit: '%' });
+    req.goal_constraints = [{ constraint_id: 'gc_churn', node_id: 'fac_churn', operator: '>=', value: 100, unit: '%', value_frame: 'level' }];
+    await run(req);
+    const os = churnOf(req).observed_state;
+    for (const v of wireValues('gc_churn')) {
+      expect(v).toBeCloseTo(100 / (os.raw_value / os.value), 12);
+      expect(v).toBeCloseTo(0.5, 12);
+      // 115% >= 100%: the node's level 0.575 MEETS the threshold on the wire.
+      expect(os.value).toBeGreaterThanOrEqual(v);
+    }
+  });
+
+  it('CONTROL — a PAIR framed on 100 ({0.04, 4}, no cap): 0.1 on the wire, unit_percent, decision-grade', async () => {
+    const req = pairOnly(corpus('lvl4_cap100'), { value: 0.04, raw_value: 4, unit: '%', std: 0.01 });
+    const body = await run(req);
+    for (const v of wireValues('gc_churn')) expect(v).toBeCloseTo(0.1, 12);
+    for (const p of provenanceOf(body, 'gc_churn')) {
+      expect(p).toEqual({ source: 'unit_percent', range_unified: true, decision_grade: true });
+    }
+    const repair = (body._meta?.repairs_applied ?? []).find((r: any) => r.field === 'constraint.value.gc_churn');
+    expect(repair).toMatchObject({ reason: 'normalised range=[0,100] source=unit_percent' });
+    expect(body._meta?.filtered_constraints).toBeUndefined();
+  });
+
+  for (const [name, observed_state] of [
+    ['£', { value: 0.4, unit: '£' }],
+    ['count', { value: 0.4, unit: 'count' }],
+  ] as const) {
+    it(`MISMATCH — a '%' limit on an UNFRAMED ${name} root: withheld with the typed reason, never scored`, async () => {
+      const req = corpus('lvl4_cap100');
+      churnOf(req).observed_state = { ...observed_state };
+      expect(churnOf(req).observed_state.cap, 'precondition: no cap').toBeUndefined();
+      expect(churnOf(req).scale_frame, 'precondition: no scale_frame').toBeUndefined();
+      const body = await run(req);
+      neverOnWire('gc_churn');
+      expect(provenanceOf(body, 'gc_churn')).toEqual([]);
+      expect(body._meta?.filtered_constraints).toEqual([
+        { constraint_id: 'gc_churn', node_id: 'fac_churn', reason: 'percent_unit_disagrees_with_target_frame' },
+      ]);
+      const c = (body.critiques ?? []).filter((x: any) => x.code === 'CONSTRAINT_REFUSED_FRAME_FIDELITY');
+      expect(c).toHaveLength(1);
+      expect(c[0].message.startsWith('1 constraint(s) were not evaluated: [gc_churn]. ')).toBe(true);
+      expect(c[0].affected_node_ids).toEqual(['fac_churn']);
+    });
+  }
+
+  it("FRACTIONAL '%' DELTA on the frame-20 row (0.02): refused by id — on the frame-100 row: forwarded unchanged", async () => {
+    // Deliberate behaviour change (PR body 'Behaviour that deliberately changes' item 4):
+    // at b09c0f2 the frame-20 cell was forwarded RAW (gate closed, not a percent
+    // point). The '%' rung now reads the target's frame, so 0.02 would become
+    // 0.1 on [0,0.2] — the delta refusal (2.878) withholds it instead.
+    const f20 = corpus('delta_cap20');
+    f20.goal_constraints[0].value = 0.02;
+    expect(f20.goal_constraints[0]).toMatchObject({ constraint_id: 'gc_churn_rise', unit: '%', value_frame: 'delta', value: 0.02 });
+    const b20 = await run(f20);
+    neverOnWire('gc_churn_rise');
+    expect(b20._meta?.filtered_constraints).toEqual([
+      { constraint_id: 'gc_churn_rise', node_id: 'fac_churn', reason: 'delta_frame_value_altered_by_normalisation' },
+    ]);
+
+    const f100 = corpus('delta_cap100');
+    f100.goal_constraints[0].value = 0.02;
+    const b100 = await run(f100);
+    for (const v of wireValues('gc_churn_rise')) expect(v).toBe(0.02);
+    expect(b100._meta?.filtered_constraints).toBeUndefined();
+  });
 });

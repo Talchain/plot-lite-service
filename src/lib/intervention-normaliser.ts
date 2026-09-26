@@ -1296,11 +1296,38 @@ function isPercentPointValue(unit: string | undefined, value: number): boolean {
  * THE RULE (AI Quality's Fix 2): the '%' rung DEFERS to the target's own frame,
  * or REFUSES the constraint when the limit's '%' and that frame disagree.
  *
- * THE FRAME is `observed_state.cap`, else the raw node's `scale_frame` — the two
- * carriers CEE writes a framed factor's divisor on (`admit-model.ts`
- * `framedObservedState` / `scale_frame`), read in the SAME order CEE's own
- * `levelIsPercentOver100` reads them (`admit-constraint.ts`), so the seam has
- * one convention. No frame ⇒ nothing to defer to ⇒ `legacy` (today's reading).
+ * THE FRAME — the resolution order, in full (round 2 added rung 3):
+ *   1. `observed_state.cap`           finite and > 0
+ *   2. the raw node's `scale_frame`   finite and > 0
+ *   3. the `{value, raw_value}` PAIR  raw_value ÷ value, on EXACTLY the domain
+ *      CEE's `recoverScaleFrame` accepts (`d1-shared/scale-frame.ts` at
+ *      fbb12b8): both finite, value > 0, raw_value > value, quotient finite
+ *      and > 1 (`recoverPairFrame` below). This is CEE's "capless framed pair":
+ *      records projector pass 3d writes `{value: raw/frame, raw_value: raw}`
+ *      and deliberately NO cap. Round 1 did not read it, so a pair-framed '%'
+ *      factor was still scored on `[0,100]`, decision-grade (adversarial verify
+ *      of acc80d1, EXECUTED: `{0.06, 12}` under `<= 10 '%'` read MET although
+ *      12% > 10%; `{0.575, 115}` under `>= 100 '%'` read BROKEN although
+ *      115% >= 100%).
+ *   none ⇒ nothing to defer to ⇒ `legacy` (today's reading) — EXCEPT a
+ *   declared non-percent unit, which refuses with no frame too (below).
+ *
+ * WHERE THIS ORDER DIFFERS FROM CEE — recorded, not smoothed over:
+ *   · CEE's `levelIsPercentOver100` (`admit-constraint.ts`) reads cap, then
+ *     `scale_frame`, and then only an UNFRAMED, UNITLESS level in [0,1) with
+ *     no `raw_value`; it never reads the pair. On a pair-framed node CEE
+ *     therefore leaves a percent-with-period limit verbatim ("PLoT flags it"),
+ *     and a plain `'%'` limit arrives here as `'%'`; rung 3 is where it is read.
+ *   · CEE's `resolveScaleFrame` reads the stored `scale_frame` first and the
+ *     pair second (rungs 2 → 3 here) but never reads `observed_state.cap`;
+ *     holds a stored frame to `> 1`; and REJECTS a stored frame its own pair
+ *     contradicts (`checkPairCoherence` ⇒ undefined). Rungs 1–2 here keep
+ *     round 1's `> 0` domain (a `fraction` frame of 1 or 0.5 is a real frame
+ *     on this rung) and do NOT test a stored frame against the pair: a
+ *     disagreeing pair is outranked, not refused. (CODE-READ reason: PLoT's
+ *     own `flip-threshold-denormaliser.ts` records a live factor carrying a
+ *     ROUNDED `value` beside its cap — 0.86 beside 275000 / 320000 — which
+ *     CEE's 1e-9 tolerance would call incoherent.) A residual, disclosed.
  *
  * THE UNIT of the frame decides what the frame means in percentage points
  * (`unitScale`, the one vocabulary in `constraint-units.ts` — no private list):
@@ -1315,14 +1342,21 @@ function isPercentPointValue(unit: string | undefined, value: number): boolean {
  *                                  REFUSED (PLoT cannot prove the spelling is
  *                                  a percent — CEE's own rule for the same
  *                                  shape is "stays verbatim, PLoT flags it")
- *   declared NON-percent quantity  REFUSED at every frame, 100 included: a
- *     (count, currency, duration)  `'%'` limit on a `'£'` or `'count'` scale is
- *                                  a percent OF something else, and scoring it
- *                                  on the node's level answers a different
- *                                  question.
+ *   declared NON-percent quantity  REFUSED at every frame, 100 included, AND
+ *     (count, currency, duration)  WITH NO FRAME AT ALL: a `'%'` limit on a
+ *                                  `'£'` or `'count'` scale is a percent OF
+ *                                  something else, and scoring it on the node's
+ *                                  level answers a different question — framed
+ *                                  or not. The unit is therefore classified
+ *                                  BEFORE the no-frame return (round 2: an
+ *                                  unframed `{value: 0.4, unit: '£'}` was still
+ *                                  scored on `[0,100]`, decision-grade).
  * An extent of exactly 100 IS the legacy reading, so it is reported as
  * `legacy` — the byte-identity of every frame-100 target is by construction,
- * not by a second code path.
+ * not by a second code path. A PAIR that coheres with 100 under CEE's own
+ * tolerance IS frame 100 (`7 / 0.07` is `99.99999999999999` in IEEE-754; that
+ * float tail must neither move the legacy reading nor refuse an unrecognised
+ * spelling as "off 100").
  *
  * ⚠ KNOWN RESIDUAL, recorded rather than guessed: an unrecognised spelling on
  * frame 100 that is NOT a percent (e.g. `'subscribers'` with `scale_frame`
@@ -1333,12 +1367,54 @@ function isPercentPointValue(unit: string | undefined, value: number): boolean {
 export type PercentTargetFrame =
   | { verdict: 'legacy' }
   | { verdict: 'deferred'; frame: number; percent_extent: number }
-  | { verdict: 'refused'; frame: number; frame_unit: string | undefined };
+  /** `frame` is undefined only for a declared non-percent unit that carries no frame. */
+  | { verdict: 'refused'; frame: number | undefined; frame_unit: string | undefined };
 
 const LEGACY_PERCENT_FRAME: PercentTargetFrame = { verdict: 'legacy' };
 
+/** The frame whose extent IS the legacy `[0,100]` reading. */
+const LEGACY_FRAME = 100;
+
 function isPositiveFrame(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v) && v > 0 && isFiniteRange(0, v);
+}
+
+/**
+ * CEE's `PAIR_COHERENCE_RELATIVE_EPSILON` (`d1-shared/scale-frame.ts` at
+ * fbb12b8), by value: the relative tolerance within which CEE's
+ * `checkPairCoherence` says a `{value, raw_value}` pair agrees with a frame.
+ */
+const PAIR_COHERENCE_RELATIVE_EPSILON = 1e-9;
+
+/**
+ * The frame a `{value, raw_value}` pair encodes — CEE's `recoverScaleFrame`
+ * (`d1-shared/scale-frame.ts` at fbb12b8), guard for guard, with no tolerance
+ * added to the domain: both finite, value > 0 (zero is scale-ambiguous, a
+ * negative is never a framed producer state), raw_value > value (an unframed
+ * writer's `{x, x}` is not a frame), quotient finite and > 1.
+ *
+ * The ONE addition is the legacy identity: a pair that coheres with frame 100
+ * under CEE's own `checkPairCoherence` arithmetic and tolerance IS frame 100.
+ * `7 / 0.07 === 99.99999999999999`; without this, the served churn estimate
+ * `{0.07, 7}` on `'% per month'` with no `scale_frame` would be refused as an
+ * unrecognised spelling "off 100", and a `'%'` pair on 100 would drift off the
+ * byte-identical legacy reading by a float tail.
+ */
+function recoverPairFrame(
+  observed: { value?: unknown; raw_value?: unknown } | undefined,
+): number | undefined {
+  const value = observed?.value;
+  const raw = observed?.raw_value;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
+  if (!(value > 0)) return undefined;
+  if (!(raw > value)) return undefined;
+  const frame = raw / value;
+  if (!Number.isFinite(frame) || frame <= 1) return undefined;
+  const expectedAtLegacy = raw / LEGACY_FRAME;
+  const magnitude = Math.max(Math.abs(expectedAtLegacy), Math.abs(value));
+  const coheresWithLegacy = Math.abs(value - expectedAtLegacy) / magnitude <= PAIR_COHERENCE_RELATIVE_EPSILON;
+  return coheresWithLegacy ? LEGACY_FRAME : frame;
 }
 
 /** The target's own frame for a '%' limit — see {@link PercentTargetFrame}. */
@@ -1346,24 +1422,35 @@ export function resolvePercentTargetFrame(
   targetNode: EngineNodeV3 | undefined,
   scaleFrame: number | undefined,
 ): PercentTargetFrame {
-  const cap = targetNode?.observed_state?.cap;
-  const frame = isPositiveFrame(cap) ? cap : isPositiveFrame(scaleFrame) ? scaleFrame : undefined;
-  if (frame === undefined) return LEGACY_PERCENT_FRAME;
+  const observed = targetNode?.observed_state;
+  const cap = observed?.cap;
+  const frame = isPositiveFrame(cap)
+    ? cap
+    : isPositiveFrame(scaleFrame)
+      ? scaleFrame
+      : recoverPairFrame(observed);
 
-  const unit = targetNode?.observed_state?.unit;
+  const unit = observed?.unit;
   const declaredUnit = canonicaliseUnit(unit);
   const scale = unitScale(unit);
+  // A DECLARED non-percent quantity (count, currency, duration) is refused at
+  // every frame — and with no frame at all. Classified BEFORE the no-frame
+  // return, or an unframed '£' node would be scored on [0,100].
+  if (scale !== undefined && scale !== 'percent' && scale !== 'fraction') {
+    return { verdict: 'refused', frame, frame_unit: declaredUnit };
+  }
+  if (frame === undefined) return LEGACY_PERCENT_FRAME;
+
   let extent: number | undefined;
   if (scale === 'percent') extent = frame;
   else if (scale === 'fraction') extent = frame * 100;
-  else if (declaredUnit === undefined) extent = frame === 100 || frame === 1 ? 100 : undefined;
-  else if (scale === undefined) extent = frame === 100 ? 100 : undefined;
-  else extent = undefined;
+  else if (declaredUnit === undefined) extent = frame === LEGACY_FRAME || frame === 1 ? LEGACY_FRAME : undefined;
+  else extent = frame === LEGACY_FRAME ? LEGACY_FRAME : undefined; // an unrecognised spelling
 
   if (extent === undefined || !isFiniteRange(0, extent)) {
     return { verdict: 'refused', frame, frame_unit: declaredUnit };
   }
-  return extent === 100 ? LEGACY_PERCENT_FRAME : { verdict: 'deferred', frame, percent_extent: extent };
+  return extent === LEGACY_FRAME ? LEGACY_PERCENT_FRAME : { verdict: 'deferred', frame, percent_extent: extent };
 }
 
 /** Percentage points the target's [0,1] spans; 100 unless the frame was deferred to. */
@@ -1589,9 +1676,9 @@ export interface ConstraintNormalisationResult {
  *
  *   delta_frame_value_altered_by_normalisation — 2.878, see below.
  *   percent_unit_disagrees_with_target_frame   — a `'%'` limit whose target's
- *     own frame is not stated in percent (or cannot be shown to be), so no
- *     reading of the '%' places the limit on that node's scale
- *     (`resolvePercentTargetFrame`).
+ *     own frame is not stated in percent (or cannot be shown to be), or whose
+ *     target declares a non-percent unit (framed or not), so no reading of the
+ *     '%' places the limit on that node's scale (`resolvePercentTargetFrame`).
  */
 export type ConstraintRefusalReason =
   | 'delta_frame_value_altered_by_normalisation'
@@ -1644,9 +1731,11 @@ export interface RefusedConstraintRecord {
  * |          |                                   | Range [0, cap].                                  |
  * | 4        | `unit_percent`                    | Producer-declared. Constraint unit is '%'.       |
  * |          |                                   | Range [0, 100] on a target framed on 100 (or     |
- * |          |                                   | unframed); on any other frame it DEFERS to the   |
- * |          |                                   | target's own frame or the constraint is REFUSED  |
- * |          |                                   | (`resolvePercentTargetFrame`).                   |
+ * |          |                                   | unframed); on any other frame (cap, scale_frame, |
+ * |          |                                   | else the value/raw_value pair) it DEFERS to the  |
+ * |          |                                   | target's own frame or the constraint is REFUSED; |
+ * |          |                                   | a declared non-percent unit is REFUSED framed or |
+ * |          |                                   | not (`resolvePercentTargetFrame`).               |
  * | 5        | `interventionScale` (IDENTITY)    | Phase-4a-skipped ASSUMED [0,1] scale; ranks      |
  * |          |                                   | below producer declarations, above the heuristic.|
  * | 6        | deriveRange(node)                 | Existing chain (explicit_cap → … → default).     |
@@ -1895,7 +1984,7 @@ export function normaliseGoalConstraints(
         to_value: 'refused',
         reason:
           `refused: a '%' limit cannot be read on its target's own frame ` +
-          `(frame=${percentFrameRefusal.frame} unit=${frameUnit === undefined ? 'undeclared' : frameUnit}); ` +
+          `(frame=${percentFrameRefusal.frame ?? 'none'} unit=${frameUnit === undefined ? 'undeclared' : frameUnit}); ` +
           `the percent scale range=[${range.min},${range.max}] would have sent ${normalised} in place of ${value}, ` +
           `comparing the limit with a quantity other than the one stated.`,
       });
