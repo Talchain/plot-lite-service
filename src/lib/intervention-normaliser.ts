@@ -13,12 +13,13 @@
  * @see Schema v2.6 §B.8 - Range derivation priority chain
  */
 
-import type { EngineNodeV3, OptionV3, InterventionValueV3, RepairRecord } from '../types/engine-v3.js';
+import type { EngineNodeV3, OptionV3, InterventionValueV3, RepairRecord, ConstraintLevelDomain } from '../types/engine-v3.js';
 import { finiteNum } from '../util/numeric.js';
 import {
   PERCENT_UNIT_TOKENS,
   canonicaliseUnit,
   classifyUnitCompatibility,
+  unitScale,
   type ConstraintUnitMismatch,
 } from './constraint-units.js';
 
@@ -1147,6 +1148,15 @@ export interface ConstraintNormalisationExtras {
   /** Raw-node goal-threshold metadata per node_id */
   goalThresholdMetaByNodeId?: Map<string, GoalThresholdNodeMeta>;
   /**
+   * The raw node's `scale_frame` per node_id (see `collectScaleFrameByNodeId`):
+   * the divisor a framed factor's levels are stated against when it carries no
+   * `observed_state.cap`. The canonical EngineNodeV3 does not carry it, so the
+   * route captures it from `body.graph.nodes`, exactly as it does the
+   * goal-threshold metadata. Read ONLY by the '%' rung, to find the target's
+   * own frame (`resolvePercentTargetFrame`).
+   */
+  scaleFrameByNodeId?: Map<string, number>;
+  /**
    * The EXACT normalisation range each node's INTERVENTIONS were scaled against
    * in Phase 4a (keyed by node_id). This is the scale the ISL samples for that
    * node actually occupy, so the constraint threshold on the same node MUST be
@@ -1249,11 +1259,19 @@ export function isPercentUnit(unit: string | undefined): boolean {
  * points. For a constraint that lands at `1.10` the two readings differ. This
  * function does NOT resolve it — it reproduces CEE's stated constraint rule
  * exactly, so PLoT is never the service that invented a third convention.
+ *
+ * ⭐ `percentExtent` — HOW MANY PERCENTAGE POINTS THE TARGET'S [0,1] SPANS.
+ * The two cells above are the `percentExtent = 100` case: a target whose
+ * normalised level IS the percentage ÷ 100. A target framed elsewhere
+ * (`observed_state.cap: 20` on a `'%'` factor — its 0.2 is 4%) spans 20 points,
+ * so a percentage-point limit reads on `[0,20]` and a fractional one on
+ * `[0,0.2]`. The extent comes from `resolvePercentTargetFrame` ONLY; the default
+ * keeps every caller that has no target frame on the unchanged `[0,100]`/`[0,1]`.
  */
-function percentRangeForValue(value: number): NormalisationRange {
+function percentRangeForValue(value: number, percentExtent = 100): NormalisationRange {
   return Math.abs(value) < 1
-    ? { min: 0, max: 1, source: 'unit_percent' }
-    : { min: 0, max: 100, source: 'unit_percent' };
+    ? { min: 0, max: percentExtent / 100, source: 'unit_percent' }
+    : { min: 0, max: percentExtent, source: 'unit_percent' };
 }
 
 /**
@@ -1301,6 +1319,300 @@ function isPercentPointValue(unit: string | undefined, value: number): boolean {
   return isPercentUnit(unit) && Number.isFinite(value) && Math.abs(value) >= 1;
 }
 
+// -----------------------------------------------------------------------------
+// The '%' rung reads the TARGET'S OWN FRAME, or refuses
+// -----------------------------------------------------------------------------
+
+/**
+ * ⛔ THE DEFECT (WIRE, AI Quality, olumi-programme-docs#69 5843365832, PLoT
+ * b09c0f2 · ISL 2795a8c; corpus `tests/fixtures/pct-cap-contrast-20260926/`).
+ * The '%' rung resolved `[0,100]` whatever the target's own frame, so one
+ * `<= 10 '%'` limit on a root `'%'` factor read P(meet) 1 for a 4% level framed
+ * on 100 and 0.017 for the same 4% framed on 20 — and 0.017 for a 12% level on
+ * 100 but **1 on 200: a broken limit reported as met** — every row
+ * `unit_percent`, `decision_grade: true`. The node's `observed_state.cap` never
+ * reached the rung: `nodeCap` below is `goal_threshold_cap` only.
+ *
+ * THE RULE (AI Quality's Fix 2): the '%' rung DEFERS to the target's own frame,
+ * or REFUSES the constraint when the limit's '%' and that frame disagree.
+ *
+ * THE FRAME — the resolution order, in full (round 2 added rung 3):
+ *   1. `observed_state.cap`           finite and > 0
+ *   2. the raw node's `scale_frame`   finite and > 0
+ *   3. the `{value, raw_value}` PAIR  raw_value ÷ value, on EXACTLY the domain
+ *      CEE's `recoverScaleFrame` accepts (`d1-shared/scale-frame.ts` at
+ *      fbb12b8): both finite, value > 0, raw_value > value, quotient finite
+ *      and > 1 (`recoverPairFrame` below). This is CEE's "capless framed pair":
+ *      records projector pass 3d writes `{value: raw/frame, raw_value: raw}`
+ *      and deliberately NO cap. Round 1 did not read it, so a pair-framed '%'
+ *      factor was still scored on `[0,100]`, decision-grade (adversarial verify
+ *      of acc80d1, EXECUTED: `{0.06, 12}` under `<= 10 '%'` read MET although
+ *      12% > 10%; `{0.575, 115}` under `>= 100 '%'` read BROKEN although
+ *      115% >= 100%).
+ *   none ⇒ nothing to defer to ⇒ `legacy` (today's reading) — EXCEPT a
+ *   declared non-percent unit, which refuses with no frame too (below).
+ *
+ * WHERE THIS ORDER DIFFERS FROM CEE — recorded, not smoothed over:
+ *   · CEE's `levelIsPercentOver100` (`admit-constraint.ts`) reads cap, then
+ *     `scale_frame`, and then only an UNFRAMED, UNITLESS level in [0,1) with
+ *     no `raw_value`; it never reads the pair. On a pair-framed node CEE
+ *     therefore leaves a percent-with-period limit verbatim ("PLoT flags it"),
+ *     and a plain `'%'` limit arrives here as `'%'`; rung 3 is where it is read.
+ *   · CEE's `resolveScaleFrame` reads the stored `scale_frame` first and the
+ *     pair second (rungs 2 → 3 here) but never reads `observed_state.cap`;
+ *     holds a stored frame to `> 1`; and REJECTS a stored frame its own pair
+ *     contradicts (`checkPairCoherence` returns `'incoherent'`, and
+ *     `resolveScaleFrame` then returns `undefined`). Rungs 1–2 here keep
+ *     round 1's `> 0` domain (a `fraction` frame of 1 or 0.5 is a real frame
+ *     on this rung) and do NOT test a stored frame against the pair: a
+ *     disagreeing pair is outranked, not refused. (CODE-READ reason: PLoT's
+ *     own `flip-threshold-denormaliser.ts` records a live factor carrying a
+ *     ROUNDED `value` beside its cap — 0.86 beside 275000 / 320000 — which
+ *     CEE's 1e-9 tolerance would call incoherent.) A residual, disclosed.
+ *
+ * THE UNIT of the frame decides what the frame means in percentage points
+ * (`unitScale`, the one vocabulary in `constraint-units.ts` — no private list):
+ *   percent  (`%`, `percent`, …)   extent = frame        (cap 20 ⇒ 0.2 is 4%)
+ *   fraction (`fraction`, `ratio`…) extent = frame × 100  (cap 1  ⇒ 0.04 is 4%)
+ *   UNDECLARED                     frame ∈ {1, 100} ⇒ legacy (both are the
+ *                                  percent÷100 reading on either spelling);
+ *                                  any other frame ⇒ REFUSED
+ *   UNRECOGNISED spelling          frame 100 ⇒ legacy — this is Paul's churn
+ *     (`'% per month'`, …)         (`scale_frame` 100, `'% per month'`), which
+ *                                  MUST stay byte-identical; any other frame ⇒
+ *                                  REFUSED (PLoT cannot prove the spelling is
+ *                                  a percent — CEE's own rule for the same
+ *                                  shape is "stays verbatim, PLoT flags it")
+ *   declared NON-percent quantity  REFUSED at every frame, 100 included, AND
+ *     (count, currency, duration)  WITH NO FRAME AT ALL: a `'%'` limit on a
+ *                                  `'£'` or `'count'` scale is a percent OF
+ *                                  something else, and scoring it on the node's
+ *                                  level answers a different question — framed
+ *                                  or not. The unit is therefore classified
+ *                                  BEFORE the no-frame return (round 2: an
+ *                                  unframed `{value: 0.4, unit: '£'}` was still
+ *                                  scored on `[0,100]`, decision-grade).
+ * An extent of exactly 100 IS the legacy reading, so it is reported as
+ * `legacy` — the byte-identity of every frame-100 target is by construction,
+ * not by a second code path. A PAIR that coheres with 100 under CEE's own
+ * tolerance IS frame 100 (`7 / 0.07` is `99.99999999999999` in IEEE-754; that
+ * float tail must neither move the legacy reading nor refuse an unrecognised
+ * spelling as "off 100").
+ *
+ * ⚠ KNOWN RESIDUAL, recorded rather than guessed: an unrecognised spelling on
+ * frame 100 that is NOT a percent (e.g. `'subscribers'` with `scale_frame`
+ * 100) keeps today's `[0,100]` reading, because PLoT cannot tell it from
+ * `'% per month'` without inventing a vocabulary. Rung 1 (a measured
+ * intervention scale) is untouched by this rule: it never consults the '%'.
+ */
+export type PercentTargetFrame =
+  | { verdict: 'legacy' }
+  | { verdict: 'deferred'; frame: number; percent_extent: number }
+  /** `frame` is undefined only for a declared non-percent unit that carries no frame. */
+  | { verdict: 'refused'; frame: number | undefined; frame_unit: string | undefined };
+
+const LEGACY_PERCENT_FRAME: PercentTargetFrame = { verdict: 'legacy' };
+
+/** The frame whose extent IS the legacy `[0,100]` reading. */
+const LEGACY_FRAME = 100;
+
+function isPositiveFrame(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v) && v > 0 && isFiniteRange(0, v);
+}
+
+/**
+ * CEE's `PAIR_COHERENCE_RELATIVE_EPSILON` (`d1-shared/scale-frame.ts` at
+ * fbb12b8), by value: the relative tolerance within which CEE's
+ * `checkPairCoherence` says a `{value, raw_value}` pair agrees with a frame.
+ */
+const PAIR_COHERENCE_RELATIVE_EPSILON = 1e-9;
+
+/**
+ * The frame a `{value, raw_value}` pair encodes — CEE's `recoverScaleFrame`
+ * (`d1-shared/scale-frame.ts` at fbb12b8), guard for guard, with no tolerance
+ * added to the domain: both finite, value > 0 (zero is scale-ambiguous, a
+ * negative is never a framed producer state), raw_value > value (an unframed
+ * writer's `{x, x}` is not a frame), quotient finite and > 1.
+ *
+ * The ONE addition is the legacy identity: a pair that coheres with frame 100
+ * under CEE's own `checkPairCoherence` arithmetic and tolerance IS frame 100.
+ * `7 / 0.07 === 99.99999999999999`; without this, the served churn estimate
+ * `{0.07, 7}` on `'% per month'` with no `scale_frame` would be refused as an
+ * unrecognised spelling "off 100", and a `'%'` pair on 100 would drift off the
+ * byte-identical legacy reading by a float tail.
+ */
+function recoverPairFrame(
+  observed: { value?: unknown; raw_value?: unknown } | undefined,
+): number | undefined {
+  const value = observed?.value;
+  const raw = observed?.raw_value;
+  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined;
+  if (typeof raw !== 'number' || !Number.isFinite(raw)) return undefined;
+  if (!(value > 0)) return undefined;
+  if (!(raw > value)) return undefined;
+  const frame = raw / value;
+  if (!Number.isFinite(frame) || frame <= 1) return undefined;
+  const expectedAtLegacy = raw / LEGACY_FRAME;
+  const magnitude = Math.max(Math.abs(expectedAtLegacy), Math.abs(value));
+  const coheresWithLegacy = Math.abs(value - expectedAtLegacy) / magnitude <= PAIR_COHERENCE_RELATIVE_EPSILON;
+  return coheresWithLegacy ? LEGACY_FRAME : frame;
+}
+
+/** The target's own frame for a '%' limit — see {@link PercentTargetFrame}. */
+export function resolvePercentTargetFrame(
+  targetNode: EngineNodeV3 | undefined,
+  scaleFrame: number | undefined,
+): PercentTargetFrame {
+  const observed = targetNode?.observed_state;
+  const cap = observed?.cap;
+  const frame = isPositiveFrame(cap)
+    ? cap
+    : isPositiveFrame(scaleFrame)
+      ? scaleFrame
+      : recoverPairFrame(observed);
+
+  const unit = observed?.unit;
+  const declaredUnit = canonicaliseUnit(unit);
+  const scale = unitScale(unit);
+  // A DECLARED non-percent quantity (count, currency, duration) is refused at
+  // every frame — and with no frame at all. Classified BEFORE the no-frame
+  // return, or an unframed '£' node would be scored on [0,100].
+  if (scale !== undefined && scale !== 'percent' && scale !== 'fraction') {
+    return { verdict: 'refused', frame, frame_unit: declaredUnit };
+  }
+  if (frame === undefined) return LEGACY_PERCENT_FRAME;
+
+  let extent: number | undefined;
+  if (scale === 'percent') extent = frame;
+  else if (scale === 'fraction') extent = frame * 100;
+  else if (declaredUnit === undefined) extent = frame === LEGACY_FRAME || frame === 1 ? LEGACY_FRAME : undefined;
+  else extent = frame === LEGACY_FRAME ? LEGACY_FRAME : undefined; // an unrecognised spelling
+
+  if (extent === undefined || !isFiniteRange(0, extent)) {
+    return { verdict: 'refused', frame, frame_unit: declaredUnit };
+  }
+  return extent === LEGACY_FRAME ? LEGACY_PERCENT_FRAME : { verdict: 'deferred', frame, percent_extent: extent };
+}
+
+/** Percentage points the target's [0,1] spans; 100 unless the frame was deferred to. */
+function percentExtentOf(frame: PercentTargetFrame): number {
+  return frame.verdict === 'deferred' ? frame.percent_extent : 100;
+}
+
+/**
+ * ⭐ RELEASE GATE (ii) — THE LEVEL DOMAIN A '%' LIMIT IS SENT WITH.
+ * olumi-programme-docs#70: AI Quality 5844762506 (the finding), Delivery Lead
+ * 5844770854 (it gates the churn-limit release), contract 5844820853 (ISL #181).
+ *
+ * Paul's "churn at most 10%" read MET at P 0.994 while 81.5% of the leader's
+ * churn draws were below 0%. ISL cannot know a quantity's possible levels — the
+ * caller owns units — so PLoT states them and ISL reports, per option, the share
+ * of draws outside them.
+ *
+ * THE RULE, and the ONE place it is decided: a constraint gets
+ * `level_domain {min: 0, max: 1}` exactly when
+ *   · its frame is 'level' (a 'delta' is a change, which has no domain; ISL
+ *     ignores a domain on one, so sending it would only mislead a reader), AND
+ *   · the '%' rung resolved its range (`unit_percent`) — the legacy [0,100] /
+ *     [0,1] reading, or Fix 2's deferral to the target's own percent/fraction
+ *     frame. On that rung the target's normalised [0,1] IS its frame's full
+ *     extent (0-100% on the legacy reading, [0, frame] when deferred), so
+ *     [0,1] is the level domain in the frame `value` is stated in. A '%' limit
+ *     on a non-percent target never gets here: Fix 2 refuses it.
+ * Every other rung — an intervention spread, a goal_threshold_cap, a node cap
+ * or range, the default — gets NO domain in this change (count and currency
+ * limits included): PLoT has not established what their normalised levels can
+ * physically be, and guessing a domain would manufacture the very gate verdict
+ * this exists to make honest. A residual, disclosed.
+ *
+ * ⚠ ALSO DISCLOSED: a percent that can legitimately leave [0%, 100%] on the
+ * legacy frame (a growth rate below zero, a retention above 100%) reads as
+ * out-of-domain. That errs toward withholding the grade, never toward
+ * certifying a pass — the honest direction — and it is the contract as ratified.
+ */
+export function levelDomainFor(
+  range: NormalisationRange,
+  valueFrame: GoalConstraint['value_frame'],
+): ConstraintLevelDomain | undefined {
+  return valueFrame === 'level' && range.source === 'unit_percent' ? { min: 0, max: 1 } : undefined;
+}
+
+/**
+ * The raw request nodes' `scale_frame`, by node id — finite and positive only.
+ * Read from the TOP-LEVEL field, the one carrier CEE's V3 transform writes
+ * (`schema-v3.ts`: `...(node.scale_frame != null && { scale_frame })`); no
+ * `data.*` fallback is invented. Mirrors the goal-threshold capture in
+ * `routes/v2/run.ts` (`collectGoalThresholdNodeMeta`): the canonical node drops
+ * the field, so it is taken off the raw body.
+ */
+export function collectScaleFrameByNodeId(rawNodes: unknown): Map<string, number> {
+  const out = new Map<string, number>();
+  if (!Array.isArray(rawNodes)) return out;
+  for (const node of rawNodes as Array<{ id?: unknown; scale_frame?: unknown } | null>) {
+    if (!node || typeof node.id !== 'string' || node.id.length === 0) continue;
+    if (isPositiveFrame(node.scale_frame)) out.set(node.id, node.scale_frame);
+  }
+  return out;
+}
+
+function hasGoalThresholdCap(meta: GoalThresholdNodeMeta | undefined): boolean {
+  const cap = meta?.goal_threshold_cap;
+  return typeof cap === 'number' && Number.isFinite(cap) && cap > 0;
+}
+
+/**
+ * THE single predicate for "the '%' rung will read this constraint on a frame
+ * OTHER than the legacy one — rescale it, or refuse it". Two sites ask it and
+ * MUST agree (the 2.957 lesson, `isPercentPointValue`): the forward-raw rung's
+ * exemption and the route's invocation condition. If the route forced the
+ * normaliser to run for a value the forward-raw rung then forwarded untouched,
+ * a fractional `'%'` on a framed target would mean one thing alone and another
+ * in company. A `goal_threshold_cap` on the node means rung 3 decides, not the
+ * '%' rung, so it answers false there.
+ */
+function percentRungReadsTargetFrame(
+  unit: string | undefined,
+  targetNode: EngineNodeV3 | undefined,
+  scaleFrame: number | undefined,
+  nodeMeta: GoalThresholdNodeMeta | undefined,
+): boolean {
+  return (
+    isPercentUnit(unit) &&
+    !hasGoalThresholdCap(nodeMeta) &&
+    resolvePercentTargetFrame(targetNode, scaleFrame).verdict !== 'legacy'
+  );
+}
+
+/**
+ * Route invocation predicate: true when some `'%'` constraint targets a node
+ * whose own frame the '%' rung must read (or refuse on). Identity-bound: a
+ * unit is read only under its own constraint id and a frame only off its own
+ * target node.
+ */
+export function constraintsNeedPercentTargetFrame(
+  constraints: GoalConstraint[],
+  nodes: EngineNodeV3[],
+  extras: Pick<ConstraintNormalisationExtras, 'unitsByConstraintId' | 'scaleFrameByNodeId' | 'goalThresholdMetaByNodeId'>,
+): boolean {
+  const units = extras.unitsByConstraintId;
+  if (units === undefined || units.size === 0) return false;
+  const byId = new Map<string, EngineNodeV3>();
+  for (const n of nodes) byId.set(n.id, n);
+  for (const c of constraints) {
+    if (
+      percentRungReadsTargetFrame(
+        units.get(c.constraint_id),
+        byId.get(c.node_id),
+        extras.scaleFrameByNodeId?.get(c.node_id),
+        extras.goalThresholdMetaByNodeId?.get(c.node_id),
+      )
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Range sources whose numeric bounds are read off the TARGET NODE's
  * `observed_state`, and which therefore inherit `observed_state.unit` as the
@@ -1323,8 +1635,14 @@ function isPercentPointValue(unit: string | undefined, value: number): boolean {
  *                            same provenance argument as `extracted`.
  *   goal_threshold_cap OUT — a producer declaration minted for the goal
  *                            threshold, not read from observed_state.
- *   unit_percent       OUT — the range IS the constraint's own '%' unit
- *                            (`[0,100]`), so it is reconciled by construction.
+ *   unit_percent       OUT — the range IS the constraint's own '%' unit, read
+ *                            on the target's own frame: `resolvePercentTargetFrame`
+ *                            defers only to a percent or fraction frame and
+ *                            REFUSES the constraint on any other, so it is
+ *                            reconciled by construction. (Until the target
+ *                            frame was read, this line claimed that of a
+ *                            `[0,100]` that ignored `observed_state.cap` — and
+ *                            it was false for every frame but 100.)
  *   default            OUT — `[0,1]`, a made-up domain with no unit. Already
  *                            fails closed elsewhere: `'default'` is outside
  *                            `DECISION_GRADE_SOURCES` and already trips
@@ -1430,16 +1748,28 @@ export interface ConstraintNormalisationResult {
 }
 
 /**
- * ROADMAP 2.878 — the single reason PLoT refuses to forward a constraint it
- * successfully normalised. A union of one, deliberately: a new refusal reason
+ * ROADMAP 2.878 — the reasons PLoT refuses to forward a constraint it
+ * successfully normalised. A closed union, deliberately: a new refusal reason
  * must be added HERE and every consumer's exhaustiveness check moves with it,
  * rather than a bare string that can accrete meanings silently.
+ *
+ *   delta_frame_value_altered_by_normalisation — 2.878, see below.
+ *   percent_unit_disagrees_with_target_frame   — a `'%'` limit whose target's
+ *     own frame is not stated in percent (or cannot be shown to be), or whose
+ *     target declares a non-percent unit (framed or not), so no reading of the
+ *     '%' places the limit on that node's scale (`resolvePercentTargetFrame`).
  */
-export type ConstraintRefusalReason = 'delta_frame_value_altered_by_normalisation';
+export type ConstraintRefusalReason =
+  | 'delta_frame_value_altered_by_normalisation'
+  | 'percent_unit_disagrees_with_target_frame';
 
 /** ROADMAP 2.878 — see {@link ConstraintRefusalReason}. */
 export const DELTA_FRAME_VALUE_ALTERED: ConstraintRefusalReason =
   'delta_frame_value_altered_by_normalisation';
+
+/** See {@link ConstraintRefusalReason} and {@link resolvePercentTargetFrame}. */
+export const PERCENT_UNIT_DISAGREES_WITH_TARGET_FRAME: ConstraintRefusalReason =
+  'percent_unit_disagrees_with_target_frame';
 
 /**
  * ROADMAP 2.878 — a constraint that PLoT declined to send to ISL, with the
@@ -1479,7 +1809,12 @@ export interface RefusedConstraintRecord {
  * | 3        | `goal_threshold_cap`              | Producer-declared. Node's CEE-stamped cap.       |
  * |          |                                   | Range [0, cap].                                  |
  * | 4        | `unit_percent`                    | Producer-declared. Constraint unit is '%'.       |
- * |          |                                   | Range [0, 100] (house doctrine).                 |
+ * |          |                                   | Range [0, 100] on a target framed on 100 (or     |
+ * |          |                                   | unframed); on any other frame (cap, scale_frame, |
+ * |          |                                   | else the value/raw_value pair) it DEFERS to the  |
+ * |          |                                   | target's own frame or the constraint is REFUSED; |
+ * |          |                                   | a declared non-percent unit is REFUSED framed or |
+ * |          |                                   | not (`resolvePercentTargetFrame`).               |
  * | 5        | `interventionScale` (IDENTITY)    | Phase-4a-skipped ASSUMED [0,1] scale; ranks      |
  * |          |                                   | below producer declarations, above the heuristic.|
  * | 6        | deriveRange(node)                 | Existing chain (explicit_cap → … → default).     |
@@ -1531,6 +1866,14 @@ export function normaliseGoalConstraints(
     const nodeMeta = extras?.goalThresholdMetaByNodeId?.get(node_id);
     const unit = extras?.unitsByConstraintId?.get(constraint_id);
     const nodeCap = nodeMeta?.goal_threshold_cap;
+    // The target's OWN frame, as the '%' rung must read it (legacy / deferred /
+    // refused — see `resolvePercentTargetFrame`). Resolved only for a '%' unit;
+    // every other constraint is untouched by it.
+    const percentFrame: PercentTargetFrame = isPercentUnit(unit)
+      ? resolvePercentTargetFrame(targetNode, extras?.scaleFrameByNodeId?.get(node_id))
+      : LEGACY_PERCENT_FRAME;
+    // Set ONLY when rung 4 is reached with a frame the '%' cannot be read on.
+    let percentFrameRefusal: Extract<PercentTargetFrame, { verdict: 'refused' }> | undefined;
 
     // The scale this node's INTERVENTIONS were normalised against (Phase 4a).
     const interventionScale = extras?.interventionScaleByNodeId?.get(node_id);
@@ -1570,7 +1913,16 @@ export function normaliseGoalConstraints(
       // invariant here; the pick is provisional. (F4: this branch is now gated on
       // NON-identity — an identity scale is an assumption, demoted to branch 5.)
       range = interventionScale;
-    } else if (!applyChainWithoutScale && !isPercentPointValue(unit, value)) {
+    } else if (
+      !applyChainWithoutScale &&
+      !isPercentPointValue(unit, value) &&
+      // The '%' rung reads a FRAMED target's own frame, so a fractional '%'
+      // there is NOT "already in [0,1]" on the target's scale (0.04 = 4% is 0.2
+      // on a frame of 20). Forwarding it raw here while the gate-open arm
+      // rescales it would re-open 2.957's batch-dependence — same predicate as
+      // the route's invocation disjunct, so the two cannot drift.
+      !percentRungReadsTargetFrame(unit, targetNode, extras?.scaleFrameByNodeId?.get(node_id), nodeMeta)
+    ) {
       // ROADMAP 2.957 — the `!isPercentPointValue` conjunct closes the LAST cell
       // where a '%' threshold's meaning depended on a DIFFERENT constraint.
       // The gate fires on `value < 0 || value > 1`, so `value === 1` opens
@@ -1604,7 +1956,17 @@ export function normaliseGoalConstraints(
     } else if (typeof nodeCap === 'number' && Number.isFinite(nodeCap) && nodeCap > 0) {
       range = { min: 0, max: nodeCap, source: 'goal_threshold_cap' };
     } else if (isPercentUnit(unit)) {
-      range = percentRangeForValue(value);
+      // The '%' reads on the TARGET'S OWN FRAME (defers), or cannot be read on
+      // it at all (refused below, after the value is known to be finite, so a
+      // non-finite value still throws exactly as it always has). A refused
+      // constraint keeps the legacy range ONLY so its refusal record can say
+      // what the rung WOULD have sent — that number never reaches ISL.
+      if (percentFrame.verdict === 'refused') {
+        percentFrameRefusal = percentFrame;
+        range = percentRangeForValue(value);
+      } else {
+        range = percentRangeForValue(value, percentExtentOf(percentFrame));
+      }
     } else if (interventionScale) {
       // F4 branch 5: an IDENTITY [0,1] intervention scale (Phase 4a skipped for
       // this intervened node). Reached only when no producer '%'/cap declared it
@@ -1635,7 +1997,12 @@ export function normaliseGoalConstraints(
           // DERIVED from the same helper the rung uses (2.957) — two copies of
           // the percent-scale decision is exactly the hand-maintained mirror
           // that lets the divergence verdict drift from the range it describes.
-          ? percentRangeForValue(value)
+          // And from the same TARGET FRAME the rung defers to: a '%' limit on a
+          // frame-20 target declares [0,20], so a measured [0,20] spread on it
+          // is the SAME scale, not a divergence. (A refused frame declares no
+          // percent scale on the target; it keeps the legacy one here, which
+          // leaves rung 1's verdict for it exactly as it was.)
+          ? percentRangeForValue(value, percentExtentOf(percentFrame))
           : undefined;
     const rangeUnified =
       interventionScale === undefined ||
@@ -1667,6 +2034,45 @@ export function normaliseGoalConstraints(
       );
     }
     let { normalised, clamped } = constraintNormalisation;
+
+    // THE '%' LIMIT CANNOT BE READ ON ITS TARGET'S FRAME — refuse it, by name.
+    // Same mechanism, and for the same reason, as the 2.878 delta refusal
+    // below: the constraint leaves the ISL payload AND (in the route) the
+    // active list, is disclosed in `_meta.filtered_constraints` with a typed
+    // reason and a CONSTRAINT_REFUSED_FRAME_FIDELITY critique, and every OTHER
+    // constraint still delivers. Scoring it instead is the wire-proven wrong
+    // pass: a limit compared with a quantity the user did not state, certified
+    // decision-grade. Placed before the stamp preference and the delta checks
+    // so no later branch can re-admit it — the order is pinned by route rows:
+    // a '%' DELTA on a £/count/duration target, or on an undeclared or
+    // unrecognised unit off 100, is refused under THIS reason, integer and
+    // fractional alike (after the delta checks, a fractional one would pass
+    // them untouched and reach ISL). (The auto-synthesised goal
+    // constraint carries no unit, so it can never reach here — refusing it
+    // would withdraw the user's target, see 2.1023 below.)
+    if (percentFrameRefusal !== undefined) {
+      refused.push({
+        constraint_id,
+        node_id,
+        reason: PERCENT_UNIT_DISAGREES_WITH_TARGET_FRAME,
+        stated_value: value,
+        would_have_sent: normalised,
+        range,
+      });
+      const frameUnit = percentFrameRefusal.frame_unit;
+      repairs.push({
+        field: `constraint.value.${constraint_id}`,
+        action: 'removed',
+        from_value: value,
+        to_value: 'refused',
+        reason:
+          `refused: a '%' limit cannot be read on its target's own frame ` +
+          `(frame=${percentFrameRefusal.frame ?? 'none'} unit=${frameUnit === undefined ? 'undeclared' : frameUnit}); ` +
+          `the percent scale range=[${range.min},${range.max}] would have sent ${normalised} in place of ${value}, ` +
+          `comparing the limit with a quantity other than the one stated.`,
+      });
+      continue;
+    }
 
     // Prefer the node's CEE-stamped, already-normalised goal_threshold when it
     // corresponds to the same target under a producer-declared cap.
@@ -1966,7 +2372,8 @@ export function normaliseGoalConstraints(
     // Note the ORDER dependency, which is why this sits after the ladder and not
     // before it: the '%'-unit rung (4) outranks deriveRange (6), so a constraint
     // whose unit IS percent never reaches an observed_state-derived scale in the
-    // first place — its range is its own unit's [0,100]. What arrives here is a
+    // first place — its range is its own unit read on the target's own frame,
+    // and a frame the '%' cannot be read on was refused above. What arrives here is a
     // constraint whose unit lost to, or never competed with, a scale read off
     // the target node.
     const scaleUnit = resolveScaleUnit(range, targetNode);
@@ -1987,6 +2394,8 @@ export function normaliseGoalConstraints(
     ]);
     const usedHeuristic = !NON_HEURISTIC_SOURCES.has(range.source);
 
+    const levelDomain = levelDomainFor(range, value_frame);
+
     // Create normalised constraint
     const normalisedConstraint: NormalisedGoalConstraint = {
       constraint_id,
@@ -2001,6 +2410,8 @@ export function normaliseGoalConstraints(
       // level stays a level and a delta stays a delta, so re-deriving or
       // dropping the attestation here would be wrong in both directions.
       ...(value_frame !== undefined && { value_frame }),
+      // Release gate (ii) — see `levelDomainFor`. The ONLY writer of the field.
+      ...(levelDomain !== undefined && { level_domain: levelDomain }),
     };
     normalisedConstraints.push(normalisedConstraint);
 

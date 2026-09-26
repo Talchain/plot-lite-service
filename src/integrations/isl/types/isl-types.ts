@@ -895,6 +895,14 @@ export interface ISLConstraintResult {
   /** Near-miss rate in [0,1]. Nullable on the wire for the same reason. */
   near_miss_fraction?: number | null;
   binding?: boolean;
+  /**
+   * ISL #181 (release gate (ii)): the share of THIS option's draws whose LEVEL
+   * lies outside the request's `level_domain`, in [0,1], over the same
+   * population as `prob_satisfied`. Present only when PLoT sent a domain on a
+   * 'level' constraint; report-only (no probability moves). `| null` for the
+   * same defence-in-depth reason as `failure_margin_median`: read via prob01().
+   */
+  level_out_of_domain_fraction?: number | null;
 }
 
 /**
