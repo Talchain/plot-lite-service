@@ -13,7 +13,7 @@
  * @see Schema v2.6 §B.8 - Range derivation priority chain
  */
 
-import type { EngineNodeV3, OptionV3, InterventionValueV3, RepairRecord } from '../types/engine-v3.js';
+import type { EngineNodeV3, OptionV3, InterventionValueV3, RepairRecord, ConstraintLevelDomain } from '../types/engine-v3.js';
 import { finiteNum } from '../util/numeric.js';
 import {
   PERCENT_UNIT_TOKENS,
@@ -1460,6 +1460,44 @@ function percentExtentOf(frame: PercentTargetFrame): number {
 }
 
 /**
+ * ⭐ RELEASE GATE (ii) — THE LEVEL DOMAIN A '%' LIMIT IS SENT WITH.
+ * olumi-programme-docs#70: AI Quality 5844762506 (the finding), Delivery Lead
+ * 5844770854 (it gates the churn-limit release), contract 5844820853 (ISL #181).
+ *
+ * Paul's "churn at most 10%" read MET at P 0.994 while 81.5% of the leader's
+ * churn draws were below 0%. ISL cannot know a quantity's possible levels — the
+ * caller owns units — so PLoT states them and ISL reports, per option, the share
+ * of draws outside them.
+ *
+ * THE RULE, and the ONE place it is decided: a constraint gets
+ * `level_domain {min: 0, max: 1}` exactly when
+ *   · its frame is 'level' (a 'delta' is a change, which has no domain; ISL
+ *     ignores a domain on one, so sending it would only mislead a reader), AND
+ *   · the '%' rung resolved its range (`unit_percent`) — the legacy [0,100] /
+ *     [0,1] reading, or Fix 2's deferral to the target's own percent/fraction
+ *     frame. On that rung the target's normalised [0,1] IS its frame's full
+ *     extent (0-100% on the legacy reading, [0, frame] when deferred), so
+ *     [0,1] is the level domain in the frame `value` is stated in. A '%' limit
+ *     on a non-percent target never gets here: Fix 2 refuses it.
+ * Every other rung — an intervention spread, a goal_threshold_cap, a node cap
+ * or range, the default — gets NO domain in this change (count and currency
+ * limits included): PLoT has not established what their normalised levels can
+ * physically be, and guessing a domain would manufacture the very gate verdict
+ * this exists to make honest. A residual, disclosed.
+ *
+ * ⚠ ALSO DISCLOSED: a percent that can legitimately leave [0%, 100%] on the
+ * legacy frame (a growth rate below zero, a retention above 100%) reads as
+ * out-of-domain. That errs toward withholding the grade, never toward
+ * certifying a pass — the honest direction — and it is the contract as ratified.
+ */
+export function levelDomainFor(
+  range: NormalisationRange,
+  valueFrame: GoalConstraint['value_frame'],
+): ConstraintLevelDomain | undefined {
+  return valueFrame === 'level' && range.source === 'unit_percent' ? { min: 0, max: 1 } : undefined;
+}
+
+/**
  * The raw request nodes' `scale_frame`, by node id — finite and positive only.
  * Read from the TOP-LEVEL field, the one carrier CEE's V3 transform writes
  * (`schema-v3.ts`: `...(node.scale_frame != null && { scale_frame })`); no
@@ -2316,6 +2354,8 @@ export function normaliseGoalConstraints(
     ]);
     const usedHeuristic = !NON_HEURISTIC_SOURCES.has(range.source);
 
+    const levelDomain = levelDomainFor(range, value_frame);
+
     // Create normalised constraint
     const normalisedConstraint: NormalisedGoalConstraint = {
       constraint_id,
@@ -2330,6 +2370,8 @@ export function normaliseGoalConstraints(
       // level stays a level and a delta stays a delta, so re-deriving or
       // dropping the attestation here would be wrong in both directions.
       ...(value_frame !== undefined && { value_frame }),
+      // Release gate (ii) — see `levelDomainFor`. The ONLY writer of the field.
+      ...(levelDomain !== undefined && { level_domain: levelDomain }),
     };
     normalisedConstraints.push(normalisedConstraint);
 

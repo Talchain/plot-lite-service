@@ -186,6 +186,11 @@ import {
   isUserStatedLimit,
   CROWN_COMPLIANCE_REASONS,
 } from './crown-eligibility.js';
+import {
+  judgeLevelDomain,
+  buildLevelDomainCritique,
+  crownFactsWithoutOwnOutOfDomainRows,
+} from './level-domain-gate.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
 import { classifyEdgeSeverity, deriveFragileEdgeVisible } from '../../trust/edge-severity.js';
 import { deriveMarginPrecision } from '../../trust/margin-precision.js';
@@ -2908,6 +2913,30 @@ export function isApproximateAnalysis(status: TopLevelAnalysisStatus): boolean {
 }
 
 /**
+ * A3 trust marker — one option's `constraints_decision_grade`, from its
+ * participating constraint probabilities and the per-constraint markers.
+ * `undefined` ⇒ zero participating (the field stays ABSENT — fail-closed, never
+ * a vacuous true); PARTIAL participation ⇒ false (F-A2: a missing verdict is a
+ * trust failure); otherwise the AND over the participants' `decision_grade`.
+ *
+ * Extracted, not re-derived, so the release-gate (ii) re-grade in
+ * `buildResponse` recomputes it with the SAME rule over the gated markers.
+ */
+function aggregateConstraintsDecisionGrade(
+  probs: Record<string, number>,
+  activeConstraintIds: readonly string[] | undefined,
+  provenance: ReadonlyMap<string, ConstraintScaleProvenance>,
+): boolean | undefined {
+  const participating = Object.keys(probs);
+  if (participating.length === 0) return undefined;
+  const coversAllActiveConstraints = (activeConstraintIds ?? []).every((cid) => cid in probs);
+  return (
+    coversAllActiveConstraints &&
+    participating.every((cid) => provenance.get(cid)?.decision_grade === true)
+  );
+}
+
+/**
  * Build a success/partial/failed response (HTTP 200).
  */
 function buildResponse(
@@ -3316,6 +3345,16 @@ function buildResponse(
           if (nmf !== undefined) {
             entry.near_miss_fraction = nmf;
           }
+          // Release gate (ii): THIS option's share of impossible levels, verbatim
+          // (validated as a [0,1] rate — an out-of-range value is dropped, never
+          // coerced). Absent from ISL ⇒ absent here: the entry is byte-identical
+          // to an ISL older than #181. The leader's is judged in
+          // `judgeLevelDomain` below; every option's rides so CEE can judge any
+          // option it names.
+          const lood = prob01(c.level_out_of_domain_fraction);
+          if (lood !== undefined) {
+            entry.level_out_of_domain_fraction = lood;
+          }
           return entry;
         });
       }
@@ -3381,16 +3420,12 @@ function buildResponse(
         // A participating constraint with no provenance entry is still treated
         // non-decision-grade by the `=== true` check.
         if (result.constraint_probabilities && constraintScaleProvenanceByConstraintId) {
-          const probs = result.constraint_probabilities;
-          const participating = Object.keys(probs);
-          if (participating.length > 0) {
-            const coversAllActiveConstraints = (activeConstraintIds ?? []).every((cid) => cid in probs);
-            result.constraints_decision_grade =
-              coversAllActiveConstraints &&
-              participating.every(
-                (cid) => constraintScaleProvenanceByConstraintId.get(cid)?.decision_grade === true,
-              );
-          }
+          const grade = aggregateConstraintsDecisionGrade(
+            result.constraint_probabilities,
+            activeConstraintIds,
+            constraintScaleProvenanceByConstraintId,
+          );
+          if (grade !== undefined) result.constraints_decision_grade = grade;
         }
         // Sub-item 1c: attach the per-option graded breach margins under the
         // SAME honesty gate as the probabilities (never on a suppressed /
@@ -3653,8 +3688,78 @@ function buildResponse(
     };
   }
 
-  // Derive recommended option from win_probability (after optionComparison is built)
-  const recommendedOption = deriveRecommendedOption(optionComparison, options);
+  // ⭐ RELEASE GATE (ii) — a limit "met" on levels its target cannot take is not
+  // decision-grade (`level-domain-gate.ts`, olumi-programme-docs#70 5844770854).
+  // SINGLE PASS, in this order:
+  //   1. the CROWN, with step 5 reading each option's OWN rows: an option's
+  //      out-of-domain row is not used to exclude it, and every other limit keeps
+  //      its P = 0 exclusion (round 2, B1 — a trip must never lift a different,
+  //      still decision-grade limit's exclusion). No fraction on any row ⇒ every
+  //      entry passes by identity ⇒ the pre-gate crown;
+  //   2. the argmax win_probability with eligibility aside (the option CEE names
+  //      as leading);
+  //   3. judge the crown's row, then the argmax's — the first to trip a limit is
+  //      named on it — and only then re-grade the published aggregates, so the
+  //      crown's compliance and the top-level `constraint_results[].scale_provenance`
+  //      read the gated grade while the crown itself cannot move.
+  // No row carries a fraction ⇒ no trip ⇒ the marker map is untouched.
+  let gatedProvenance = constraintScaleProvenanceByConstraintId;
+  let levelDomainCritique: CritiqueV3 | undefined;
+  // Boxed, so "the gate derived no crown" (no eligible option) stays distinct
+  // from "the gate did not run".
+  let crownFromGate: { crown: ReturnType<typeof deriveRecommendedOption> } | undefined;
+  if (gatedProvenance !== undefined && Array.isArray(optionComparison) && optionComparison.length > 0) {
+    const markers = gatedProvenance;
+    const crown = deriveRecommendedOption(
+      optionComparison.map((o) => crownFactsWithoutOwnOutOfDomainRows(o, markers)),
+      options,
+    );
+    crownFromGate = { crown };
+    const argmaxWinProbability = deriveRecommendedOption(
+      optionComparison.map((o: { option_id: string; option_label?: string; win_probability?: number; status?: string }) => ({
+        option_id: o.option_id,
+        option_label: o.option_label,
+        win_probability: o.win_probability,
+        status: o.status,
+      })),
+      options,
+    );
+    const judgedIds = [
+      ...new Set(
+        [crown?.recommended_option_id, argmaxWinProbability?.recommended_option_id].filter(
+          (id): id is string => id !== undefined,
+        ),
+      ),
+    ];
+    const judged = judgedIds.flatMap((id) => optionComparison.filter((o: { option_id: string }) => o.option_id === id));
+    const verdict = judgeLevelDomain(markers, judged);
+    if (verdict.trips.length > 0) {
+      gatedProvenance = verdict.provenance;
+      // Re-grade every option's PUBLISHED aggregate with the SAME rule over the
+      // gated markers. An option with no probabilities (suppressed,
+      // direction-suspect, no constraint analysis) is skipped and keeps the
+      // aggregate absent; one with zero participating probabilities gets
+      // `undefined` back, which is not written — so an absent aggregate stays
+      // absent by construction (the only writers of both fields are above).
+      for (const entry of optionComparison) {
+        if (!entry.constraint_probabilities) continue;
+        const grade = aggregateConstraintsDecisionGrade(entry.constraint_probabilities, activeConstraintIds, gatedProvenance);
+        if (grade !== undefined) entry.constraints_decision_grade = grade;
+      }
+      levelDomainCritique = buildLevelDomainCritique(verdict.trips, goalConstraints, randomUUID());
+      // Identifiers only — no fraction, no threshold (F7: no raw decision values in logs).
+      logger?.warn({
+        event: 'constraint_level_draws_out_of_domain',
+        trips: verdict.trips.map((t) => ({ constraint_id: t.constraint_id, option_id: t.option_id })),
+      });
+    }
+  }
+  const critiquesOut = levelDomainCritique === undefined ? critiques : [...critiques, levelDomainCritique];
+
+  // Derive recommended option from win_probability (after optionComparison is
+  // built) — the gate's crown when the gate ran (it IS step 5, on own rows).
+  const recommendedOption =
+    crownFromGate !== undefined ? crownFromGate.crown : deriveRecommendedOption(optionComparison, options);
 
   // Add recommended_option_id and recommended_option_label to robustness if derived
   if (recommendedOption) {
@@ -4045,7 +4150,7 @@ function buildResponse(
   // Pre-compute decision_brief and review_cards so _meta can reference them.
   const assembledBrief = assembleBrief({
     analysis_status: analysisStatus,
-    critiques,
+    critiques: critiquesOut,
     option_comparison: optionComparison,
     factor_sensitivity: factorSensitivity,
     // Family-4 S1b: the SAME object the response publishes, so
@@ -4117,7 +4222,7 @@ function buildResponse(
         outcome: oc.outcome as { p10?: number; p50?: number; p90?: number; mean?: number } | undefined,
       })),
       factor_sensitivity: mapFactorSensitivityToFactsInput(factorSensitivity),
-      critiques: critiques?.map((c) => ({
+      critiques: critiquesOut?.map((c) => ({
         id: c.id ?? c.code,
         code: c.code,
         severity: c.severity,
@@ -4201,7 +4306,9 @@ function buildResponse(
       constraintNormRanges,
       constraintTargetPartition.suppressed,
       logger,
-      constraintScaleProvenanceByConstraintId,
+      // Release gate (ii): the GATED markers (identical to the input map unless
+      // the leader's row tripped `judgeLevelDomain` above).
+      gatedProvenance,
       // A3 adjacent-hunt FIX #1: populated by the per-option direction-suspect
       // gate above; withholds the top-level block on the SAME suspicion.
       directionSuspectNodeIds,
@@ -4254,7 +4361,7 @@ function buildResponse(
     isl_analysis_status: islAnalysisStatus,
     isl_status_reason: islStatusReason,
 
-    critiques: addUserMessages(critiques, graph ?? { nodes: [] }, options),
+    critiques: addUserMessages(critiquesOut, graph ?? { nodes: [] }, options),
     option_comparison: optionComparison,
     edge_sensitivity: edgeSensitivity,
     // Reference-option disclosure (additive, lane PLoT-W4; ISL build

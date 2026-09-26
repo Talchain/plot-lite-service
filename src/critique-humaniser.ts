@@ -372,6 +372,14 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
     return `The constraint on ${label} is outside the expected range. Check the constraint value is realistic.`;
   },
 
+  // Release gate (ii) — src/routes/v2/level-domain-gate.ts. The check against
+  // the limit rests mostly on levels the factor cannot reach, so it is shown
+  // but certifies neither a pass nor a fail.
+  CONSTRAINT_LEVEL_DRAWS_OUT_OF_DOMAIN: (c, g) => {
+    const label = resolveNodeLabel(c.affected_node_ids?.[0], g);
+    return `The check against your limit on ${label} relies on levels ${label} cannot actually reach (for example, a rate below zero), so it is shown but not treated as a reliable pass or fail.`;
+  },
+
   CONSTRAINT_DUPLICATE_TARGET:
     'Two constraints target the same factor with the same comparison. Only the stricter constraint was kept.',
 

@@ -14,6 +14,7 @@ import type {
   OptionV3,
   InterventionValueV3,
   GoalConstraint,
+  ConstraintLevelDomain,
   FactorCorrelation,
 } from '../../types/engine-v3.js';
 import {
@@ -182,6 +183,14 @@ export interface ISLGoalConstraint {
    * arrival is proven through the ENDPOINT, not by a green build.
    */
   value_frame?: GoalThresholdFrameType;
+  /**
+   * Release gate (ii) — ISL #181's `GoalConstraint.level_domain`. By presence,
+   * like `value_frame`; PLoT mints it (see `GoalConstraint.level_domain`).
+   * ISL #181 is not in the pinned model yet: at the pin it is `extra: "ignore"`,
+   * so an older ISL drops it silently and returns no fraction (the response is
+   * then identical but for the hashes over this request, which now carries it).
+   */
+  level_domain?: ConstraintLevelDomain;
 }
 
 /**
@@ -1128,6 +1137,14 @@ export function toISLRobustnessRequest(
       // reach the wire without the `value` it describes (the coupling the node
       // channel has to arrange positionally for `goal_threshold_frame`).
       ...(c.value_frame !== undefined && { value_frame: c.value_frame }),
+      // Release gate (ii) — by presence, bounds copied field by field so no
+      // other key can ride along on the domain object.
+      ...(c.level_domain !== undefined && {
+        level_domain: {
+          ...(c.level_domain.min !== undefined && { min: c.level_domain.min }),
+          ...(c.level_domain.max !== undefined && { max: c.level_domain.max }),
+        },
+      }),
     }));
   }
 
