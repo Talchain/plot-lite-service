@@ -12,6 +12,10 @@
 import type { FastifyBaseLogger } from 'fastify';
 import type { ISLRobustnessRequestV3 } from './translator-v3.js';
 import type { GoalConstraint, EngineNodeV3 } from '../../types/engine-v3.js';
+import {
+  isObservedBaselineLevelTarget,
+  type AnchorOptionLike,
+} from '../../lib/constraint-reliability.js';
 
 /**
  * Std for constraint-target ParameterUncertainty injection.
@@ -39,7 +43,20 @@ export interface InjectedPU {
 /** A constrained node that was skipped (not injected). */
 export interface SkippedPU {
   node_id: string;
-  reason: 'goal_node' | 'missing_node' | 'missing_observed_state';
+  reason: 'goal_node' | 'missing_node' | 'missing_observed_state' | 'observed_baseline_level';
+}
+
+/**
+ * What the classifier needs to recognise an `observed_baseline_level` target
+ * (see {@link classifyConstraintPu}): the directed-edge targets of the graph
+ * PLoT sends ISL, and the options whose intervention KEYS ISL receives. Built
+ * ONCE by the caller and handed to BOTH the plan-time selection and the
+ * build-time injection, so the EVPI `u` PLoT prices and the PU list ISL counts
+ * cannot disagree about which targets were pinned.
+ */
+export interface ConstraintPuLevelPlanContext {
+  directedEdgeTargets: ReadonlySet<string>;
+  options: readonly AnchorOptionLike[];
 }
 
 /**
@@ -54,12 +71,31 @@ export type ConstraintPuClassification =
   | { kind: 'skip'; reason: SkippedPU['reason'] }
   | { kind: 'existing' };
 
-/** Classify a single constraint against the PUs already present. Pure. */
+/**
+ * Classify a single constraint against the PUs already present. Pure.
+ *
+ * ⚠ THE `observed_baseline_level` SKIP. The std-0.001 pin below predates ISL's
+ * per-draw level plan for constraints, and on exactly the shape that plan
+ * serves it does two kinds of harm (AI Quality C50 L2b, WIRE, ISL `3c4ab84d`):
+ *   - ISL REFUSES the constraint — a PU on a non-root target is one of the
+ *     plan's refusals (`target_parameter_uncertainty_shifts_base`), and the
+ *     refusal omits the WHOLE `constraint_analysis` block; and
+ *   - even ignoring that, a near-constant sampled base ADDED to a non-root
+ *     node's parent propagation double-counts rather than anchors (see
+ *     `resolveConstraintSampleFrameAnchor`).
+ * The base=0.0 default this injection exists to prevent is harmless there:
+ * the level plan differences it out (`baseline + (option_i − status_quo_i)`).
+ * So a target {@link isObservedBaselineLevelTarget} recognises is skipped —
+ * the SAME predicate the sample-frame gate anchors on, so PLoT cannot call a
+ * target scoreable and then make it unscoreable. Without `levelPlan` (a
+ * caller with no graph/options in hand) the pre-existing rules apply unchanged.
+ */
 export function classifyConstraintPu(
   constraint: GoalConstraint,
   nodeMap: ReadonlyMap<string, EngineNodeV3>,
   goalNodeId: string,
   existingPuNodeIds: ReadonlySet<string>,
+  levelPlan?: ConstraintPuLevelPlanContext,
 ): ConstraintPuClassification {
   // Goal node gets its distribution from ISL's outcome computation.
   if (constraint.node_id === goalNodeId) return { kind: 'skip', reason: 'goal_node' };
@@ -68,6 +104,18 @@ export function classifyConstraintPu(
   const node = nodeMap.get(constraint.node_id);
   if (!node) return { kind: 'skip', reason: 'missing_node' };
   if (node.observed_state?.value === undefined) return { kind: 'skip', reason: 'missing_observed_state' };
+  if (
+    levelPlan !== undefined &&
+    isObservedBaselineLevelTarget(
+      constraint.node_id,
+      constraint.value_frame,
+      [node],
+      levelPlan.directedEdgeTargets,
+      levelPlan.options,
+    )
+  ) {
+    return { kind: 'skip', reason: 'observed_baseline_level' };
+  }
   return { kind: 'inject', mean: node.observed_state.value };
 }
 
@@ -89,6 +137,9 @@ export function selectConstraintInjectedPuNodeIds(
   // injector) so the plan-time selection and the build-time injection don't each
   // reconstruct an identical map over the same nodes. Omitted callers build one.
   sharedNodeMap?: ReadonlyMap<string, EngineNodeV3>,
+  // The SAME context object the injector is handed (see
+  // ConstraintPuLevelPlanContext) — pass one, pass both, or EVPI `u` drifts.
+  levelPlan?: ConstraintPuLevelPlanContext,
 ): Set<string> {
   const injected = new Set<string>();
   if (!constraints || constraints.length === 0) return injected;
@@ -97,7 +148,7 @@ export function selectConstraintInjectedPuNodeIds(
   // duplicate constraints on the same node (so it is counted exactly once).
   const running = new Set(existingPuNodeIds);
   for (const constraint of constraints) {
-    if (classifyConstraintPu(constraint, nodeMap, goalNodeId, running).kind === 'inject') {
+    if (classifyConstraintPu(constraint, nodeMap, goalNodeId, running, levelPlan).kind === 'inject') {
       injected.add(constraint.node_id);
       running.add(constraint.node_id);
     }
@@ -113,6 +164,7 @@ export function selectConstraintInjectedPuNodeIds(
  * - The goal node (has its own outcome distribution from inference)
  * - Nodes not present in the graph
  * - Nodes without `observed_state.value`
+ * - `observed_baseline_level` targets, when `levelPlan` is given (see classifyConstraintPu)
  * - Nodes that already have a PU entry (inject-only-when-missing) — silently skipped, not in `skipped`
  *
  * @param islRequest - ISL request to mutate (parameter_uncertainties array)
@@ -132,6 +184,8 @@ export function injectConstraintParameterUncertainties(
   // {@link selectConstraintInjectedPuNodeIds} so the map is built once, not twice.
   // Omitted callers build one.
   sharedNodeMap?: ReadonlyMap<string, EngineNodeV3>,
+  // The SAME context object the plan-time selection was handed.
+  levelPlan?: ConstraintPuLevelPlanContext,
 ): { injected: InjectedPU[]; skipped: SkippedPU[] } {
   const injected: InjectedPU[] = [];
   const skipped: SkippedPU[] = [];
@@ -149,7 +203,7 @@ export function injectConstraintParameterUncertainties(
   for (const constraint of constraints) {
     // Single source of truth for the accept/skip decision (shared with the
     // planner's PU count via selectConstraintInjectedPuNodeIds).
-    const cls = classifyConstraintPu(constraint, nodeMap, goalNodeId, existingPuNodeIds);
+    const cls = classifyConstraintPu(constraint, nodeMap, goalNodeId, existingPuNodeIds, levelPlan);
 
     if (cls.kind === 'existing') continue;
 
@@ -168,6 +222,12 @@ export function injectConstraintParameterUncertainties(
           node_id: constraint.node_id,
           constraint_id: constraint.constraint_id,
           message: `Constrained node ${constraint.node_id} has no observed_state.value; ISL may use base=0.0`,
+        });
+      } else if (cls.reason === 'observed_baseline_level') {
+        logger?.info({
+          event: 'plot.constraint_pu_skipped_level_plan',
+          node_id: constraint.node_id,
+          constraint_id: constraint.constraint_id,
         });
       }
       continue;

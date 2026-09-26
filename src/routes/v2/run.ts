@@ -86,7 +86,11 @@ import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, InternalMetadata } from '../../types/engine-v3.js';
 import { toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
-import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
+import {
+  injectConstraintParameterUncertainties,
+  selectConstraintInjectedPuNodeIds,
+  type ConstraintPuLevelPlanContext,
+} from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
   createISLRequestLog,
@@ -6362,12 +6366,26 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           activeGoalConstraints && activeGoalConstraints.length > 0
             ? new Map(filteredGraph.nodes.map((n) => [n.id, n]))
             : undefined;
+        // ONE context for the constraint-PU classifier's `observed_baseline_level`
+        // skip, handed to BOTH the plan-time selection here and the build-time
+        // injection below, so the EVPI `u` priced here and the PU list ISL counts
+        // agree on which level targets were left unpinned. Same inputs the
+        // sample-frame gate reads in buildResponse (`filteredGraph.edges`,
+        // `normalizedOptions` — neither is reassigned after this point), so the
+        // injector cannot pin a target the gate calls scoreable.
+        const constraintPuLevelPlan: ConstraintPuLevelPlanContext | undefined = constraintPuNodeMap
+          ? {
+              directedEdgeTargets: collectDirectedEdgeTargets(filteredGraph.edges),
+              options: normalizedOptions,
+            }
+          : undefined;
         const constraintInjectedPuNodeIds = selectConstraintInjectedPuNodeIds(
           activeGoalConstraints,
           filteredGraph.nodes,
           body.goal_node_id,
           factorPuNodeIds,
           constraintPuNodeMap,
+          constraintPuLevelPlan,
         );
         const uniqueParamUncertainties = factorPuNodeIds.size + constraintInjectedPuNodeIds.size;
 
@@ -7372,6 +7390,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           body.goal_node_id,
           req.log,
           constraintPuNodeMap,  // Reuse the id→node map built for the plan-time selection above.
+          constraintPuLevelPlan,  // The SAME level-plan context the plan-time selection used.
         );
         for (const entry of puResult.injected) {
           repairs.push({
