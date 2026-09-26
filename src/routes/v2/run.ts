@@ -201,6 +201,8 @@ import {
   normaliseGoalConstraints,
   constraintsNeedNormalisation,
   constraintsHavePercentPointValue,
+  constraintsNeedPercentTargetFrame,
+  collectScaleFrameByNodeId,
   isIdentityRange,
   deriveClampDirection,
   type NormalisationContext,
@@ -210,6 +212,7 @@ import {
   type GoalThresholdNodeMeta,
   type ConstraintUnitMismatch,
   type RefusedConstraintRecord,
+  type ConstraintRefusalReason,
 } from '../../lib/intervention-normaliser.js';
 import { assembleBrief } from '../../assembly/decision-brief.js';
 import { buildEvidencePriorityCard, toEvidencePriorityFactorInputs, type FactorInput } from '../../review-pass/evidence-priority.js';
@@ -2292,6 +2295,25 @@ function collectGoalThresholdNodeMeta(
   }
   return meta;
 }
+
+/**
+ * The explanation each constraint REFUSAL carries in its
+ * CONSTRAINT_REFUSED_FRAME_FIDELITY critique, after the shared
+ * "N constraint(s) were not evaluated: [ids]. " lead. Keyed by the closed
+ * `ConstraintRefusalReason` union so every reason has copy by construction.
+ * The delta entry is the 2.878 copy, verbatim.
+ */
+const REFUSAL_CRITIQUE_COPY: Record<ConstraintRefusalReason, string> = {
+  delta_frame_value_altered_by_normalisation:
+    `Each states a CHANGE (a 'delta'), and the scale this graph resolves for its target ` +
+    `node cannot carry that change without altering the amount stated. Rather than ask ` +
+    `the engine a different question, the constraint was left out of the analysis.`,
+  percent_unit_disagrees_with_target_frame:
+    `Each is stated in percent, but its target node is measured on a scale that is not ` +
+    `stated in percent, or whose percent frame could not be established, so the limit ` +
+    `cannot be placed on that node's own scale. Rather than compare it with a different ` +
+    `quantity, the constraint was left out of the analysis.`,
+};
 
 /**
  * Producer-owned constraint trust marker (A3, ruling
@@ -5886,6 +5908,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // the default [0,1] range and is clamped to 1.0 (the live 2026-07-07
         // silent-nullification defect).
         const goalThresholdMetaByNodeId = collectGoalThresholdNodeMeta(body.graph?.nodes);
+        // The raw node's `scale_frame` — a framed factor's divisor when it has
+        // no `observed_state.cap`. Same capture, same reason: the canonical node
+        // drops it. Read ONLY by the '%' rung (`resolvePercentTargetFrame`), so
+        // a '%' limit is read on its target's own frame, or refused.
+        const scaleFrameByNodeId = collectScaleFrameByNodeId(body.graph?.nodes);
         // L63: the same capture, for the FRAME stamp. Collected for EVERY raw
         // node rather than just the goal node — a constraint can target any
         // node, and the stamp means the same thing wherever a producer puts it.
@@ -6905,8 +6932,23 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             activeGoalConstraints,
             constraintUnitsByConstraintId,
           );
+          // The '%' rung reads a FRAMED target's own frame (or refuses the
+          // limit), so a fractional '%' on such a target — which opens none of
+          // the disjuncts above — must still reach the normaliser, or it would
+          // go to ISL raw alone and rescaled in company (2.957's defect, on a
+          // new axis). Invocation only: the normaliser's forward-raw rung asks
+          // the SAME predicate, so nothing else moves.
+          const anyPercentTargetFrame = constraintsNeedPercentTargetFrame(
+            activeGoalConstraints,
+            filteredGraph.nodes,
+            {
+              unitsByConstraintId: constraintUnitsByConstraintId,
+              scaleFrameByNodeId,
+              goalThresholdMetaByNodeId,
+            },
+          );
 
-          if (gateNeedsNorm || anyNonIdentityScale || anyPercentPointValue) {
+          if (gateNeedsNorm || anyNonIdentityScale || anyPercentPointValue || anyPercentTargetFrame) {
             const constraintNormResult = normaliseGoalConstraints(
               activeGoalConstraints,
               filteredGraph.nodes,
@@ -6919,6 +6961,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               {
                 unitsByConstraintId: constraintUnitsByConstraintId,
                 goalThresholdMetaByNodeId,
+                scaleFrameByNodeId,
                 interventionScaleByNodeId,
                 normaliseWithoutScale: gateNeedsNorm,
               }
@@ -7124,19 +7167,29 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // run did NOT answer, and the only honest thing is to say so. It does
         // not block the analysis — every other constraint and every option
         // result still delivers.
-        if (refusedConstraintRecords.length > 0) {
-          const refusedIds = refusedConstraintRecords.map(r => r.constraint_id).join(', ');
+        //
+        // ONE CRITIQUE PER REFUSAL REASON, each explaining its own reason, in the
+        // order of `REFUSAL_CRITIQUE_COPY`. A run that refuses only deltas gets
+        // exactly the critique it always got — same copy, same count, same ids.
+        // A '%' limit refused on its target's frame gets its own copy under the
+        // same code: it is a frame-fidelity refusal too, and consumers already
+        // read that code (and `_meta.filtered_constraints` presence) as "not
+        // evaluated". The copy table is keyed by the closed
+        // `ConstraintRefusalReason` union, so a new reason cannot compile
+        // without its own explanation.
+        for (const reason of Object.keys(REFUSAL_CRITIQUE_COPY) as ConstraintRefusalReason[]) {
+          const refusedForReason = refusedConstraintRecords.filter(r => r.reason === reason);
+          if (refusedForReason.length === 0) continue;
+          const refusedIds = refusedForReason.map(r => r.constraint_id).join(', ');
           preflight.warnings.push({
             id: randomUUID(),
             code: 'CONSTRAINT_REFUSED_FRAME_FIDELITY',
             severity: 'warning',
             message:
-              `${refusedConstraintRecords.length} constraint(s) were not evaluated: [${refusedIds}]. ` +
-              `Each states a CHANGE (a 'delta'), and the scale this graph resolves for its target ` +
-              `node cannot carry that change without altering the amount stated. Rather than ask ` +
-              `the engine a different question, the constraint was left out of the analysis.`,
+              `${refusedForReason.length} constraint(s) were not evaluated: [${refusedIds}]. ` +
+              REFUSAL_CRITIQUE_COPY[reason],
             source: 'validation',
-            affected_node_ids: refusedConstraintRecords.map(r => r.node_id),
+            affected_node_ids: refusedForReason.map(r => r.node_id),
             blocks_analysis: false,
           });
         }
