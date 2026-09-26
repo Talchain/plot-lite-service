@@ -259,7 +259,20 @@ describe('observed_baseline_level — a LEVEL limit on an outcome the options mo
     expect(warnings(body, 'CONSTRAINT_TARGET_UNRELIABLE')).toEqual([]);
   });
 
-  it('C50 L5a shape (goal target): withheld at the base, DELIVERED now', async () => {
+  it('C50 L2b shape: delivered PLAIN — ISL’s defaulted-base warning does not trigger the modelled-basis note', async () => {
+    const { body, isl } = await run(graph(SUB_WITH_BASELINE), [GC_L2B]);
+
+    // The mock DID emit the defaulted-base signal for this target (as real ISL
+    // does once PLoT stops pinning it) — so the absence below is PLoT's call.
+    expect(defaultBaseWarnings(isl).map((w) => w.detail.node_id)).toEqual(['out_subscribers']);
+
+    expect(warnings(body, 'CONSTRAINT_GOALFIT_MODELLED_BASIS')).toEqual([]);
+    for (const o of body.option_comparison ?? []) {
+      expect(o.goal_fit_basis, o.option_id).toBeUndefined();
+    }
+  });
+
+  it('C50 L5a shape (goal target): withheld at the base, DELIVERED now, no modelled-basis note', async () => {
     const { body, isl } = await run(
       graph(undefined, { value: 0.1, baseline: 0.1 }),
       [{ constraint_id: 'gc_l5a', node_id: 'goal_revenue', operator: '>=', value: 0.1, value_frame: 'level' }],
@@ -270,6 +283,19 @@ describe('observed_baseline_level — a LEVEL limit on an outcome the options mo
     expect(opts.opt_hold.constraint_probabilities).toEqual({ gc_l5a: 0.4895 });
     expect(opts.opt_raise.constraint_probabilities).toEqual({ gc_l5a: 0.781 });
     expect(warnings(body, 'CONSTRAINT_TARGET_UNRELIABLE')).toEqual([]);
+    expect(warnings(body, 'CONSTRAINT_GOALFIT_MODELLED_BASIS')).toEqual([]);
+  });
+
+  it("C50 L5b shape (node stamped 'delta', constraint 'level'): still delivered, but the false 'no observed baseline' note is gone", async () => {
+    const { body } = await run(
+      graph(undefined, { value: 0.1, baseline: 0.1 }, 'delta'),
+      [{ constraint_id: 'gc_l5b', node_id: 'goal_revenue', operator: '>=', value: 0.1, value_frame: 'level' }],
+    );
+    const opts = byOption(body);
+    expect(opts.opt_hold.constraint_probabilities).toEqual({ gc_l5b: 0.4895 });
+    expect(opts.opt_raise.constraint_probabilities).toEqual({ gc_l5b: 0.781 });
+    expect(warnings(body, 'CONSTRAINT_GOALFIT_MODELLED_BASIS')).toEqual([]);
+    for (const o of body.option_comparison ?? []) expect(o.goal_fit_basis, o.option_id).toBeUndefined();
   });
 
   // =========================================================================
@@ -328,5 +354,19 @@ describe('observed_baseline_level — a LEVEL limit on an outcome the options mo
     expect(opts.opt_hold.constraint_probabilities).toEqual({ gc_l1: 0.4895 });
     expect(opts.opt_raise.constraint_probabilities).toEqual({ gc_l1: 0.781 });
     expect(warnings(body, 'CONSTRAINT_TARGET_UNRELIABLE')).toEqual([]);
+  });
+
+  it('MIX: a scoreable level limit beside an unanchored one — the run-level suppression still wins', async () => {
+    const { body } = await run(graph(SUB_WITH_BASELINE), [
+      GC_L2B,
+      { constraint_id: 'gc_goal_unframed', node_id: 'goal_revenue', operator: '>=', value: 0.1 },
+    ]);
+    const opts = byOption(body);
+    expect(opts.opt_hold.constraint_probabilities).toBeUndefined();
+    expect(opts.opt_raise.probability_of_joint_goal).toBeUndefined();
+    const warned = warnings(body, 'CONSTRAINT_TARGET_UNRELIABLE');
+    expect(warned).toHaveLength(1);
+    expect(warned[0].message).toContain('Monthly revenue');
+    expect(warned[0].message).not.toContain('Paying subscribers');
   });
 });

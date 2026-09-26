@@ -29,6 +29,7 @@ import type { FastifyBaseLogger } from 'fastify';
 import {
   resolveConstraintSampleFrameAnchor,
   detectUnanchoredSampleFrameTargets,
+  detectUnreliableConstraintTargets,
   collectDirectedEdgeTargets,
 } from '../src/lib/constraint-reliability.js';
 import {
@@ -238,6 +239,82 @@ describe('detectUnanchoredSampleFrameTargets — reads the CONSTRAINT’s value_
     );
     expect(out.map((t) => t.constraint_id)).toEqual(['gc_unframed']);
     expect(out[0].reasons).toEqual(['sample_frame_unanchored']);
+  });
+});
+
+// ===========================================================================
+// (1b) ISL's CONSTRAINT_NODE_DEFAULT_BASE does not describe a level-plan number
+// ===========================================================================
+
+describe('detectUnreliableConstraintTargets — level-plan context', () => {
+  /** Real ISL's wire shape (ra_v2.py `CONSTRAINT_NODE_DEFAULT_BASE`, inference_warnings). */
+  const islDefaultBase = (nodeId: string) => ({
+    inference_warnings: [
+      {
+        code: 'CONSTRAINT_NODE_DEFAULT_BASE',
+        field: `nodes[${nodeId}].base`,
+        detail: { node_id: nodeId, defaulted_to: 0.0, reason: 'no_parameter_uncertainty' },
+      },
+    ],
+  });
+  const ctx = { nodes: nodes(WITH_BASELINE), directedEdgeTargets: DIRECTED, options: OPTIONS };
+
+  it('RED core: a level-plan constraint does NOT take target_base_defaulted', () => {
+    expect(
+      detectUnreliableConstraintTargets(
+        [gc('gc_level', 'out_subscribers', 'level')],
+        undefined,
+        islDefaultBase('out_subscribers'),
+        ctx,
+      ),
+    ).toEqual([]);
+  });
+
+  it("CONTROL — a 'delta' sibling on the SAME node keeps the reason (keyed per constraint, not per node)", () => {
+    const out = detectUnreliableConstraintTargets(
+      [gc('gc_level', 'out_subscribers', 'level'), gc('gc_delta', 'out_subscribers', 'delta')],
+      undefined,
+      islDefaultBase('out_subscribers'),
+      ctx,
+    );
+    expect(out).toEqual([
+      { constraint_id: 'gc_delta', node_id: 'out_subscribers', reasons: ['target_base_defaulted'] },
+    ]);
+  });
+
+  it('CONTROL — WITHOUT the context (the coaching gate) the reason is unchanged', () => {
+    expect(
+      detectUnreliableConstraintTargets(
+        [gc('gc_level', 'out_subscribers', 'level')],
+        undefined,
+        islDefaultBase('out_subscribers'),
+      ),
+    ).toEqual([
+      { constraint_id: 'gc_level', node_id: 'out_subscribers', reasons: ['target_base_defaulted'] },
+    ]);
+  });
+
+  it('CONTROL — no baseline: the reason is unchanged even with the context', () => {
+    expect(
+      detectUnreliableConstraintTargets(
+        [gc('gc_level', 'out_subscribers', 'level')],
+        undefined,
+        islDefaultBase('out_subscribers'),
+        { ...ctx, nodes: nodes(NO_BASELINE) },
+      ).map((t) => t.reasons),
+    ).toEqual([['target_base_defaulted']]);
+  });
+
+  it('CONTROL — a default normalisation range still flags the level-plan constraint', () => {
+    const out = detectUnreliableConstraintTargets(
+      [gc('gc_level', 'out_subscribers', 'level')],
+      new Map([['gc_level', { min: 0, max: 1, source: 'default' as const }]]),
+      islDefaultBase('out_subscribers'),
+      ctx,
+    );
+    expect(out.map((t) => [t.constraint_id, t.reasons])).toEqual([
+      ['gc_level', ['threshold_normalisation_defaulted']],
+    ]);
   });
 });
 
