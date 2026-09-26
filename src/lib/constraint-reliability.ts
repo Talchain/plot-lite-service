@@ -101,6 +101,41 @@ export function detectUnreliableConstraintTargets(
   goalConstraints: GoalConstraint[] | undefined,
   constraintNormRanges: Map<string, NormalisationRange> | undefined,
   islResult: unknown,
+  /**
+   * The graph + options the sample-frame gate reads. When given, a constraint
+   * {@link isObservedBaselineLevelTarget} recognises does NOT take
+   * `target_base_defaulted` from ISL's CONSTRAINT_NODE_DEFAULT_BASE.
+   *
+   * WHY. That warning says the target's base fell to 0.0, and it is TRUE —
+   * ISL emits it for every non-root target without a PU: a goal-node target
+   * (the constraint-PU injector never pins the goal), or a target with a
+   * baseline but no current value (the injector pins only a node with
+   * `observed_state.value`). A target the injector pins carries a PU and gets
+   * no such warning (ISL #177 converts that PU). But the
+   * level plan never compares the raw sample: it compares
+   * `baseline + (option_i − status_quo_i)`, where the defaulted base appears in
+   * both terms and cancels. The reason's claim — "the sampled quantity itself
+   * is fabricated" — is therefore not about the number delivered. Left in, it
+   * routes the constraint to doctrine B, whose delivered note tells the user
+   * the node "has no observed baseline value" and to "set a value … to anchor
+   * these probabilities" — false on its face for a comparison anchored to that
+   * very baseline (AI Quality C50 finding 8, the L5b copy defect, WIRE). And on
+   * a run a SIBLING constraint suppresses, it adds a second
+   * CONSTRAINT_TARGET_UNRELIABLE naming this target, whose placeholder wording
+   * is equally untrue of it (both pinned in
+   * `tests/constraint-level-baseline-anchor.route.test.ts`).
+   *
+   * Keyed per CONSTRAINT, not per node: a 'delta'-framed sibling on the same
+   * node compares raw samples and keeps the reason.
+   *
+   * Optional so the coaching gate (routes/v2/run.ts, "DELIBERATELY stricter
+   * than the wire") is unchanged.
+   */
+  levelPlan?: {
+    nodes: readonly AnchorNodeLike[] | undefined;
+    directedEdgeTargets: ReadonlySet<string>;
+    options: readonly AnchorOptionLike[] | undefined;
+  },
 ): UnreliableConstraintTarget[] {
   if (!goalConstraints || goalConstraints.length === 0) return [];
 
@@ -116,7 +151,19 @@ export function detectUnreliableConstraintTargets(
       reasons.push('threshold_normalisation_defaulted');
     }
 
-    if (defaultedBaseNodeIds.has(gc.node_id)) {
+    if (
+      defaultedBaseNodeIds.has(gc.node_id) &&
+      !(
+        levelPlan !== undefined &&
+        isObservedBaselineLevelTarget(
+          gc.node_id,
+          gc.value_frame,
+          levelPlan.nodes,
+          levelPlan.directedEdgeTargets,
+          levelPlan.options,
+        )
+      )
+    ) {
       reasons.push('target_base_defaulted');
     }
 

@@ -282,6 +282,30 @@ describe('observed_baseline_level — a LEVEL limit on an outcome the options mo
     expect(warnings(body, 'CONSTRAINT_TARGET_UNRELIABLE')).toEqual([]);
   });
 
+  it('(1b) C50 L5a shape: ISL’s defaulted-base warning does not trigger the false "no observed baseline" note', async () => {
+    const { body, isl } = await run(
+      graph(undefined, { value: 0.1, baseline: 0.1 }),
+      [{ constraint_id: 'gc_l5a', node_id: 'goal_revenue', operator: '>=', value: 0.1, value_frame: 'level' }],
+    );
+    // The mock DID emit the defaulted-base signal for this target (as real ISL
+    // does for an unpinned non-root target) — so the absence below is PLoT's call.
+    expect(defaultBaseWarnings(isl).map((w) => w.detail.node_id)).toEqual(['goal_revenue']);
+    expect(warnings(body, 'CONSTRAINT_GOALFIT_MODELLED_BASIS')).toEqual([]);
+    for (const o of body.option_comparison ?? []) expect(o.goal_fit_basis, o.option_id).toBeUndefined();
+  });
+
+  it("(1b) C50 L5b shape (node stamped 'delta', constraint 'level'): still delivered, but the false 'no observed baseline' note is gone", async () => {
+    const { body } = await run(
+      graph(undefined, { value: 0.1, baseline: 0.1 }, 'delta'),
+      [{ constraint_id: 'gc_l5b', node_id: 'goal_revenue', operator: '>=', value: 0.1, value_frame: 'level' }],
+    );
+    const opts = byOption(body);
+    expect(opts.opt_hold.constraint_probabilities).toEqual({ gc_l5b: 0.4895 });
+    expect(opts.opt_raise.constraint_probabilities).toEqual({ gc_l5b: 0.781 });
+    expect(warnings(body, 'CONSTRAINT_GOALFIT_MODELLED_BASIS')).toEqual([]);
+    for (const o of body.option_comparison ?? []) expect(o.goal_fit_basis, o.option_id).toBeUndefined();
+  });
+
   // =========================================================================
   // Controls — every one of these is today's behaviour, unchanged
   // =========================================================================
