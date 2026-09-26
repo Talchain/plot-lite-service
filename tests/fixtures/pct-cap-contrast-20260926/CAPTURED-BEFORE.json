@@ -1,0 +1,201 @@
+{
+ "captured_by": "AI Quality, engine-direct POST /v2/run on staging, 0 LLM calls (olumi-programme-docs#69 comment 5843365832)",
+ "source_dir": "~/olumi-ai-quality-20260924/quality-evidence/pct-cap-contrast-20260926/",
+ "note": "Requests are copied verbatim from the captures (the `request` object). Observations are the BEFORE rows (PLoT and ISL builds as recorded); they are the wire witness of the defect, not an expectation.",
+ "level_rows": {
+  "plot": [
+   "b09c0f2",
+   "b09c0f2"
+  ],
+  "isl": [
+   "2795a8c",
+   "2795a8c"
+  ],
+  "rows": [
+   {
+    "variant": "lvl4_cap100",
+    "real_level_pct": 4,
+    "cap": 100,
+    "encoded_value": 0.04,
+    "status": 200,
+    "request_id": "aiq-pctcap-before-lvl4_cap100-20260926T045916Z",
+    "per_option_p_meet": [
+     [
+      "opt_hold",
+      1
+     ],
+     [
+      "opt_raise",
+      1
+     ]
+    ],
+    "constraint_results": [
+     [
+      "gc_churn",
+      null,
+      {
+       "source": "unit_percent",
+       "range_unified": true,
+       "decision_grade": true
+      }
+     ]
+    ],
+    "codes": [
+     "CONSTRAINT_MISSING_RANGE"
+    ]
+   },
+   {
+    "variant": "lvl4_cap20",
+    "real_level_pct": 4,
+    "cap": 20,
+    "encoded_value": 0.2,
+    "status": 200,
+    "request_id": "aiq-pctcap-before-lvl4_cap20-20260926T045919Z",
+    "per_option_p_meet": [
+     [
+      "opt_hold",
+      0.017
+     ],
+     [
+      "opt_raise",
+      0.017
+     ]
+    ],
+    "constraint_results": [
+     [
+      "gc_churn",
+      null,
+      {
+       "source": "unit_percent",
+       "range_unified": true,
+       "decision_grade": true
+      }
+     ]
+    ],
+    "codes": [
+     "CONSTRAINT_MISSING_RANGE"
+    ]
+   },
+   {
+    "variant": "lvl12_cap100",
+    "real_level_pct": 12,
+    "cap": 100,
+    "encoded_value": 0.12,
+    "status": 200,
+    "request_id": "aiq-pctcap-before-lvl12_cap100-20260926T045922Z",
+    "per_option_p_meet": [
+     [
+      "opt_hold",
+      0.017
+     ],
+     [
+      "opt_raise",
+      0.017
+     ]
+    ],
+    "constraint_results": [
+     [
+      "gc_churn",
+      null,
+      {
+       "source": "unit_percent",
+       "range_unified": true,
+       "decision_grade": true
+      }
+     ]
+    ],
+    "codes": [
+     "CONSTRAINT_MISSING_RANGE"
+    ]
+   },
+   {
+    "variant": "lvl12_cap200",
+    "real_level_pct": 12,
+    "cap": 200,
+    "encoded_value": 0.06,
+    "status": 200,
+    "request_id": "aiq-pctcap-before-lvl12_cap200-20260926T045926Z",
+    "per_option_p_meet": [
+     [
+      "opt_hold",
+      1
+     ],
+     [
+      "opt_raise",
+      1
+     ]
+    ],
+    "constraint_results": [
+     [
+      "gc_churn",
+      null,
+      {
+       "source": "unit_percent",
+       "range_unified": true,
+       "decision_grade": true
+      }
+     ]
+    ],
+    "codes": [
+     "CONSTRAINT_MISSING_RANGE"
+    ]
+   }
+  ]
+ },
+ "delta_rows": {
+  "plot": [
+   "b09c0f2",
+   "b09c0f2"
+  ],
+  "isl": [
+   "2795a8c",
+   "2795a8c"
+  ],
+  "rows": [
+   {
+    "variant": "delta_cap100",
+    "cap": 100,
+    "strength": 0.1,
+    "status": 200,
+    "request_id": "aiq-pctcapdelta-before-delta_cap100-20260926T052530Z",
+    "per_option_p_meet": [
+     [
+      "opt_hold",
+      null
+     ],
+     [
+      "opt_raise",
+      null
+     ]
+    ],
+    "constraint_results": [],
+    "codes": [
+     "CONSTRAINT_MISSING_RANGE",
+     "CONSTRAINT_REFUSED_FRAME_FIDELITY"
+    ]
+   },
+   {
+    "variant": "delta_cap20",
+    "cap": 20,
+    "strength": 0.5,
+    "status": 200,
+    "request_id": "aiq-pctcapdelta-before-delta_cap20-20260926T052533Z",
+    "per_option_p_meet": [
+     [
+      "opt_hold",
+      null
+     ],
+     [
+      "opt_raise",
+      null
+     ]
+    ],
+    "constraint_results": [],
+    "codes": [
+     "CONSTRAINT_MISSING_RANGE",
+     "CONSTRAINT_REFUSED_FRAME_FIDELITY"
+    ]
+   }
+  ]
+ }
+}
