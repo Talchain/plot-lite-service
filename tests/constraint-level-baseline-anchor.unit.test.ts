@@ -30,6 +30,7 @@ import {
   detectUnanchoredSampleFrameTargets,
   detectUnreliableConstraintTargets,
   collectDirectedEdgeTargets,
+  isObservedBaselineLevelTarget,
 } from '../src/lib/constraint-reliability.js';
 import type { GoalConstraint, EngineNodeV3 } from '../src/types/engine-v3.js';
 
@@ -214,6 +215,18 @@ describe('resolveConstraintSampleFrameAnchor — observed_baseline_level', () =>
     expect(
       resolveConstraintSampleFrameAnchor('out_missing', nodes(WITH_BASELINE), new Set(['out_missing']), OPTIONS, undefined, 'level'),
     ).toBeNull();
+  });
+});
+
+describe('isObservedBaselineLevelTarget — the exported predicate, called directly', () => {
+  it('a ROOT node is never a level-plan target, even with a baseline, a level frame and no pin', () => {
+    const ns = [
+      ...nodes(WITH_BASELINE).filter((n) => n.id !== 'fac_churn'),
+      { id: 'fac_churn', kind: 'factor', label: 'Monthly logo churn', observed_state: { value: 0.07, baseline: 0.07 } },
+    ] as EngineNodeV3[];
+    expect(isObservedBaselineLevelTarget('fac_churn', 'level', ns, DIRECTED, OPTIONS)).toBe(false);
+    // CONTROL: the non-root sibling with the same inputs IS one.
+    expect(isObservedBaselineLevelTarget('out_subscribers', 'level', ns, DIRECTED, OPTIONS)).toBe(true);
   });
 });
 
