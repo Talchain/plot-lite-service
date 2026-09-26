@@ -837,6 +837,59 @@ describe('adaptive n_samples via /v2/run (F8 handshake — weighted planning)', 
     expect(costOfCall(call, sent + 1)).toBeGreaterThan(CEILING);
   });
 
+  it('LEVEL-PLAN constraints: the targets are left UNPINNED, and the planner prices exactly that (no needless reduction)', async () => {
+    // Same 4 factors + 4 constrained outcomes as MULTI-CONSTRAINT above, but
+    // each outcome carries observed_state.baseline and each constraint is
+    // stated as a 'level': the observed_baseline_level shape, which PLoT must
+    // NOT pin (ISL's level plan refuses a PU on its target). So ISL's real u is
+    // the 4 factor PUs, and the plan-time count must agree — the planner and
+    // the injector share ONE level-plan context in run.ts. The same ceiling
+    // that forced a reduction above now admits full depth.
+    const CEILING = 1_000_000;
+    __setIslComputeAdmissionForTest({ admission: v2Admission(CEILING), skew: false, status: 'ok' });
+    islCalls = [];
+    const graph = constrainedOutcomeGraph(4, 4);
+    for (const n of graph.nodes) {
+      if (n.id.startsWith('outcome-')) (n as any).observed_state = { value: 0.5, baseline: 0.5 };
+    }
+    const res = await app.inject({
+      method: 'POST',
+      url: '/v2/run',
+      headers: { 'Content-Type': 'application/json' },
+      payload: {
+        graph,
+        options: OPTIONS,
+        goal_node_id: 'goal',
+        goal_constraints: constraintsOnOutcomes(4).map((c) => ({ ...c, value_frame: 'level' })),
+        seed: '42',
+      },
+    });
+
+    expect(res.statusCode).toBe(200);
+    const call = islCalls[0];
+    expect((call.goal_constraints ?? []).map((c: any) => c.value_frame)).toEqual(['level', 'level', 'level', 'level']);
+
+    // No constraint-injected PU reached ISL: u is the 4 factor PUs.
+    const sentIds = [...new Set((call.parameter_uncertainties ?? []).map((p: any) => p.node_id))].sort();
+    expect(sentIds).toEqual(['factor-0', 'factor-1', 'factor-2', 'factor-3']);
+
+    // POSITIVE CONTROL — the fixture bites: priced with the 4 targets pinned
+    // (u = 8, what the planner would count if it disagreed with the injector),
+    // full depth would NOT fit; priced as sent (u = 4), it does.
+    expect(
+      estimateWeightedCostV2(
+        { ...costReqFromCall(call, 10_000), uniqueParamUncertainties: 8 },
+        LIVE_WEIGHTS,
+        LIVE_FORMULA_PARAMETERS,
+      ),
+    ).toBeGreaterThan(CEILING);
+    expect(costOfCall(call, 10_000)).toBeLessThanOrEqual(CEILING);
+
+    // So the planner, counting what ISL receives, admits full depth unreduced.
+    expect(call.n_samples).toBe(10_000);
+    expect(findSamplesReducedWarnings(JSON.parse(res.body))).toHaveLength(0);
+  });
+
   it('no-constraint control: EVPI u is the factor-PU count only (estimate unchanged)', async () => {
     __setIslComputeAdmissionForTest({ admission: v2Admission(), skew: false, status: 'ok' });
     islCalls = [];
