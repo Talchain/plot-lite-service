@@ -816,9 +816,13 @@ export function normaliseEdge(
     );
   } else {
     // Structural edges (decision→option, option→factor) use lower floor (0.01)
-    // Causal edges use epistemic uncertainty floor (0.05)
+    // Causal edges: the epistemic floor is PROPORTIONAL to the edge's own size (magnitude contract PR2, MG design D12):
+    // min(0.05, max(0.001, |mean| / 2)). A correctly sized small effect (CEE's T3 AI -> churn, -0.01 / 0.005) keeps its
+    // own spread instead of being lifted to 5x its mean; every edge with |mean| >= 0.1 floors exactly as before.
     const isStructural = isStructuralEdgeType({ from, to }, nodeKindMap);
-    const effectiveMinStd = isStructural ? STRUCTURAL_STD_MIN : STD_RANGE_MIN;
+    const effectiveMinStd = isStructural
+      ? STRUCTURAL_STD_MIN
+      : Math.min(STD_RANGE_MIN, Math.max(MIN_STD, Math.abs(mean) / 2));
     const clampedStd = clamp(std, effectiveMinStd, STD_RANGE_MAX);
     if (clampedStd !== std) {
       pushRepairWarning(
