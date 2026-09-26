@@ -337,8 +337,9 @@ describe('route — a level limit scored on impossible levels is not decision-gr
 
   it('REQUEST — a caller-supplied level_domain never reaches ISL (PLoT mints it; the raw-forward path included)', async () => {
     scenario = paulsNumbers();
-    // In [0,1], unitless, untargeted by any option: PLoT forwards this constraint
-    // RAW (no normaliser pass), so only the ingress strip keeps the caller's key off.
+    // In [0,1], unitless: PLoT forwards this constraint RAW (no normaliser pass),
+    // so what keeps the caller's key off is the temporal filter's canonical
+    // rebuild (constraint-filter.ts), which keeps no `level_domain`. This row pins it.
     const raw = { constraint_id: 'gc_churn_raw', node_id: 'fac_churn', operator: '<=', value: 0.1, value_frame: 'level', level_domain: { min: -5, max: 5 } };
     await run(paulsShape([raw]));
     for (const row of wireRows('gc_churn_raw')) {

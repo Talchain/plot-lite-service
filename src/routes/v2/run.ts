@@ -5831,11 +5831,6 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         if (body.goal_constraints?.length) {
           for (const c of body.goal_constraints) {
             delete (c as any)._internal;
-            // Release gate (ii): `level_domain` is PLoT-minted (the normaliser's
-            // `levelDomainFor`, in PLoT's normalised frame). A caller's copy is
-            // in no frame PLoT has checked, and a constraint forwarded raw would
-            // carry it to ISL verbatim — so it is removed here, like `_internal`.
-            delete (c as any).level_domain;
           }
         }
 

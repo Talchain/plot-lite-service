@@ -536,10 +536,13 @@ export interface GoalConstraint {
    *
    * ⛔ PLoT-MINTED ONLY. Set by `normaliseGoalConstraints` (the one writer) on a
    * 'level' constraint the '%' rung read (`unit_percent`), and never read from
-   * the caller: the route strips an inbound `level_domain` at ingress, exactly
-   * as it strips `_internal`, because PLoT owns the frame this is stated in.
-   * Declared HERE, not only on the translator's wire type, for the same
-   * structural-keys reason as `value_frame` above.
+   * the caller: the temporal filter's canonical rebuild
+   * (`normalisation/constraint-filter.ts`), which REPLACES the constraint list
+   * on every request, keeps no `level_domain`, so a caller's copy — in no frame
+   * PLoT has checked — cannot reach ISL even on the raw-forward path (pinned by
+   * `tests/constraint-level-domain-gate.route.test.ts`). Declared HERE, not only
+   * on the translator's wire type, for the same structural-keys reason as
+   * `value_frame` above.
    */
   level_domain?: ConstraintLevelDomain;
 }
