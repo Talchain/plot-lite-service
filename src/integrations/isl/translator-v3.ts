@@ -187,7 +187,8 @@ export interface ISLGoalConstraint {
    * Release gate (ii) — ISL #181's `GoalConstraint.level_domain`. By presence,
    * like `value_frame`; PLoT mints it (see `GoalConstraint.level_domain`).
    * ISL #181 is not in the pinned model yet: at the pin it is `extra: "ignore"`,
-   * so an older ISL drops it silently and returns no fraction (byte-identical).
+   * so an older ISL drops it silently and returns no fraction (the response is
+   * then identical but for the hashes over this request, which now carries it).
    */
   level_domain?: ConstraintLevelDomain;
 }

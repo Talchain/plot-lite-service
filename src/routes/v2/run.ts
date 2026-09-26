@@ -186,7 +186,11 @@ import {
   isUserStatedLimit,
   CROWN_COMPLIANCE_REASONS,
 } from './crown-eligibility.js';
-import { judgeLevelDomain, buildLevelDomainCritique } from './level-domain-gate.js';
+import {
+  judgeLevelDomain,
+  buildLevelDomainCritique,
+  crownFactsWithoutOwnOutOfDomainRows,
+} from './level-domain-gate.js';
 import { assessGraphIdentifiability, toIdentifiabilityResponse, detectUnmeasuredConfounding } from '../../trust/identifiability-v2.js';
 import { classifyEdgeSeverity, deriveFragileEdgeVisible } from '../../trust/edge-severity.js';
 import { deriveMarginPrecision } from '../../trust/margin-precision.js';
@@ -3686,17 +3690,31 @@ function buildResponse(
 
   // ⭐ RELEASE GATE (ii) — a limit "met" on levels its target cannot take is not
   // decision-grade (`level-domain-gate.ts`, olumi-programme-docs#70 5844770854).
-  // Judged BEFORE the crown, so the crown, its compliance verdict and the
-  // top-level `constraint_results[].scale_provenance` all read the gated grade.
-  // Two rows are judged: the crown as it stands, and the argmax win_probability
-  // with eligibility aside (what the crown becomes once a trip makes the limit
-  // non-decision-grade for every option — and the option CEE names as leading).
-  // No row carries a fraction (an ISL older than #181, or no domain sent) ⇒ no
-  // trip ⇒ the marker map is untouched and the response is byte-identical.
+  // SINGLE PASS, in this order:
+  //   1. the CROWN, with step 5 reading each option's OWN rows: an option's
+  //      out-of-domain row is not used to exclude it, and every other limit keeps
+  //      its P = 0 exclusion (round 2, B1 — a trip must never lift a different,
+  //      still decision-grade limit's exclusion). No fraction on any row ⇒ every
+  //      entry passes by identity ⇒ the pre-gate crown;
+  //   2. the argmax win_probability with eligibility aside (the option CEE names
+  //      as leading);
+  //   3. judge the crown's row, then the argmax's — the first to trip a limit is
+  //      named on it — and only then re-grade the published aggregates, so the
+  //      crown's compliance and the top-level `constraint_results[].scale_provenance`
+  //      read the gated grade while the crown itself cannot move.
+  // No row carries a fraction ⇒ no trip ⇒ the marker map is untouched.
   let gatedProvenance = constraintScaleProvenanceByConstraintId;
   let levelDomainCritique: CritiqueV3 | undefined;
+  // Boxed, so "the gate derived no crown" (no eligible option) stays distinct
+  // from "the gate did not run".
+  let crownFromGate: { crown: ReturnType<typeof deriveRecommendedOption> } | undefined;
   if (gatedProvenance !== undefined && Array.isArray(optionComparison) && optionComparison.length > 0) {
-    const crownAsItStands = deriveRecommendedOption(optionComparison, options);
+    const markers = gatedProvenance;
+    const crown = deriveRecommendedOption(
+      optionComparison.map((o) => crownFactsWithoutOwnOutOfDomainRows(o, markers)),
+      options,
+    );
+    crownFromGate = { crown };
     const argmaxWinProbability = deriveRecommendedOption(
       optionComparison.map((o: { option_id: string; option_label?: string; win_probability?: number; status?: string }) => ({
         option_id: o.option_id,
@@ -3708,21 +3726,23 @@ function buildResponse(
     );
     const judgedIds = [
       ...new Set(
-        [argmaxWinProbability?.recommended_option_id, crownAsItStands?.recommended_option_id].filter(
+        [crown?.recommended_option_id, argmaxWinProbability?.recommended_option_id].filter(
           (id): id is string => id !== undefined,
         ),
       ),
     ];
     const judged = judgedIds.flatMap((id) => optionComparison.filter((o: { option_id: string }) => o.option_id === id));
-    const verdict = judgeLevelDomain(gatedProvenance, judged);
+    const verdict = judgeLevelDomain(markers, judged);
     if (verdict.trips.length > 0) {
       gatedProvenance = verdict.provenance;
-      // Re-grade every option's aggregate with the SAME rule over the gated
-      // markers. Only options that carry the aggregate today are touched — the
-      // suppressed / direction-suspect / zero-participation shapes keep theirs
-      // absent, exactly as before.
+      // Re-grade every option's PUBLISHED aggregate with the SAME rule over the
+      // gated markers. An option with no probabilities (suppressed,
+      // direction-suspect, no constraint analysis) is skipped and keeps the
+      // aggregate absent; one with zero participating probabilities gets
+      // `undefined` back, which is not written — so an absent aggregate stays
+      // absent by construction (the only writers of both fields are above).
       for (const entry of optionComparison) {
-        if (entry.constraints_decision_grade === undefined || !entry.constraint_probabilities) continue;
+        if (!entry.constraint_probabilities) continue;
         const grade = aggregateConstraintsDecisionGrade(entry.constraint_probabilities, activeConstraintIds, gatedProvenance);
         if (grade !== undefined) entry.constraints_decision_grade = grade;
       }
@@ -3736,8 +3756,10 @@ function buildResponse(
   }
   const critiquesOut = levelDomainCritique === undefined ? critiques : [...critiques, levelDomainCritique];
 
-  // Derive recommended option from win_probability (after optionComparison is built)
-  const recommendedOption = deriveRecommendedOption(optionComparison, options);
+  // Derive recommended option from win_probability (after optionComparison is
+  // built) — the gate's crown when the gate ran (it IS step 5, on own rows).
+  const recommendedOption =
+    crownFromGate !== undefined ? crownFromGate.crown : deriveRecommendedOption(optionComparison, options);
 
   // Add recommended_option_id and recommended_option_label to robustness if derived
   if (recommendedOption) {

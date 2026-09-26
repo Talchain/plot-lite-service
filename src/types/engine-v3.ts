@@ -658,9 +658,10 @@ export interface ConstraintScaleProvenance {
     scale_unit: string;
   };
   /**
-   * Release gate (ii) — present ONLY when more than the tolerance of the
-   * LEADING option's draws put this limit's target at a level it cannot take
-   * (ISL's `level_out_of_domain_fraction` against the `level_domain` PLoT sent).
+   * Release gate (ii) — present ONLY when more than the tolerance of a JUDGED
+   * option's draws (the crown's, else the option CEE names as leading) put this
+   * limit's target at a level it cannot take (ISL's
+   * `level_out_of_domain_fraction` against the `level_domain` PLoT sent).
    * Its presence forces `decision_grade: false`: the probability of meeting the
    * limit rests on impossible levels, so it licenses neither a pass nor a fail.
    * Additive; absent on every run where ISL sends no fraction.
@@ -681,7 +682,7 @@ export interface ConstraintScaleProvenance {
 export interface ConstraintLevelOutOfDomain {
   /** Typed reason — the one member today. */
   reason: 'level_draws_out_of_domain';
-  /** The option whose row was judged: the leading option (see level-domain-gate.ts). */
+  /** The judged option whose row tripped: the crown if its row did, else the argmax (see level-domain-gate.ts). */
   option_id: string;
   /** That option's `level_out_of_domain_fraction`, verbatim from ISL. */
   fraction: number;
@@ -776,7 +777,8 @@ export interface ConstraintMargin {
    * Release gate (ii) — THIS option's share of draws whose LEVEL lies outside
    * the `level_domain` PLoT sent for the limit, in [0,1], verbatim from ISL
    * (#181). Carried for every option so a consumer can judge any option it
-   * names; PLoT itself judges only the leading option's. OMITTED when ISL sent
+   * names; PLoT withdraws a grade only on the crown's or the argmax's, and step 5
+   * reads each option's own. OMITTED when ISL sent
    * none (no domain, a 'delta' limit, or an ISL older than #181).
    */
   level_out_of_domain_fraction?: number;

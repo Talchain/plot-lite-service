@@ -48,6 +48,14 @@ interface Scenario {
   fraction: Record<string, Record<string, number>>;
   /** False = an ISL build older than #181: never returns the field. */
   islHonoursDomain: boolean;
+  /**
+   * Per option: extra constraint rows ISL returns VERBATIM after the mirrored
+   * ones — a row PLoT never sent (its id resolves to no limit PLoT holds a
+   * marker for). Bypasses the #181 mirror on purpose.
+   */
+  extraRows?: Record<string, any[]>;
+  /** Options for which ISL returns no `constraint_analysis` block at all. */
+  noConstraintAnalysis?: string[];
 }
 
 let scenario: Scenario;
@@ -56,8 +64,9 @@ let islRequests: any[][] = [];
 
 function constraintAnalysis(optionId: string, goalConstraints: any[] | undefined) {
   if (!goalConstraints || goalConstraints.length === 0) return undefined;
+  if (scenario.noConstraintAnalysis?.includes(optionId)) return undefined;
   return {
-    constraints: goalConstraints.map((c: any) => {
+    constraints: [...goalConstraints.map((c: any) => {
       const f = scenario.fraction[optionId]?.[c.constraint_id];
       // ISL #181: None unless a domain was stated AND the frame is 'level'.
       const emits = scenario.islHonoursDomain && c.level_domain !== undefined && c.value_frame === 'level' && f !== undefined;
@@ -71,7 +80,7 @@ function constraintAnalysis(optionId: string, goalConstraints: any[] | undefined
         binding: false,
         ...(emits && { level_out_of_domain_fraction: f }),
       };
-    }),
+    }), ...(scenario.extraRows?.[optionId] ?? [])],
     joint_probability: scenario.prob[optionId] ?? 0.9,
   };
 }
@@ -416,11 +425,20 @@ describe('route — a level limit scored on impossible levels is not decision-gr
   });
 
   // ---------------------------------------------------------------------------
-  // WHICH ROW IS "THE LEADER'S" — the crown as it stands AND the argmax
-  // win_probability are both judged. They differ only when the argmax is
-  // excluded from the crown (step 5: P = 0 on a decision-grade limit). Here the
-  // argmax "Raise price with AI" breaks the £ limit in every draw, so before the
-  // gate the crown is "Release AI at £49".
+  // WHICH ROW IS "THE LEADER'S", AND WHAT A TRIP MAY DO TO THE CROWN.
+  // Two options are named: PLoT's crown (argmax win_probability over the options
+  // step 5 PERMITS) and the argmax with eligibility aside (the option CEE names
+  // as leading). They differ only when the argmax is excluded from the crown.
+  // Here the argmax "Raise price with AI" breaks the £ limit in every draw
+  // (P = 0 on a decision-grade limit), so the crown is "Release AI at £49".
+  //
+  // ⛔ ROUND 2 (independent verify DEFECT_FOUND, B1): at 47f42721 one trip turned
+  // EVERY option's aggregate grade false, which switched off the £ limit's P = 0
+  // exclusion too — PLoT crowned an option that breaks the user's £ limit in
+  // every draw. The rule now (level-domain-gate.ts): an option's OWN
+  // out-of-domain row is not used to exclude it; every other decision-grade
+  // limit keeps excluding. The crown therefore never depends on a trip, and the
+  // rows judged are the crown's and the argmax's — crown first.
   // ---------------------------------------------------------------------------
 
   const COST_LIMIT = { constraint_id: 'gc_cost', node_id: 'fac_cost', operator: '<=', value: 250000, unit: '£', value_frame: 'level' };
@@ -438,34 +456,150 @@ describe('route — a level limit scored on impossible levels is not decision-gr
     expect(levelDomainCritiques(body)).toEqual([]);
   });
 
-  it('the ARGMAX row trips while the crown as it stands does not: the limit is still withdrawn, naming the argmax', async () => {
+  it('ARGMAX TRIPS — an option excluded for a certain £ breach is NOT promoted by its own impossible churn draws', async () => {
     scenario = crownDiffersFromArgmax({ [LEADER]: 0.815, [RELEASE]: 0.04 });
     const body = await run(paulsShape([CHURN_LIMIT, COST_LIMIT]));
-    expect(provenanceOf(body, 'gc_churn')).toMatchObject({
+    // The argmax is the option CEE names as leading, so its row is judged: the
+    // churn limit is withdrawn, naming it.
+    expect(provenanceOf(body, 'gc_churn')).toEqual({
+      source: 'unit_percent',
+      range_unified: true,
+      level_out_of_domain: { reason: 'level_draws_out_of_domain', option_id: LEADER, fraction: 0.815, tolerance: 0.05 },
       decision_grade: false,
-      level_out_of_domain: { option_id: LEADER, fraction: 0.815 },
     });
-    // Only the tripped limit is withdrawn; the £ limit keeps its grade.
+    // Only the tripped limit is withdrawn; the £ limit keeps its grade …
     expect(provenanceOf(body, 'gc_cost')).toEqual({ source: 'explicit_cap', range_unified: true, decision_grade: true });
-    // Fixed point: the tripped limit is non-decision-grade for every option, so
-    // eligibility excludes nothing and the crown is the argmax — a JUDGED row.
-    expect(body.robustness.recommended_option_id).toBe(LEADER);
+    expect(optionRow(body, LEADER).constraint_probabilities).toEqual({ gc_churn: 0.994, gc_cost: 0 });
+    // … and keeps EXCLUDING: the crown is Release, as it is at 71ab168 with no
+    // domain sent. Its compliance reads 'unverified' because the churn marker is
+    // per limit (the published aggregate reads it), though its own row is in domain.
+    expect(body.robustness.recommended_option_id).toBe(RELEASE);
     expect(body.robustness.recommended_option_compliance).toBe('unverified');
+    expect(marginRow(body, RELEASE, 'gc_churn').level_out_of_domain_fraction).toBe(0.04);
+    for (const id of [LEADER, RELEASE, CARRY_ON]) expect(optionRow(body, id).constraints_decision_grade).toBe(false);
+    expect(levelDomainCritiques(body)).toHaveLength(1);
     expect(levelDomainCritiques(body)[0].affected_option_ids).toEqual([LEADER]);
   });
 
-  it('the CROWN row trips while the argmax does not: the limit is still withdrawn, naming the crown', async () => {
+  it('CROWN TRIPS — the crown stays "Release AI at £49" and its own row withdraws the grade, naming it', async () => {
     scenario = crownDiffersFromArgmax({ [LEADER]: 0.04, [RELEASE]: 0.815 });
     const body = await run(paulsShape([CHURN_LIMIT, COST_LIMIT]));
     expect(provenanceOf(body, 'gc_churn')).toMatchObject({
       decision_grade: false,
       level_out_of_domain: { option_id: RELEASE, fraction: 0.815 },
     });
-    expect(provenanceOf(body, 'gc_cost').decision_grade).toBe(true);
-    // The crown moves to the (judged) argmax, and says it could not check it.
-    expect(body.robustness.recommended_option_id).toBe(LEADER);
+    expect(provenanceOf(body, 'gc_cost')).toEqual({ source: 'explicit_cap', range_unified: true, decision_grade: true });
+    // The £ breach still excludes the argmax: the crown does not move, and it is
+    // the option whose row was judged.
+    expect(body.robustness.recommended_option_id).toBe(RELEASE);
     expect(body.robustness.recommended_option_compliance).toBe('unverified');
     expect(levelDomainCritiques(body)[0].affected_option_ids).toEqual([RELEASE]);
+  });
+
+  it('BOTH ROWS TRIP — the crown is judged first, so the marker and the critique name the crown, not the argmax', async () => {
+    scenario = crownDiffersFromArgmax({ [LEADER]: 0.815, [RELEASE]: 0.82 });
+    const body = await run(paulsShape([CHURN_LIMIT, COST_LIMIT]));
+    expect(body.robustness.recommended_option_id).toBe(RELEASE);
+    expect(provenanceOf(body, 'gc_churn')).toMatchObject({
+      decision_grade: false,
+      level_out_of_domain: { option_id: RELEASE, fraction: 0.82 },
+    });
+    const c = levelDomainCritiques(body);
+    expect(c).toHaveLength(1);
+    expect(c[0].affected_option_ids).toEqual([RELEASE]);
+    expect(c[0].message).toContain('[gc_churn (option opt_release_ai: 0.82 of draws outside the level domain)]');
+  });
+
+  it("OWN ROW — a withdrawn limit still excludes an option whose OWN row is in domain and never meets it", async () => {
+    // The argmax breaks churn in every draw, on its own in-domain levels (0.01):
+    // that is a decision-grade breach, and it must keep excluding the argmax even
+    // though the crown's row (0.815) withdraws the limit's published grade.
+    scenario = { ...paulsNumbers({ [LEADER]: 0.01, [RELEASE]: 0.815 }), probBy: { [LEADER]: { gc_churn: 0 } } };
+    const body = await run(paulsShape());
+    expect(body.robustness.recommended_option_id).toBe(RELEASE);
+    expect(provenanceOf(body, 'gc_churn')).toMatchObject({
+      decision_grade: false,
+      level_out_of_domain: { option_id: RELEASE, fraction: 0.815 },
+    });
+    expect(body.robustness.recommended_option_compliance).toBe('unverified');
+    expect(optionRow(body, LEADER).constraint_probabilities).toEqual({ gc_churn: 0 });
+  });
+
+  it('OWN ROW OUT OF DOMAIN — a P = 0 resting on impossible levels does not exclude its option; it is crowned unverified', async () => {
+    // The mirror image: the argmax's churn P = 0 is scored on 81.5% impossible
+    // draws, so it certifies no breach (the doctrine: an untrusted scale licenses
+    // neither a pass nor a fail). The argmax stays eligible, is crowned, and its
+    // row — the crown's — withdraws the grade.
+    scenario = { ...paulsNumbers({ [LEADER]: 0.815, [RELEASE]: 0.04 }), probBy: { [LEADER]: { gc_churn: 0 } } };
+    const body = await run(paulsShape());
+    expect(body.robustness.recommended_option_id).toBe(LEADER);
+    expect(body.robustness.recommended_option_compliance).toBe('unverified');
+    expect(provenanceOf(body, 'gc_churn')).toMatchObject({
+      decision_grade: false,
+      level_out_of_domain: { option_id: LEADER, fraction: 0.815 },
+    });
+  });
+
+  // ---------------------------------------------------------------------------
+  // GUARDS the round-1 mutants N2-N5 showed unpinned
+  // ---------------------------------------------------------------------------
+
+  it('a row whose id is no limit PLoT holds a marker for is not judged, whatever its fraction (and does not throw)', async () => {
+    // ISL echoes an id PLoT never sent. Its row reaches the leader's margins with
+    // a fraction far above the tolerance; it is not a limit PLoT certified.
+    scenario = {
+      ...paulsNumbers({ [LEADER]: 0.04 }),
+      extraRows: {
+        [LEADER]: [{
+          constraint_id: 'gc_phantom', node_id: 'fac_churn', operator: '>=', value: 0.5,
+          prob_satisfied: 0.5, near_miss_fraction: 0.1, binding: false, level_out_of_domain_fraction: 0.9,
+        }],
+      },
+    };
+    // Carry-on first, so the TOP-LEVEL block (derived from the first option with
+    // constraint rows) is not the one carrying the phantom row.
+    const req = paulsShape();
+    req.options = [req.options[2], req.options[0], req.options[1]];
+    const body = await run(req);
+    // Probe: the row DID reach the gate's input, with its fraction.
+    expect(marginRow(body, LEADER, 'gc_phantom').level_out_of_domain_fraction).toBe(0.9);
+    expect(provenanceOf(body, 'gc_churn')).toEqual({ source: 'unit_percent', range_unified: true, decision_grade: true });
+    expect(levelDomainCritiques(body)).toEqual([]);
+    expect(body.robustness.recommended_option_id).toBe(LEADER);
+  });
+
+  it('a fraction outside [0,1] is dropped, never carried or judged (1.5 on the leader, -0.2 on the next)', async () => {
+    scenario = paulsNumbers({ [LEADER]: 1.5, [RELEASE]: -0.2 });
+    const body = await run(paulsShape());
+    for (const id of [LEADER, RELEASE]) {
+      expect('level_out_of_domain_fraction' in marginRow(body, id, 'gc_churn')).toBe(false);
+    }
+    // Contrast: a valid fraction on the same run IS carried.
+    expect(marginRow(body, CARRY_ON, 'gc_churn').level_out_of_domain_fraction).toBe(0.04);
+    expect(provenanceOf(body, 'gc_churn')).toEqual({ source: 'unit_percent', range_unified: true, decision_grade: true });
+    expect(levelDomainCritiques(body)).toEqual([]);
+  });
+
+  it("REQUEST — an UNSTAMPED '%' limit (no value_frame) read by the same rung gets no level_domain", async () => {
+    scenario = paulsNumbers();
+    const { value_frame: _frame, ...unstamped } = CHURN_LIMIT;
+    const body = await run(paulsShape([unstamped]));
+    for (const row of wireRows('gc_churn')) {
+      expect(row.value).toBeCloseTo(0.1, 12);
+      expect('value_frame' in row).toBe(false);
+      expect('level_domain' in row).toBe(false);
+    }
+    // Discriminating precondition: the '%' rung read it (the rung the domain rests on).
+    expect(provenanceOf(body, 'gc_churn').source).toBe('unit_percent');
+  });
+
+  it('an option with no constraint analysis keeps no aggregate when a trip re-grades the others', async () => {
+    scenario = { ...paulsNumbers(), noConstraintAnalysis: [CARRY_ON] };
+    const body = await run(paulsShape());
+    expect(provenanceOf(body, 'gc_churn')).toMatchObject({ decision_grade: false, level_out_of_domain: { option_id: LEADER } });
+    for (const id of [LEADER, RELEASE]) expect(optionRow(body, id).constraints_decision_grade).toBe(false);
+    expect('constraints_decision_grade' in optionRow(body, CARRY_ON)).toBe(false);
+    expect('constraint_probabilities' in optionRow(body, CARRY_ON)).toBe(false);
   });
 
   it('CONTROL — an ISL older than #181 (field absent): the response is byte-identical to 71ab168 but for the request hashes', async () => {
