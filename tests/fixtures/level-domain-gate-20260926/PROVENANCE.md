@@ -15,6 +15,9 @@ same `paulsShape()`, same `stable()`), POSTed the scenario **twice**, asserted
 `stable(a)` here. `stable()`'s volatile-key list was derived from that same
 two-run diff (38 differing leaves: timings, wall-clock stamps, the request id
 and its echoes, the random critique UUID and the fact hashes derived from it).
+The committed `stable()` also drops the build identity (`build`, `plot_build`:
+HEAD's short SHA, `71ab168` in these bytes), on both sides at compare time — the
+first run after the commit showed it moving and nothing else with it.
 
 ## What the committed row compares
 

@@ -224,6 +224,9 @@ function levelDomainCritiques(body: any): any[] {
  * differed): wall-clock stamps and timings, the per-request id and its echoes,
  * and the random critique UUID with the fact hashes derived from it. UUID-shaped
  * strings are replaced, not dropped, so the keys that carry them still compare.
+ * Plus the BUILD identity (`build`, `plot_build`: the short SHA of HEAD), which
+ * the same scenario showed moving 71ab168 -> baa2676 and nothing else with it.
+ * Applied to BOTH sides, so the captured bytes stay as captured.
  * Everything else must be equal.
  */
 const VOLATILE_KEYS = new Set([
@@ -231,6 +234,7 @@ const VOLATILE_KEYS = new Set([
   'timestamp', 'computed_at', 'created_at',
   'request_id', 'requestId', 'request_id_chain', 'isl_request_id',
   'fact_id', 'content_hash',
+  'build', 'plot_build',
 ]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 function stable(value: any): any {
@@ -422,7 +426,7 @@ describe('route — a level limit scored on impossible levels is not decision-gr
     // REQUEST (`canonicaliseISLRequest`, normalisation/canonicalise.ts), which
     // now carries `level_domain`, so it — and `graph_hash` / the content hash,
     // which are derived from it — move. They must move, and nothing else may.
-    const base = JSON.parse(readFileSync(BASE_CAPTURE, 'utf8'));
+    const base = stable(JSON.parse(readFileSync(BASE_CAPTURE, 'utf8')));
     expect(body.response_hash).not.toBe(base.response_hash);
     expect(withoutRequestHashes(stable(body))).toEqual(withoutRequestHashes(base));
   });
