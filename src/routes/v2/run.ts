@@ -203,6 +203,7 @@ import {
   constraintsHavePercentPointValue,
   isIdentityRange,
   deriveClampDirection,
+  collectInterventionsForwardedAsStated,
   type NormalisationContext,
   type NormalisationDiagnostic,
   type NormalisationRange,
@@ -2953,7 +2954,13 @@ function buildResponse(
   // cannot carry them). Appended rather than inserted for the same reason 2.258
   // gave: the call sites pass these positionally. Feeds the ONE limb of the
   // sample-frame gate that a producer can open — an attested 'delta' target.
-  goalThresholdFrameByNodeId?: ReadonlyMap<string, string>
+  goalThresholdFrameByNodeId?: ReadonlyMap<string, string>,
+  // N1: node ids whose every option intervention reached ISL exactly as stated
+  // (`collectInterventionsForwardedAsStated`, from the recorded Phase-4a
+  // diagnostics). The frame proof the `observed_baseline_level` limb needs for
+  // a level target only SOME options set. Appended, positional, for the reason
+  // above; absent (no ISL call) ⇒ that shape stays unanchored (fail closed).
+  interventionsForwardedAsStated?: ReadonlySet<string>
 ): RunResponseV3 {
   // Producer honesty (lane PLoT-H item A): detect goal constraints whose
   // targets are NOT decision-grade — threshold normalisation fell back to the
@@ -3012,6 +3019,7 @@ function buildResponse(
       nodes: graph?.nodes,
       directedEdgeTargets,
       options,
+      interventionsForwardedAsStated,
     }),
     detectUnanchoredSampleFrameTargets(
       goalConstraints,
@@ -3019,6 +3027,7 @@ function buildResponse(
       directedEdgeTargets,
       options,
       goalThresholdFrameByNodeId,
+      interventionsForwardedAsStated,
     ),
     detectUnitMismatchedConstraintTargets(
       goalConstraints,
@@ -6749,7 +6758,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             undefined,  // optionClampDirectionByFactor (no ISL call on this path)
             undefined,  // optionDiagnosedFactors (no ISL call on this path)
             undefined,  // constraintScaleProvenanceByConstraintId (no ISL call on this path)
-            goalThresholdFrameByNodeId  // L63: constraint sample-frame gate input
+            goalThresholdFrameByNodeId,  // L63: constraint sample-frame gate input
+            undefined  // N1: interventionsForwardedAsStated (no ISL call on this path)
           ));
         }
 
@@ -8964,7 +8974,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           optionClampDirectionByFactor,  // 1d + Codex F1: per-option clamp DIRECTION map for margin_precision
           optionDiagnosedFactors,  // Codex F1: factors with a recorded diagnostic (exact vs unknown)
           constraintScaleProvenanceByConstraintId,  // A3 trust marker: scale_provenance + constraints_decision_grade (also carries F2a threshold_clamped)
-          goalThresholdFrameByNodeId  // L63: constraint sample-frame gate input (producer 'delta' attestation)
+          goalThresholdFrameByNodeId,  // L63: constraint sample-frame gate input (producer 'delta' attestation)
+          // N1: which targets' interventions reached ISL exactly as stated — from
+          // the SAME recorded Phase-4a diagnostics as the clamp map above.
+          collectInterventionsForwardedAsStated(normalizedOptions, normalisationDiagnostics)
         ));
       } catch (err) {
         req.log.error({

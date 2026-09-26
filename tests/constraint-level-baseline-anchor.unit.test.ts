@@ -55,7 +55,11 @@ const OPTIONS = [
   { id: 'opt_hold', interventions: { fac_price: { value: 0.49 } } },
   { id: 'opt_raise', interventions: { fac_price: { value: 0.59 } } },
 ];
-/** opt_raise ALSO intervenes on the level target — ISL refuses this (any pin). */
+/**
+ * opt_raise ALSO intervenes on the level target. ISL #179 scores this shape; PLoT
+ * anchors it only on proof the pinned level reached ISL as stated (N1 —
+ * `constraint-level-some-pinned-anchor.unit.test.ts`).
+ */
 const OPTIONS_ONE_PINS_TARGET = [
   OPTIONS[0],
   { id: 'opt_raise', interventions: { fac_price: { value: 0.59 }, out_subscribers: { value: 0.6 } } },
@@ -144,7 +148,11 @@ describe('resolveConstraintSampleFrameAnchor — observed_baseline_level', () =>
     ).toBeNull();
   });
 
-  it('CONTROL — pinned by ONE option: unanchored (ISL refuses any pin on a level target)', () => {
+  // SUPERSEDED rationale (N1): this used to read "ISL refuses any pin on a level
+  // target". ISL #179 scores it, and the some-pinned limb now anchors it — but
+  // only with the caller's forwarded-as-stated proof, which this 6-argument
+  // call does not give. The assertion is unchanged; its reason is fail-closed.
+  it('CONTROL — pinned by ONE option, no forwarded-as-stated proof: unanchored (fail closed)', () => {
     expect(
       resolveConstraintSampleFrameAnchor(
         'out_subscribers', nodes(WITH_BASELINE), DIRECTED, OPTIONS_ONE_PINS_TARGET, undefined, 'level',
