@@ -205,11 +205,19 @@ describe("route — a '%' limit on a ROOT '%' factor is read on the factor's own
     expect(body.constraints_status).toBe('computed');
   });
 
-  it('the node scale_frame is read off the RAW request node: frame 20, no cap → 0.5', async () => {
+  it('the node scale_frame is read off the RAW request node: frame 20, no cap, NO raw_value → 0.5', async () => {
+    // Round 3: this row used to carry the pair {0.2, 4}. Since round 2 the pair
+    // is a frame carrier of its own (rung 3) and recovers 20 WITHOUT
+    // scale_frame, so the row no longer showed that the route passes
+    // scale_frame on (adversarial verify of d97b510, EXECUTED: mutant r1M6,
+    // the route not passing scaleFrameByNodeId, survived every row). With no
+    // raw_value, scale_frame is the only frame carrier left on the row.
     const req = corpus('lvl4_cap20');
     const churn = churnOf(req);
-    churn.observed_state = { value: 0.2, raw_value: 4, unit: '%', std: 0.05 };
+    churn.observed_state = { value: 0.2, unit: '%', std: 0.05 };
     churn.scale_frame = 20;
+    expect(churn.observed_state.raw_value, 'precondition: no pair').toBeUndefined();
+    expect(churn.observed_state.cap, 'precondition: no cap').toBeUndefined();
     await run(req);
     for (const v of wireValues('gc_churn')) expect(v).toBe(0.5);
   });
@@ -442,4 +450,127 @@ describe("route — a '%' limit on a ROOT '%' factor is read on the factor's own
     for (const v of wireValues('gc_churn_rise')) expect(v).toBe(0.02);
     expect(b100._meta?.filtered_constraints).toBeUndefined();
   });
+
+  // ===========================================================================
+  // ROUND 3 — scale_frame is the ONLY frame carrier on these rows (no cap, no
+  // raw_value), so each fails if EITHER route site stops passing
+  // `scaleFrameByNodeId` on. Adversarial verify of d97b510 (EXECUTED): mutant
+  // r1M6 (dropped from the normaliser call) and xJ (dropped from the
+  // invocation predicate) both survived all 62 rows, because the pair rung
+  // recovered the same frame on every row that carried scale_frame.
+  // ===========================================================================
+
+  /** fac_churn framed ONLY by the raw node's scale_frame: no cap, no raw_value. */
+  function scaleFrameOnly(req: any, observed_state: any, scale_frame: number): any {
+    const churn = churnOf(req);
+    churn.observed_state = observed_state;
+    churn.scale_frame = scale_frame;
+    expect(churn.observed_state.cap, 'precondition: no cap').toBeUndefined();
+    expect(churn.observed_state.raw_value, 'precondition: no pair').toBeUndefined();
+    return req;
+  }
+
+  it("SCALE_FRAME ONLY, integer level: {0.06 '%'} + scale_frame 200 under '<= 10 %' → 10/200 = 0.05, so the 12% level BREAKS it", async () => {
+    const req = scaleFrameOnly(corpus('lvl12_cap200'), { value: 0.06, unit: '%', std: 0.005 }, 200);
+    const body = await run(req);
+    const churn = churnOf(req);
+    for (const v of wireValues('gc_churn')) {
+      expect(v).toBe(10 / churn.scale_frame);
+      expect(v).toBe(0.05);
+      expect(churn.observed_state.value).toBeGreaterThan(v);
+    }
+    const prov = provenanceOf(body, 'gc_churn');
+    expect(prov.length).toBeGreaterThan(0);
+    for (const p of prov) expect(p).toEqual({ source: 'unit_percent', range_unified: true, decision_grade: true });
+    const repair = (body._meta?.repairs_applied ?? []).find((r: any) => r.field === 'constraint.value.gc_churn');
+    expect(repair).toMatchObject({ action: 'normalised', from_value: 10, to_value: 0.05, reason: 'normalised range=[0,200] source=unit_percent' });
+    expect(body._meta?.filtered_constraints).toBeUndefined();
+  });
+
+  it("SCALE_FRAME ONLY, gate-closed fractional '%': 0.1 (ten percent) on {0.6 '%'} + scale_frame 20 reads 0.5 ALONE and BATCHED, decision-grade both ways", async () => {
+    const frac = { constraint_id: 'gc_churn', node_id: 'fac_churn', operator: '<=', value: 0.1, unit: '%', value_frame: 'level' };
+    const opener = { constraint_id: 'gc_u3b', node_id: 'fac_cost', operator: '<=', value: 250000, unit: '£', value_frame: 'level' };
+    const seen: Record<string, number[]> = {};
+    for (const [label, gcs] of [['alone', [frac]], ['batched', [frac, opener]]] as const) {
+      const req = scaleFrameOnly(corpus('lvl4_cap20'), { value: 0.6, unit: '%', std: 0.05 }, 20);
+      req.goal_constraints = gcs.map((c) => ({ ...c }));
+      const body = await run(req);
+      seen[label] = wireValues('gc_churn');
+      for (const v of seen[label]) expect(v, label).toBeCloseTo(0.1 / (churnOf(req).scale_frame / 100), 12);
+      for (const v of seen[label]) expect(v, label).toBeCloseTo(0.5, 12);
+      const prov = provenanceOf(body, 'gc_churn');
+      expect(prov.length, label).toBeGreaterThan(0);
+      for (const p of prov) expect(p, label).toEqual({ source: 'unit_percent', range_unified: true, decision_grade: true });
+      expect(body._meta?.filtered_constraints, label).toBeUndefined();
+    }
+    expect(seen.alone).toEqual(seen.batched);
+  });
+
+  for (const [name, observed_state] of [
+    ["an unrecognised spelling ('% per month')", { value: 0.2, unit: '% per month' }],
+    ['an undeclared unit', { value: 0.2 }],
+  ] as const) {
+    it(`SCALE_FRAME ONLY, refused: ${name} framed on 20 by scale_frame alone is withheld with the typed reason`, async () => {
+      const req = scaleFrameOnly(corpus('lvl4_cap20'), { ...observed_state }, 20);
+      const body = await run(req);
+      neverOnWire('gc_churn');
+      expect(provenanceOf(body, 'gc_churn')).toEqual([]);
+      expect(body._meta?.filtered_constraints).toEqual([
+        { constraint_id: 'gc_churn', node_id: 'fac_churn', reason: 'percent_unit_disagrees_with_target_frame' },
+      ]);
+    });
+  }
+
+  it("CONTROL — SCALE_FRAME ONLY on 100 ({0.07 '% per month'} + scale_frame 100, no raw_value): 0.1, decision-grade, unchanged", async () => {
+    const req = scaleFrameOnly(corpus('lvl4_cap100'), { value: 0.07, unit: '% per month' }, 100);
+    const body = await run(req);
+    for (const v of wireValues('gc_churn')) expect(v).toBeCloseTo(0.1, 12);
+    const prov = provenanceOf(body, 'gc_churn');
+    expect(prov.length).toBeGreaterThan(0);
+    for (const p of prov) expect(p).toEqual({ source: 'unit_percent', range_unified: true, decision_grade: true });
+    expect(body._meta?.filtered_constraints).toBeUndefined();
+  });
+
+  // ===========================================================================
+  // ROUND 3 — the '%' frame refusal is decided BEFORE the delta checks.
+  // Adversarial verify of d97b510 (EXECUTED): mutant xG, which moves the
+  // refusal after them, survived all 62 rows. Under it a fractional '%' DELTA
+  // on these targets passes the delta checks untouched and reaches ISL as
+  // decision-grade, and an integer one is refused under the DELTA reason with
+  // the delta critique. Deliberate change against b09c0f2 (PR body, 'Behaviour
+  // that deliberately changes'): these deltas are refused under the '%' reason.
+  // ===========================================================================
+
+  const PERCENT_REFUSAL_CRITIQUE =
+    '1 constraint(s) were not evaluated: [gc_churn_rise]. Each is stated in percent, but its target node is ' +
+    'measured on a scale that is not stated in percent, or whose percent frame could not be established, so ' +
+    "the limit cannot be placed on that node's own scale. Rather than compare it with a different quantity, " +
+    'the constraint was left out of the analysis.';
+
+  for (const [name, observed_state] of [
+    ['a £ target framed on cap 500000', { value: 0.4, raw_value: 200000, cap: 500000, unit: '£', std: 0.05 }],
+    ['an unframed count target', { value: 0.4, unit: 'count' }],
+    ['an unframed duration target (months)', { value: 0.4, unit: 'months' }],
+    ["a '% per month' target framed on cap 20", { value: 0.2, raw_value: 4, cap: 20, unit: '% per month' }],
+    ['an undeclared-unit target framed on cap 20', { value: 0.2, raw_value: 4, cap: 20 }],
+  ] as const) {
+    it(`'%' DELTA on ${name}: refused as percent_unit_disagrees_with_target_frame, integer AND fractional`, async () => {
+      for (const value of [2, 0.02]) {
+        const req = corpus('delta_cap20');
+        churnOf(req).observed_state = { ...observed_state };
+        const gc = req.goal_constraints.find((c: any) => c.constraint_id === 'gc_churn_rise');
+        expect(gc, 'precondition').toMatchObject({ node_id: 'fac_churn', unit: '%', value_frame: 'delta' });
+        gc.value = value;
+        const body = await run(req);
+        neverOnWire('gc_churn_rise');
+        expect(provenanceOf(body, 'gc_churn_rise'), `${value}`).toEqual([]);
+        expect(body._meta?.filtered_constraints, `${value}`).toEqual([
+          { constraint_id: 'gc_churn_rise', node_id: 'fac_churn', reason: 'percent_unit_disagrees_with_target_frame' },
+        ]);
+        const c = (body.critiques ?? []).filter((x: any) => x.code === 'CONSTRAINT_REFUSED_FRAME_FIDELITY');
+        expect(c.map((x: any) => x.message), `${value}`).toEqual([PERCENT_REFUSAL_CRITIQUE]);
+        expect(c[0].affected_node_ids, `${value}`).toEqual(['fac_churn']);
+      }
+    });
+  }
 });

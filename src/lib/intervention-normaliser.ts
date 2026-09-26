@@ -1321,7 +1321,8 @@ function isPercentPointValue(unit: string | undefined, value: number): boolean {
  *   · CEE's `resolveScaleFrame` reads the stored `scale_frame` first and the
  *     pair second (rungs 2 → 3 here) but never reads `observed_state.cap`;
  *     holds a stored frame to `> 1`; and REJECTS a stored frame its own pair
- *     contradicts (`checkPairCoherence` ⇒ undefined). Rungs 1–2 here keep
+ *     contradicts (`checkPairCoherence` returns `'incoherent'`, and
+ *     `resolveScaleFrame` then returns `undefined`). Rungs 1–2 here keep
  *     round 1's `> 0` domain (a `fraction` frame of 1 or 0.5 is a real frame
  *     on this rung) and do NOT test a stored frame against the pair: a
  *     disagreeing pair is outranked, not refused. (CODE-READ reason: PLoT's
@@ -1964,7 +1965,11 @@ export function normaliseGoalConstraints(
     // constraint still delivers. Scoring it instead is the wire-proven wrong
     // pass: a limit compared with a quantity the user did not state, certified
     // decision-grade. Placed before the stamp preference and the delta checks
-    // so no later branch can re-admit it. (The auto-synthesised goal
+    // so no later branch can re-admit it — the order is pinned by route rows:
+    // a '%' DELTA on a £/count/duration target, or on an undeclared or
+    // unrecognised unit off 100, is refused under THIS reason, integer and
+    // fractional alike (after the delta checks, a fractional one would pass
+    // them untouched and reach ISL). (The auto-synthesised goal
     // constraint carries no unit, so it can never reach here — refusing it
     // would withdraw the user's target, see 2.1023 below.)
     if (percentFrameRefusal !== undefined) {

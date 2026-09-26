@@ -185,11 +185,16 @@ describe('pct-cap contrast corpus — the % rung reads the target frame', () => 
 // =============================================================================
 
 describe('the target frame — which carrier, which unit', () => {
-  it("scale_frame is a frame too: '%' node with scale_frame 20 and no cap → 0.5", () => {
+  it("scale_frame is a frame too: '%' node with scale_frame 20, no cap and NO raw_value → 0.5", () => {
+    // Round 3: this row used to carry the pair {0.2, 4}. Since round 2 the pair
+    // is a frame carrier of its own and recovers 20 without scale_frame, so the
+    // row no longer showed that scale_frame was read. No raw_value now.
     const req = withChurn('lvl4_cap20', {
-      observed_state: { value: 0.2, raw_value: 4, unit: '%', std: 0.05 },
+      observed_state: { value: 0.2, unit: '%', std: 0.05 },
       scale_frame: 20,
     });
+    expect(node(req, 'fac_churn').observed_state.raw_value, 'precondition: no pair').toBeUndefined();
+    expect(node(req, 'fac_churn').observed_state.cap, 'precondition: no cap').toBeUndefined();
     const r = normaliseRow(req, { scaleFrameByNodeId: new Map([['fac_churn', node(req, 'fac_churn').scale_frame]]) });
     expect(sent(r, 'gc_churn')).toBe(0.5);
     expect(diag(r, 'gc_churn')!.range).toEqual({ min: 0, max: 20, source: 'unit_percent' });
@@ -672,5 +677,68 @@ describe("round 2 — a '%' limit on a declared NON-percent unit with NO frame i
     const batched = normaliseGoalConstraints([frac, opener], nodes, { unitsByConstraintId: units, normaliseWithoutScale: true });
     expect(sent(alone, 'gc_churn')).toBeCloseTo(0.2, 12);
     expect(sent(batched, 'gc_churn')).toBe(sent(alone, 'gc_churn'));
+  });
+});
+
+// =============================================================================
+// 7. ROUND 3 — precision pins (adversarial verify of d97b510: mutants xD and xH
+//    survived every row; neither the pair tolerance nor the refusal record was
+//    pinned)
+// =============================================================================
+
+describe('round 3 — the pair tolerance and the refusal record are pinned', () => {
+  const n = (os: Record<string, unknown>) =>
+    ({ id: 'fac_churn', kind: 'factor', label: 'x', observed_state: os }) as unknown as EngineNodeV3;
+
+  it("the legacy-100 snap uses CEE's checkPairCoherence tolerance (relative 1e-9): no wider, no narrower", () => {
+    // Relative 1e-10 off frame 100: coheres, so it IS frame 100 (legacy).
+    const inside = 7 * (1 + 1e-10);
+    // Relative 1e-8 off frame 100: does not cohere, so the pair's own quotient is the frame.
+    const outside = 7 * (1 + 1e-8);
+    for (const unit of ['%', '% per month']) {
+      expect(resolvePercentTargetFrame(n({ value: 0.07, raw_value: inside, unit }), undefined), unit).toEqual({ verdict: 'legacy' });
+    }
+    // Off 100: a percent unit defers to the pair's own quotient, exactly …
+    expect(resolvePercentTargetFrame(n({ value: 0.07, raw_value: outside, unit: '%' }), undefined)).toEqual({
+      verdict: 'deferred', frame: outside / 0.07, percent_extent: outside / 0.07,
+    });
+    // … and an unrecognised spelling refuses (it is only legacy on frame 100).
+    expect(resolvePercentTargetFrame(n({ value: 0.07, raw_value: outside, unit: '% per month' }), undefined)).toMatchObject({
+      verdict: 'refused', frame: outside / 0.07,
+    });
+  });
+
+  it("a refused '%' limit's record states what the LEGACY [0,100] rung would have sent, and its repair text is exact", () => {
+    const cases: Array<[string, Record<string, unknown>, string]> = [
+      ['£ framed on cap 500000', { value: 0.4, raw_value: 200000, cap: 500000, unit: '£', std: 0.05 }, 'frame=500000 unit=£'],
+      ['£ unframed', { value: 0.4, unit: '£' }, 'frame=none unit=£'],
+      ['undeclared unit on cap 20', { value: 0.2, raw_value: 4, cap: 20 }, 'frame=20 unit=undeclared'],
+    ];
+    for (const [name, observed_state, frameText] of cases) {
+      const req = withChurn('lvl4_cap20', { observed_state });
+      const r = normaliseRow(req);
+      expect(r.refused, name).toEqual([
+        {
+          constraint_id: 'gc_churn',
+          node_id: 'fac_churn',
+          reason: PERCENT_UNIT_DISAGREES_WITH_TARGET_FRAME,
+          stated_value: 10,
+          would_have_sent: 0.1,
+          range: { min: 0, max: 100, source: 'unit_percent' },
+        },
+      ]);
+      expect(r.repairs.filter((x) => x.field === 'constraint.value.gc_churn'), name).toEqual([
+        {
+          field: 'constraint.value.gc_churn',
+          action: 'removed',
+          from_value: 10,
+          to_value: 'refused',
+          reason:
+            `refused: a '%' limit cannot be read on its target's own frame (${frameText}); ` +
+            `the percent scale range=[0,100] would have sent 0.1 in place of 10, ` +
+            `comparing the limit with a quantity other than the one stated.`,
+        },
+      ]);
+    }
   });
 });
