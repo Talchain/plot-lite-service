@@ -9,6 +9,18 @@ and `DecisionGuideAI` (UI).
 
 ## Current contents
 
+### `talchain-schemas-0.60.0.tgz`
+
+**Purpose:** READER-FIRST adoption of 0.60.0 (DL #70 5856251322). CEE is about to emit `per_limit`/`joint`. PLoT sits on the CEE path, so it must know the release before a producer uses it. Meant to be INERT here.
+
+**Bytes:** CEE's vendored tarball from `olumi-assistants-service` #2115 (merged 18:05Z, head c848d9d7). Its sha256 is `31b5f066a2a086af6d2669f5ac1e76d683992ce544655bdc3bd2c703380ff92b`, equal to CEE's manifest. The tag is `v0.60.0` → `2a451c7e2177459793258da65e6ed330139fdda3`.
+⚠ UNVERIFIED for this bump: unlike 0.59.0 below, the contents were NOT re-packed from the tag and diffed. Parity rests on CEE's reviewed manifest.
+
+**What changed in 0.59.0 → 0.60.0** (olumi-schemas #68):
+- `ConstraintVerdictSchema.per_limit` / `joint`;
+- `edge_strength_edit.band` (`StrengthBand`).
+**PLoT consumes none of them:** `ConstraintVerdict|StrengthBand|edge_strength_edit|per_limit` occur 0 times in `src`, while the contrast `AnalysisEnrichmentSchema` is present.
+
 ### `talchain-schemas-0.59.0.tgz`
 
 **Purpose:** PARITY with CEE. This is DL #70 5856233213, row A8 "schema pin skew". On 27 Sep, CEE vendored 0.59.0 while PLoT and the UI sat on 0.55.0. Under hazard 1 of the estate's CLAUDE.md, a consumer on an older pin silently drops fields it does not know. Like earlier parity bumps, this is **meant to be INERT here**: PLoT must never be the hop that hard-fails on a field a producer has started sending.
