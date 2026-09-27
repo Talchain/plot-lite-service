@@ -262,6 +262,11 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
   IDENTICAL_OPTIONS:
     'Some options have identical effects. Each option must define distinct interventions.',
 
+  // A3 round 2: withholding the options whose stated levels would clamp left
+  // fewer than two to compare.
+  INTERVENTION_CLAMPED_NO_COMPARISON:
+    'Too few options can be analysed at the levels they state, so no comparison was run. Check the levels those options set, or give their factors a range that includes them.',
+
   INVALID_NODE_ID_PATTERN:
     'A node has an invalid identifier. Node IDs must use only lowercase letters, numbers, underscores, colons, and hyphens.',
 
@@ -458,6 +463,13 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
     const sourceLabel = resolveNodeLabel(c.affected_node_ids?.[0], g);
     const targetLabel = resolveNodeLabel(c.affected_node_ids?.[1], g);
     return `Connection from ${sourceLabel} to ${targetLabel} has conflicting direction signals. The inferred direction was used.`;
+  },
+
+  // A3 round 2: an option withheld because a level it states would clamp.
+  INTERVENTION_CLAMPED: (c, g, opts) => {
+    const optLabel = resolveOptionLabel(c.affected_option_ids?.[0], opts, g);
+    const factorLabel = resolveNodeLabel(c.affected_node_ids?.[0], g);
+    return `${optLabel} was left out of the comparison: the level it sets for ${factorLabel} lies outside the range that factor could be placed on, so it could only have been analysed at a different level.`;
   },
 
   INTERVENTION_EXTENDS_RANGE: (c, g, opts) => {

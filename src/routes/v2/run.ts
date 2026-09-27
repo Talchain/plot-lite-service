@@ -211,6 +211,7 @@ import {
   isIdentityRange,
   deriveClampDirection,
   collectInterventionsForwardedAsStated,
+  collectInterventionClamps,
   type NormalisationContext,
   type NormalisationDiagnostic,
   type NormalisationRange,
@@ -1784,6 +1785,8 @@ interface MetaParams {
   };
   /** Filtered constraint records for _meta.filtered_constraints */
   filteredConstraints?: import('../../types/engine-v3.js').FilteredConstraintRecord[];
+  /** A3 round 2: options withheld before ISL (intervention would clamp) — _meta.withheld_options */
+  withheldOptions?: import('../../types/engine-v3.js').WithheldOptionRecord[];
   /** Per-factor range derivation source (maps factor_id → derivation tier) */
   rangeDerivationSources?: Record<string, string>;
 }
@@ -2319,6 +2322,17 @@ const REFUSAL_CRITIQUE_COPY: Record<ConstraintRefusalReason, string> = {
     `stated in percent, or whose percent frame could not be established, so the limit ` +
     `cannot be placed on that node's own scale. Rather than compare it with a different ` +
     `quantity, the constraint was left out of the analysis.`,
+  // A3 round 2 (AIQ #70 5855192170 rules 1 and 3; B5 codes 5855511541).
+  threshold_unframed:
+    `Each is stated as a raw figure on a factor whose scale the model does not carry ` +
+    `(no cap or frame for its level), so the figure cannot be placed on that factor's ` +
+    `scale. Rather than compare it with a guessed scale, the limit was left out of the ` +
+    `analysis.`,
+  threshold_clamped:
+    `Each lies outside the scale its factor is measured on, so the engine could only ` +
+    `have been asked about the edge of that scale, which every option meets or misses ` +
+    `by arithmetic. Rather than report that as your limit, it was left out of the ` +
+    `analysis.`,
 };
 
 /**
@@ -3120,6 +3134,26 @@ function buildResponse(
   const activeConstraintIds = constraintScaleProvenanceByConstraintId
     ? [...constraintScaleProvenanceByConstraintId.keys()]
     : undefined;
+  // A3 ROUND 2 — THE JOINT COVERS EVERY LIMIT, OR IT IS WITHHELD (DL/MG brief;
+  // AIQ #70 5855511541: `joint.state` is `withheld` unless every limit is
+  // scored, and "the producer must also OMIT probability_of_joint_goal on every
+  // option when joint is withheld").
+  //
+  // WHAT IT DID BEFORE. A refused limit (2.878 delta, the '%' frame refusal,
+  // and now threshold_unframed / threshold_clamped) leaves the ISL payload, so
+  // ISL's `joint_probability` is computed over the SURVIVORS only — and this
+  // builder forwarded it verbatim as `probability_of_joint_goal`. The refused
+  // limit never entered the number, but the number was published as the chance
+  // of meeting the user's limits: with a refused churn limit and a met price
+  // limit it read "P(all your limits) = P(price)". Only the run-level
+  // reliability suppression below withheld it.
+  //
+  // THE RULE. Derived from the ONE record list of "limits that did not reach
+  // the engine, and why" (`_meta.filtered_constraints` — the same expression
+  // `withheldConstraintCount` reads for the crown): any entry ⇒ the joint is
+  // withheld on every option. Per-limit probabilities of the limits that WERE
+  // scored still deliver; only the joint claim over "all your limits" goes.
+  const jointWithheldForLimitIds = (meta.filteredConstraints ?? []).map((r) => r.constraint_id);
   const optionComparison = islOptionData?.map((r: any) => {
     const optionId = r.option_id ?? r.id;
     const option = options?.find((o) => o.id === optionId);
@@ -3414,8 +3448,16 @@ function buildResponse(
           unreliable_targets: unreliableConstraintTargets,
         });
       } else {
-        if (jointProb !== undefined) {
+        if (jointProb !== undefined && jointWithheldForLimitIds.length === 0) {
           result.probability_of_joint_goal = jointProb;
+        } else if (jointProb !== undefined) {
+          logger?.warn({
+            event: 'joint_probability_withheld_limit_unscored',
+            option_id: optionId,
+            raw_probability_of_joint_goal: constraintAnalysis.joint_probability,
+            withheld_reason: 'limit_unscored',
+            constraint_ids: jointWithheldForLimitIds,
+          });
         }
         if (constraintProbs !== undefined) {
           result.constraint_probabilities = constraintProbs;
@@ -4657,6 +4699,11 @@ function buildResponse(
       // Surface filtered constraints (non-evaluable temporal constraints dropped before ISL)
       if (meta.filteredConstraints && meta.filteredConstraints.length > 0) {
         baseMeta.filtered_constraints = meta.filteredConstraints;
+      }
+
+      // A3 round 2: options withheld before ISL, and why (absent when none).
+      if (meta.withheldOptions && meta.withheldOptions.length > 0) {
+        baseMeta.withheld_options = meta.withheldOptions;
       }
 
       // Per-factor range derivation sources (diagnostic — shows which tier each factor used)
@@ -6088,6 +6135,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // ~1,000 lines below, once the normaliser has run.
         const refusedConstraintRecords: RefusedConstraintRecord[] = [];
 
+        // A3 round 2 (AIQ #70 5855192170 rule 2) — the OPTION analogue: options
+        // withheld before ISL because an intervention would clamp. Populated in
+        // Phase 4a; lands in `_meta.withheld_options`.
+        const withheldOptionRecords: import('../../types/engine-v3.js').WithheldOptionRecord[] = [];
+
         if (filteredConstraintRecords.length > 0) {
           req.log.info({
             event: 'plot.temporal_constraints_filtered',
@@ -6974,6 +7026,106 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             normalised: false,
             reason: 'All intervention values already in [0,1] range',
           });
+        }
+
+        // =================================================================
+        // A3 round 2 — CLAMP ⇒ WITHHOLD (AIQ #70 5855192170, rule 2)
+        // =================================================================
+        // An option whose stated level would be PINNED to an end of its
+        // factor's range is not analysed as stated: "hire 10" on an unframed
+        // factor at 3 (`inferred_value` [0, 6]) would run as "hire 6". Round 1
+        // disclosed the clamp (a typed `clamped` repair) and still analysed the
+        // option — a label on a different question. Only an unclamped level is
+        // analysed, so the option's share, mean gap and rank are WITHHELD.
+        //
+        // THE PRECEDENT MIRRORED: IDENTICAL_OPTIONS_DEDUPED (preflight-v2.ts
+        // `validateNotIdenticalOptions`, consumed at Phase 1 via
+        // `preflight.deduplicated_options`). That removes an option BEFORE ISL
+        // with a per-option `warning` critique naming it, and BLOCKS
+        // (IDENTICAL_OPTIONS) when fewer than two options remain. The same three
+        // moves here: the option leaves `normalizedOptions` AND `optionsForISL`
+        // (so ISL never samples it — a wrong competitor would otherwise take
+        // share from, and move the win probabilities of, every OTHER option),
+        // an INTERVENTION_CLAMPED warning names it, and fewer than two left
+        // blocks the run (INTERVENTION_CLAMPED_NO_COMPARISON — a one-option
+        // "comparison" would crown the survivor with certainty).
+        //
+        // The clamp is read off the RECORDED Phase-4a diagnostics — the same
+        // source the clamp repair is built from — and the repair stays in
+        // `repairs_applied` as the evidence. The ranges the surviving options
+        // were normalised on are kept exactly as computed, so the disclosure
+        // (`range_derivation_sources`, the `normalised` repairs) and what ISL
+        // receives describe one scale. The clamped factor's own range cannot
+        // depend on the clamped value (a measured spread contains every value
+        // it is built from). ⚠ RESIDUAL, disclosed: a withheld option's level on
+        // a DIFFERENT factor may have widened that factor's `inferred_spread`;
+        // the survivors keep that scale rather than being re-normalised.
+        {
+          const clampRecords = collectInterventionClamps(normalisationDiagnostics);
+          if (clampRecords.length > 0) {
+            const withheldIds = new Set(clampRecords.map((r) => r.option_id));
+            const labelOf = (id: string): string => normalizedOptions.find((o) => o.id === id)?.label ?? id;
+            const clampWarnings: CritiqueV3[] = [...withheldIds].map((optionId) => {
+              const own = clampRecords.filter((r) => r.option_id === optionId);
+              return {
+                id: randomUUID(),
+                code: 'INTERVENTION_CLAMPED',
+                severity: 'warning' as const,
+                message:
+                  `Option '${labelOf(optionId)}' was left out of the comparison: ` +
+                  own
+                    .map((r) => `it sets '${r.factor_id}' to ${r.stated}, which would have been analysed as ${r.applied}`)
+                    .join('; ') +
+                  `. An option is analysed only at the level stated.`,
+                source: 'validation' as const,
+                affected_option_ids: [optionId],
+                affected_node_ids: [...new Set(own.map((r) => r.factor_id))],
+                blocks_analysis: false,
+              };
+            });
+            const remaining = normalizedOptions.filter((o) => !withheldIds.has(o.id));
+            req.log.warn({
+              event: 'plot.options_withheld_intervention_clamped',
+              withheld_count: withheldIds.size,
+              remaining_count: remaining.length,
+              // Identifiers + vocabulary only — the quantities stay in the
+              // response record and the repair (same F7 rule as the logs above).
+              withheld: clampRecords.map((r) => ({ option_id: r.option_id, factor_id: r.factor_id, reason: r.reason })),
+            });
+            if (remaining.length < 2) {
+              return reply.status(422).send(buildBlockedResponse(
+                'Options withheld: every stated level would be analysed as a different level',
+                [
+                  ...clampWarnings,
+                  {
+                    id: randomUUID(),
+                    code: 'INTERVENTION_CLAMPED_NO_COMPARISON',
+                    severity: 'blocker' as const,
+                    message:
+                      `${withheldIds.size} option(s) would be analysed at a level other than the one stated ` +
+                      `(${[...withheldIds].map(labelOf).join(', ')}), leaving ${remaining.length} to compare. ` +
+                      `No comparison was run rather than one between options the user did not state.`,
+                    source: 'validation' as const,
+                    affected_option_ids: [...withheldIds],
+                    affected_node_ids: [...new Set(clampRecords.map((r) => r.factor_id))],
+                    blocks_analysis: true,
+                  },
+                ],
+                filteredGraph,
+                normalizedOptions,
+                requestId,
+                requestComputedAt,
+              ));
+            }
+            preflight.warnings.push(...clampWarnings);
+            withheldOptionRecords.push(...clampRecords);
+            normalizedOptions = remaining;
+            optionsForISL = optionsForISL.filter((o) => !withheldIds.has(o.id));
+            // Every later reader of the diagnostics (the per-node intervention
+            // scale, the clamp maps, the as-stated frame proof) describes the
+            // options ISL is sent, not the ones it never sees.
+            normalisationDiagnostics = normalisationDiagnostics.filter((d) => !withheldIds.has(d.option_id));
+          }
         }
 
         // Mixed range derivation tier warning:
@@ -9113,6 +9265,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 reason: r.reason,
               })),
             ],
+            withheldOptions: withheldOptionRecords,
             rangeDerivationSources: normalisationContext
               ? Object.fromEntries([...normalisationContext.factors].map(([id, ctx]) => [id, ctx.range.source]))
               : buildDefaultRangeDerivationSources(normalizedOptions),

@@ -13,7 +13,7 @@
  * @see Schema v2.6 §B.8 - Range derivation priority chain
  */
 
-import type { EngineNodeV3, OptionV3, InterventionValueV3, RepairRecord, ConstraintLevelDomain } from '../types/engine-v3.js';
+import type { EngineNodeV3, OptionV3, InterventionValueV3, RepairRecord, ConstraintLevelDomain, WithheldOptionRecord } from '../types/engine-v3.js';
 import { finiteNum } from '../util/numeric.js';
 import {
   PERCENT_UNIT_TOKENS,
@@ -255,8 +255,9 @@ function isValidExtractedRange(range: [number, number] | undefined): range is [n
  * |          |                    | Range: [0, cap]. Requires cap > 0.                       |
  * | 1        | `explicit`         | `state_space.range` (user-confirmed). Requires max > min. |
  * | 1.5      | `extracted`        | `intervention_hints.extracted_range` from CE extraction.  |
- * | 1.6      | `scale_frame` /    | INTERVENED factors only (`interventionValues` non-empty): |
- * |          | `pair_frame`       | the node's own frame — the raw node's `scale_frame`, else |
+ * | 1.6      | `scale_frame` /    | INTERVENED factors (`interventionValues` non-empty), and  |
+ * |          | `pair_frame`       | a raw LIMIT THRESHOLD (`opts.frameThreshold`, A3 round 2):|
+ * |          |                    | the node's own frame — the raw node's `scale_frame`, else |
  * |          |                    | the `{value, raw_value}` pair — read by `resolveNodeFrame`|
  * |          |                    | (the SAME reader the '%' limit rung uses). Range          |
  * |          |                    | [0, frame]. Skipped on a negative-domain node (value or   |
@@ -278,7 +279,13 @@ function isValidExtractedRange(range: [number, number] | undefined): range is [n
  * @param hints Optional intervention hints from CE
  * @param interventionValues Optional array of intervention values for this factor across options
  * @param scaleFrame The RAW request node's `scale_frame` (`collectScaleFrameByNodeId`) — the
- *   canonical EngineNodeV3 drops it. Read only by rung 1.6, only for an intervened factor.
+ *   canonical EngineNodeV3 drops it. Read only by rung 1.6: for an intervened factor, or
+ *   for a limit threshold when `opts.frameThreshold` is set.
+ * @param opts.frameThreshold A3 round 2 (AIQ olumi-programme-docs#70 5855192170, rule 1):
+ *   the caller is placing a RAW LIMIT THRESHOLD on this node, so rung 1.6 reads the node's
+ *   own frame whether or not any option intervenes on it. Only `normaliseGoalConstraints`
+ *   passes it; every other caller (the Phase-4a context for a non-intervened factor, the
+ *   flip-threshold `explicitCapRange`) is byte-identical.
  * @returns Normalisation range with source indicator (see RangeSource type)
  */
 export function deriveRange(
@@ -286,6 +293,7 @@ export function deriveRange(
   hints?: InterventionHints,
   interventionValues?: number[],
   scaleFrame?: number,
+  opts?: { frameThreshold?: boolean },
 ): NormalisationRange {
   const stateSpace = node.state_space;
   const observedState = node.observed_state;
@@ -334,11 +342,17 @@ export function deriveRange(
   // `inferred_value` = [0, 2 × the NORMALISED value] = [0, 0.06] and 2.5
   // clamped to 1.0: "cut churn to 2.5%" ran as churn = 100%, silently.
   //
-  // WHY ONLY FOR AN INTERVENED FACTOR. The raw-scale contract is a property of
-  // option interventions. Every other caller — `normaliseGoalConstraints` rung
-  // 6 and the flip-threshold `explicitCapRange` — passes no intervention
-  // values and is byte-identical; a framed factor no option sets keeps its
-  // range in the normalisation context (A3 scope; disclosed residual).
+  // WHY AN INTERVENED FACTOR — AND A RAW LIMIT THRESHOLD (round 2). The
+  // raw-scale contract is a property of option interventions AND of limits
+  // ("threshold in the user's units; PLoT normalises downstream"). Round 1
+  // framed only the interventions, so a limit on a framed factor NO option
+  // sets still fell to `inferred_*` = [0, 2 × the NORMALISED level] and clamped:
+  // Paul's 17d1cd3a churn `<= 4` on `{0.03, raw 3}` framed 100 → [0, 0.06] → 1,
+  // "churn <= 100%", met with certainty. AIQ #70 5855192170 rule 1: ONE rule for
+  // interventions and limits, through this ONE reader, intervened or not. So
+  // `normaliseGoalConstraints` passes `opts.frameThreshold`; every other caller
+  // — the Phase-4a context for a non-intervened factor and the flip-threshold
+  // `explicitCapRange` — passes neither and is byte-identical.
   //
   // WHY BEFORE `inferred_spread`. A spread of RAW option values ([2, 2.6]) is
   // not the node's scale either: ISL's node sits at `value` = raw ÷ frame, so
@@ -355,7 +369,7 @@ export function deriveRange(
     (typeof nodeLevel === 'number' && nodeLevel < 0) ||
     (typeof nodeBaseline === 'number' && nodeBaseline < 0);
   // (A cap already returned at Priority 0, so the carrier here is scale_frame or pair.)
-  if (isIntervened && nodeFrame !== undefined && !negativeDomain) {
+  if ((isIntervened || opts?.frameThreshold === true) && nodeFrame !== undefined && !negativeDomain) {
     return {
       min: 0,
       max: nodeFrame.frame,
@@ -1025,6 +1039,43 @@ export function collectInterventionsForwardedAsStated(
   return out;
 }
 
+/**
+ * A3 ROUND 2 — CLAMP ⇒ WITHHOLD (AIQ olumi-programme-docs#70 5855192170, rule 2).
+ *
+ * Every (option, factor) the Phase-4a normaliser PINNED to an end of [0,1] —
+ * `normalised` outside [0,1] before the clamp — as a typed
+ * `intervention_clamped` record. Such an option would be analysed at the
+ * range's edge, not at the level stated: "hire 10" on an unframed factor at 3
+ * (`inferred_value` = [0, 6]) runs as "hire 6". A disclosed clamp beside a
+ * number answers a different question than the user asked (F-01's class with a
+ * label on it), so the route WITHHOLDS the option — its share, mean gap and
+ * rank — and keeps the normaliser's `clamped` repair as the evidence.
+ *
+ * `stated` is the level as it arrived; `applied` is the level the clamp would
+ * have analysed, in the same units (the edge of the range, denormalised) —
+ * never the internal [0,1] number. Read off the RECORDED diagnostics, the same
+ * source the clamp repair and the route's clamp maps are built from.
+ */
+export function collectInterventionClamps(
+  diagnostics: ReadonlyArray<Pick<NormalisationDiagnostic, 'option_id' | 'factor_id' | 'original_value' | 'normalised_value' | 'range' | 'clamped'>>,
+): WithheldOptionRecord[] {
+  const out: WithheldOptionRecord[] = [];
+  for (const d of diagnostics) {
+    if (!d.clamped) continue;
+    const applied = denormaliseValue(d.normalised_value, d.range);
+    out.push({
+      option_id: d.option_id,
+      reason: 'intervention_clamped',
+      factor_id: d.factor_id,
+      stated: roundTo6Decimals(d.original_value),
+      // A clamped edge on a usable range always denormalises; the fallback is
+      // the range endpoint itself, never an invented number.
+      applied: roundTo6Decimals(applied ?? (d.normalised_value >= 1 ? d.range.max : d.range.min)),
+    });
+  }
+  return out;
+}
+
 // -----------------------------------------------------------------------------
 // ISL Result Denormalisation
 // -----------------------------------------------------------------------------
@@ -1437,7 +1488,8 @@ function isPercentPointValue(unit: string | undefined, value: number): boolean {
  *      12% > 10%; `{0.575, 115}` under `>= 100 '%'` read BROKEN although
  *      115% >= 100%).
  *   none ⇒ nothing to defer to ⇒ `legacy` (today's reading) — EXCEPT a
- *   declared non-percent unit, which refuses with no frame too (below).
+ *   declared non-percent or unrecognised unit, which refuses with no frame
+ *   too (below).
  *
  * WHERE THIS ORDER DIFFERS FROM CEE — recorded, not smoothed over:
  *   · CEE's `levelIsPercentOver100` (`admit-constraint.ts`) reads cap, then
@@ -1464,12 +1516,24 @@ function isPercentPointValue(unit: string | undefined, value: number): boolean {
  *   UNDECLARED                     frame ∈ {1, 100} ⇒ legacy (both are the
  *                                  percent÷100 reading on either spelling);
  *                                  any other frame ⇒ REFUSED
- *   UNRECOGNISED spelling          frame 100 ⇒ legacy — this is Paul's churn
- *     (`'% per month'`, …)         (`scale_frame` 100, `'% per month'`), which
- *                                  MUST stay byte-identical; any other frame ⇒
- *                                  REFUSED (PLoT cannot prove the spelling is
- *                                  a percent — CEE's own rule for the same
- *                                  shape is "stays verbatim, PLoT flags it")
+ *   UNRECOGNISED spelling          REFUSED at every frame, 100 included, and
+ *     (`'% per month'`, …)         with no frame (A3 round 2): the limit's `'%'`
+ *                                  and the node's unit are DIFFERENT units —
+ *                                  `classifyUnitCompatibility` says `mismatched`
+ *                                  — and PLoT cannot prove the spelling is a
+ *                                  percent (CEE's rule for the shape: "stays
+ *                                  verbatim, PLoT flags it"). Until round 2 a
+ *                                  frame of 100 read LEGACY, to keep Paul's
+ *                                  relabelled churn byte-identical; that cell
+ *                                  was the one PLoT-side special case for CEE's
+ *                                  `agent_lane_limit_unit_v1` relabel, and it
+ *                                  is what scored 17d1cd3a's `'%'` limit on a
+ *                                  `'% per month'` node (DL #70 5855470798: a
+ *                                  limit scored while its unit differs from its
+ *                                  node's FAILS the Paul journey). A limit in
+ *                                  the node's OWN spelling never reaches this
+ *                                  rung: it is placed on the node's frame by
+ *                                  rung 6 and reconciles byte-for-byte.
  *   declared NON-percent quantity  REFUSED at every frame, 100 included, AND
  *     (count, currency, duration)  WITH NO FRAME AT ALL: a `'%'` limit on a
  *                                  `'£'` or `'count'` scale is a percent OF
@@ -1486,11 +1550,12 @@ function isPercentPointValue(unit: string | undefined, value: number): boolean {
  * float tail must neither move the legacy reading nor refuse an unrecognised
  * spelling as "off 100").
  *
- * ⚠ KNOWN RESIDUAL, recorded rather than guessed: an unrecognised spelling on
- * frame 100 that is NOT a percent (e.g. `'subscribers'` with `scale_frame`
- * 100) keeps today's `[0,100]` reading, because PLoT cannot tell it from
- * `'% per month'` without inventing a vocabulary. Rung 1 (a measured
- * intervention scale) is untouched by this rule: it never consults the '%'.
+ * (The round-1 residual — an unrecognised NON-percent spelling on frame 100,
+ * e.g. `'subscribers'` with `scale_frame` 100, read on `[0,100]` — closes with
+ * the cell above: every unrecognised spelling now refuses.) Rung 1 (a measured
+ * intervention scale) is untouched by this rule: it never consults the '%'; a
+ * `'%'` limit on an unrecognised spelling there meets the unit check instead
+ * (`resolveScaleUnit` → `constraint_unit_mismatch`).
  */
 export type PercentTargetFrame =
   | { verdict: 'legacy' }
@@ -1523,10 +1588,11 @@ const PAIR_COHERENCE_RELATIVE_EPSILON = 1e-9;
  *
  * The ONE addition is the legacy identity: a pair that coheres with frame 100
  * under CEE's own `checkPairCoherence` arithmetic and tolerance IS frame 100.
- * `7 / 0.07 === 99.99999999999999`; without this, the served churn estimate
- * `{0.07, 7}` on `'% per month'` with no `scale_frame` would be refused as an
- * unrecognised spelling "off 100", and a `'%'` pair on 100 would drift off the
- * byte-identical legacy reading by a float tail.
+ * `7 / 0.07 === 99.99999999999999`; without this, a `'%'` pair on 100 would
+ * drift off the byte-identical legacy reading by a float tail, and the served
+ * churn estimate `{0.07, 7}` would be framed on 99.99999999999999, not 100.
+ * (A3 round 2: a `'%'` limit on that `'% per month'` node now refuses on its
+ * UNIT whatever the frame; the identity still keeps its frame exact.)
  */
 function recoverPairFrame(
   observed: { value?: unknown; raw_value?: unknown } | undefined,
@@ -1591,10 +1657,12 @@ export function resolvePercentTargetFrame(
   const unit = observed?.unit;
   const declaredUnit = canonicaliseUnit(unit);
   const scale = unitScale(unit);
-  // A DECLARED non-percent quantity (count, currency, duration) is refused at
-  // every frame — and with no frame at all. Classified BEFORE the no-frame
-  // return, or an unframed '£' node would be scored on [0,100].
-  if (scale !== undefined && scale !== 'percent' && scale !== 'fraction') {
+  // A DECLARED unit that is neither a percent nor a fraction — a non-percent
+  // quantity (count, currency, duration) OR a spelling no scale group claims
+  // (`'% per month'`; A3 round 2) — is refused at every frame, and with no
+  // frame at all. Classified BEFORE the no-frame return, or an unframed '£'
+  // (or '% per month') node would be scored on [0,100].
+  if (declaredUnit !== undefined && scale !== 'percent' && scale !== 'fraction') {
     return { verdict: 'refused', frame, frame_unit: declaredUnit };
   }
   if (frame === undefined) return LEGACY_PERCENT_FRAME;
@@ -1602,8 +1670,7 @@ export function resolvePercentTargetFrame(
   let extent: number | undefined;
   if (scale === 'percent') extent = frame;
   else if (scale === 'fraction') extent = frame * 100;
-  else if (declaredUnit === undefined) extent = frame === LEGACY_FRAME || frame === 1 ? LEGACY_FRAME : undefined;
-  else extent = frame === LEGACY_FRAME ? LEGACY_FRAME : undefined; // an unrecognised spelling
+  else extent = frame === LEGACY_FRAME || frame === 1 ? LEGACY_FRAME : undefined; // undeclared unit
 
   if (extent === undefined || !isFiniteRange(0, extent)) {
     return { verdict: 'refused', frame, frame_unit: declaredUnit };
@@ -1884,10 +1951,22 @@ export interface ConstraintNormalisationResult {
  *     own frame is not stated in percent (or cannot be shown to be), or whose
  *     target declares a non-percent unit (framed or not), so no reading of the
  *     '%' places the limit on that node's scale (`resolvePercentTargetFrame`).
+ *   threshold_unframed — A3 round 2 (AIQ #70 5855192170 rule 1). A LEVEL limit
+ *     stated outside [0,1] on a node whose level is normalised ([0,1]) but which
+ *     carries NO frame (no cap, no `scale_frame`, no valid `{value, raw_value}`
+ *     pair): the raw number cannot be placed on the node's scale, and the only
+ *     range left is one Olumi inferred from the normalised level itself. B5's
+ *     per-limit code of the same name (AIQ #70 5855511541).
+ *   threshold_clamped  — A3 round 2 (rule 3). A LEVEL limit whose threshold
+ *     would be PINNED to an end of [0,1]: the engine would be asked about the
+ *     range's edge, not the stated limit, so P(meet) is 0 or 1 by arithmetic.
+ *     B5's per-limit code of the same name.
  */
 export type ConstraintRefusalReason =
   | 'delta_frame_value_altered_by_normalisation'
-  | 'percent_unit_disagrees_with_target_frame';
+  | 'percent_unit_disagrees_with_target_frame'
+  | 'threshold_unframed'
+  | 'threshold_clamped';
 
 /** ROADMAP 2.878 — see {@link ConstraintRefusalReason}. */
 export const DELTA_FRAME_VALUE_ALTERED: ConstraintRefusalReason =
@@ -1896,6 +1975,24 @@ export const DELTA_FRAME_VALUE_ALTERED: ConstraintRefusalReason =
 /** See {@link ConstraintRefusalReason} and {@link resolvePercentTargetFrame}. */
 export const PERCENT_UNIT_DISAGREES_WITH_TARGET_FRAME: ConstraintRefusalReason =
   'percent_unit_disagrees_with_target_frame';
+
+/** A3 round 2, rule 1 — see {@link ConstraintRefusalReason}. */
+export const THRESHOLD_UNFRAMED: ConstraintRefusalReason = 'threshold_unframed';
+
+/** A3 round 2, rule 3 — see {@link ConstraintRefusalReason}. */
+export const THRESHOLD_CLAMPED: ConstraintRefusalReason = 'threshold_clamped';
+
+/**
+ * Range sources a threshold can land on ONLY when the target carries no frame
+ * and no producer or measured scale reached the ladder: a range Olumi INFERRED
+ * from the node's normalised level (`[0, 2 × level]`), or the made-up `[0,1]`.
+ * Rung 5's identity intervention scale carries `default` too.
+ */
+const OLUMI_INFERRED_THRESHOLD_SOURCES: ReadonlySet<RangeSource> = new Set<RangeSource>([
+  'inferred_baseline',
+  'inferred_value',
+  'default',
+]);
 
 /**
  * ROADMAP 2.878 — a constraint that PLoT declined to send to ISL, with the
@@ -1939,11 +2036,20 @@ export interface RefusedConstraintRecord {
  * |          |                                   | unframed); on any other frame (cap, scale_frame, |
  * |          |                                   | else the value/raw_value pair) it DEFERS to the  |
  * |          |                                   | target's own frame or the constraint is REFUSED; |
- * |          |                                   | a declared non-percent unit is REFUSED framed or |
- * |          |                                   | not (`resolvePercentTargetFrame`).               |
+ * |          |                                   | a declared non-percent or UNRECOGNISED unit is   |
+ * |          |                                   | REFUSED framed or not                            |
+ * |          |                                   | (`resolvePercentTargetFrame`).                   |
  * | 5        | `interventionScale` (IDENTITY)    | Phase-4a-skipped ASSUMED [0,1] scale; ranks      |
  * |          |                                   | below producer declarations, above the heuristic.|
- * | 6        | deriveRange(node)                 | Existing chain (explicit_cap → … → default).     |
+ * |          |                                   | Skipped by a threshold outside [0,1] on a FRAMED |
+ * |          |                                   | node (A3 round 2), which reads on rung 6.        |
+ * | 6        | deriveRange(node, frameThreshold) | Existing chain (explicit_cap → … → default) WITH |
+ * |          |                                   | the node's own frame at rung 1.6 (A3 round 2).   |
+ *
+ * A3 round 2 — after the ladder, a LEVEL limit is REFUSED (never scored) when
+ * it is stated outside [0,1] on an unframed node with a normalised level and
+ * resolved only on an Olumi-inferred range (`threshold_unframed`), or when its
+ * threshold would clamp (`threshold_clamped`).
  *
  * Additionally, when the node carries a CEE-stamped, already-normalised
  * finite `goal_threshold` in [0,1] that corresponds to the same target
@@ -2009,6 +2115,31 @@ export function normaliseGoalConstraints(
     // is a measured ground-truth spread. The two rank very differently below.
     const interventionScaleIsIdentity =
       interventionScale !== undefined && isIdentityRange(interventionScale);
+
+    // A3 ROUND 2 — THE THRESHOLD FRAME (AIQ #70 5855192170 rule 1: ONE rule for
+    // interventions AND limits). A limit is stated in the user's units, exactly
+    // as an option intervention is, so it is placed on the target's OWN frame
+    // through the SAME reader (`resolveNodeFrame`: cap → `scale_frame` → the
+    // `{value, raw_value}` pair) and the SAME `deriveRange` rung (1.6) —
+    // whether or not any option intervenes on the node.
+    //
+    // ⛔ THE WIRE DEFECT (Paul's export 17d1cd3a, CEE 263dbd5; DL #70
+    // 5855470798). Round 1 framed only INTERVENED nodes. Paul's churn is set by
+    // no option, so a `<= 4` limit on `{0.03, raw 3}` framed 100 fell to rung 6's
+    // `inferred_*` = [0, 2 × the normalised level] = [0, 0.06] and 4 clamped to
+    // 1: "churn <= 100%", every option met it with certainty.
+    const thresholdScaleFrame = extras?.scaleFrameByNodeId?.get(node_id);
+    const thresholdNodeFrame =
+      targetNode !== undefined ? resolveNodeFrame(targetNode.observed_state, thresholdScaleFrame) : undefined;
+    // A threshold OUTSIDE [0,1] cannot be a level on the identity [0,1] scale
+    // rung 5 assumes (an intervened node whose option levels all arrived inside
+    // [0,1], Phase 4a skipped): it is raw by construction. So on a FRAMED node
+    // it skips that assumption and reads on the frame (rung 6 below). Inside
+    // [0,1] rung 5 keeps it on the same as-stated scale as the node's own
+    // option levels — unchanged. (CEE works around exactly this cell with a
+    // wire `goal_threshold_cap`, `level-limit-baseline.ts` `limitTargetCaps`.)
+    const thresholdOutsideUnit = value < 0 || value > 1;
+    const thresholdSkipsIdentityScale = thresholdOutsideUnit && thresholdNodeFrame !== undefined;
 
     // Derive range. Priority ladder (F4, Codex-confirmed reorder):
     //   1  interventionScale, NON-identity — a MEASURED spread is ground truth;
@@ -2093,16 +2224,23 @@ export function normaliseGoalConstraints(
       } else {
         range = percentRangeForValue(value, percentExtentOf(percentFrame));
       }
-    } else if (interventionScale) {
+    } else if (interventionScale && !thresholdSkipsIdentityScale) {
       // F4 branch 5: an IDENTITY [0,1] intervention scale (Phase 4a skipped for
       // this intervened node). Reached only when no producer '%'/cap declared it
       // (those are handled above). Keeps the threshold on the SAME raw sample
       // scale the interventions occupy, rather than independently re-deriving a
       // node heuristic. (interventionScaleIsIdentity is necessarily true here.)
+      // A3 round 2: NOT for a threshold outside [0,1] on a framed node — see
+      // `thresholdSkipsIdentityScale`.
       range = interventionScale;
     } else {
+      // Rung 6, with the threshold frame (A3 round 2): `deriveRange`'s own
+      // ladder — cap → `state_space.range` → extracted → THE NODE'S FRAME →
+      // inferred — i.e. exactly the order an intervention on this node is read
+      // in. A node with no frame keeps today's inferred rungs; a threshold that
+      // then cannot be placed is refused below (`threshold_unframed`).
       range = targetNode
-        ? deriveRange(targetNode)
+        ? deriveRange(targetNode, undefined, undefined, thresholdScaleFrame, { frameThreshold: true })
         : { min: 0, max: 1, source: 'default' };
     }
 
@@ -2198,6 +2336,89 @@ export function normaliseGoalConstraints(
           `comparing the limit with a quantity other than the one stated.`,
       });
       continue;
+    }
+
+    // A3 ROUND 2 — A LEVEL LIMIT IS SCORED ONLY ON A SCALE IT CAN BE PLACED ON,
+    // AND ONLY AS STATED (AIQ #70 5855192170 rules 1 and 3; B5's per-limit
+    // codes, 5855511541). Same per-constraint refusal as the two above: the
+    // limit leaves the ISL payload AND the route's active list, is disclosed in
+    // `_meta.filtered_constraints` with its typed reason and a
+    // CONSTRAINT_REFUSED_FRAME_FIDELITY critique, the route withholds the joint,
+    // and every other limit still delivers.
+    //
+    // SCOPE: `value_frame === 'level'` only. A `delta` keeps 2.878's refusal
+    // below (the more specific reason, already pinned); an UNFRAMED constraint
+    // is not scored by ISL at all (it fails closed on a missing `value_frame`),
+    // so it keeps today's disclosed path (residual, stated in the round-2 report).
+    if (value_frame === 'level') {
+      // (a) THE THRESHOLD FRAME — first precondition. A raw number (outside
+      // [0,1]) against a node whose level is normalised ([0,1]) but which
+      // carries NO frame, resolved on a range Olumi inferred from that
+      // normalised level (or the made-up [0,1]): there is no reading of the
+      // number on the node's scale. Refused — never "compared as-is", never
+      // scaled on [0, 2 × level].
+      const nodeLevel = targetNode?.observed_state?.value ?? targetNode?.observed_state?.baseline;
+      const nodeLevelIsNormalised =
+        typeof nodeLevel === 'number' && Number.isFinite(nodeLevel) && nodeLevel >= 0 && nodeLevel <= 1;
+      // The SOURCE decides "inferred", whichever rung carried it: rung 6's chain,
+      // rung 5's identity assumption (`default`), or rung 1 holding a Phase-4a
+      // scale that was itself inferred from the level (a lone intervention on an
+      // unframed node). A measured spread (`inferred_spread`), a cap, a '%' and
+      // an explicit or extracted range are scales, not guesses, and never land here.
+      if (
+        thresholdOutsideUnit &&
+        thresholdNodeFrame === undefined &&
+        nodeLevelIsNormalised &&
+        OLUMI_INFERRED_THRESHOLD_SOURCES.has(range.source)
+      ) {
+        refused.push({
+          constraint_id,
+          node_id,
+          reason: THRESHOLD_UNFRAMED,
+          stated_value: value,
+          would_have_sent: normalised,
+          range,
+        });
+        repairs.push({
+          field: `constraint.value.${constraint_id}`,
+          action: 'removed',
+          from_value: value,
+          to_value: 'refused',
+          reason:
+            `refused (threshold_unframed): the limit ${value} is stated outside [0,1] on a node ` +
+            `whose level is normalised but which carries no frame (no cap, no scale_frame, no ` +
+            `value/raw_value pair), so it cannot be placed on that node's scale; the only range ` +
+            `left, range=[${range.min},${range.max}] source=${range.source}, is inferred from the ` +
+            `normalised level and would have sent ${normalised}.`,
+        });
+        continue;
+      }
+
+      // (c) NOTHING CLAMPED. A threshold outside the resolved range is pinned to
+      // its edge, so the engine would answer "P(level <= the range's edge)" —
+      // 0 or 1 by arithmetic, whatever the options do. Refused, never scored.
+      if (clamped) {
+        refused.push({
+          constraint_id,
+          node_id,
+          reason: THRESHOLD_CLAMPED,
+          stated_value: value,
+          would_have_sent: normalised,
+          range,
+        });
+        repairs.push({
+          field: `constraint.value.${constraint_id}`,
+          action: 'removed',
+          from_value: value,
+          to_value: 'refused',
+          reason:
+            `refused (threshold_clamped): the limit ${value} lies outside its node's scale ` +
+            `range=[${range.min},${range.max}] source=${range.source} and would have been pinned ` +
+            `to ${normalised}, asking the engine about the edge of the scale rather than the ` +
+            `limit stated.`,
+        });
+        continue;
+      }
     }
 
     // Prefer the node's CEE-stamped, already-normalised goal_threshold when it
