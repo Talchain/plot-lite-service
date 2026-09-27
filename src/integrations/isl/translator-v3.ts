@@ -16,6 +16,7 @@ import type {
   GoalConstraint,
   ConstraintLevelDomain,
   FactorCorrelation,
+  NonlinearIdentity,
 } from '../../types/engine-v3.js';
 import {
   DEFAULT_STD_FLOOR,
@@ -135,6 +136,12 @@ export interface ISLNodeV3 {
   };
   intercept?: number;
   epsilon_std?: number;
+  /**
+   * R3 slice 1 (B2): the node is exactly `operation` of `factor_ids`. Forwarded VERBATIM only when
+   * the node declares one (validated at ingress by `readNonlinearIdentity`), so every other
+   * request's ISL body — and its response_hash — is byte-identical.
+   */
+  nonlinear_identity?: NonlinearIdentity;
 }
 
 /**
@@ -721,6 +728,15 @@ export function toISLNode(node: EngineNodeV3): ISLNodeV3 {
     observed_state: toISLObservedState(node.observed_state),
     intercept: node.intercept ?? 0.0,
     epsilon_std: node.epsilon_std ?? 0.0,
+    ...(node.nonlinear_identity
+      ? {
+          nonlinear_identity: {
+            operation: node.nonlinear_identity.operation,
+            factor_ids: [...node.nonlinear_identity.factor_ids],
+            stated_in_brief: node.nonlinear_identity.stated_in_brief,
+          },
+        }
+      : {}),
   };
 }
 

@@ -5686,6 +5686,24 @@ components:
               type: number
             unit:
               type: string
+        nonlinear_identity:
+          type: object
+          description: 'R3 slice 1 (B2): the node IS an accounting identity of the named parents (MRR = price × subscribers; a spend tally = the sum of its parts). CEE-minted at construction (C46 / A4b); PLoT forwards it verbatim to ISL, which evaluates only what is declared. An unknown operation or a malformed declaration is refused (422), never dropped.'
+          required: [operation, factor_ids, stated_in_brief]
+          additionalProperties: false
+          properties:
+            operation:
+              type: string
+              enum: [product, sum]
+            factor_ids:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              items:
+                type: string
+            stated_in_brief:
+              type: boolean
+              description: 'True only when the brief itself states the identity; otherwise it is Olumi''s reading.'
 
     edgeV3:
       type: object

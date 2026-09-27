@@ -89,6 +89,21 @@ export type EngineNodeKindV3 = (typeof ENGINE_CAUSAL_NODE_KINDS)[number];
  * Upstream node format - accepts various field naming conventions.
  * Normalized to EngineNodeV3 before processing.
  */
+/**
+ * R3 slice 1 (B2) — a node that IS an accounting identity of named parents.
+ *
+ * CEE-minted at construction (C46 `markProductIdentities`; `sum` from the A4b tally recogniser,
+ * AIQ ruling #70 5859633012) and persisted on CEE's NodeV3 (`cee-v3.ts` `nonlinear_identity`).
+ * PLoT carries it VERBATIM to ISL, which evaluates only what is declared (never infers an identity
+ * from the graph's shape). An unknown `operation` is REJECTED at ingress, never dropped: a dropped
+ * identity is the declared-but-not-evaluated case (R3-4).
+ */
+export interface NonlinearIdentity {
+  operation: 'product' | 'sum';
+  factor_ids: string[];
+  stated_in_brief: boolean;
+}
+
 export interface UpstreamNode {
   id: string;
   kind?: string;
@@ -155,6 +170,8 @@ export interface UpstreamNode {
     range_min: number;
     range_max: number;
   };
+  /** R3 B2 identity declaration (CEE NodeV3 `nonlinear_identity`); validated by `normaliseNode`. */
+  nonlinear_identity?: unknown;
   data?: {
     // React Flow nesting
     kind?: string;
@@ -353,6 +370,8 @@ export interface EngineNodeV3 {
     range_min: number;
     range_max: number;
   };
+  /** R3 B2: the node is exactly `operation` of `factor_ids` (validated at ingress). */
+  nonlinear_identity?: NonlinearIdentity;
 }
 
 /**

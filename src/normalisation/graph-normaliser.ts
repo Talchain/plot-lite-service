@@ -9,6 +9,7 @@
 
 import type {
   UpstreamNode,
+  NonlinearIdentity,
   UpstreamEdge,
   UpstreamGraph,
   EngineNodeV3,
@@ -148,6 +149,46 @@ function isStructuralEdgeType(
 // -----------------------------------------------------------------------------
 // Node Normalization
 // -----------------------------------------------------------------------------
+
+const NONLINEAR_IDENTITY_OPERATIONS: ReadonlySet<string> = new Set(['product', 'sum']);
+
+/**
+ * Validate a node's R3 identity declaration (`nonlinear_identity`, CEE NodeV3). Absent → undefined.
+ * Present → exactly `{ operation: 'product' | 'sum', factor_ids: non-empty unique strings,
+ * stated_in_brief: boolean }`, returned as a fresh object; anything else throws, naming the field.
+ */
+export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | undefined {
+  const raw = (node as any).nonlinear_identity ?? (node as any).data?.nonlinear_identity;
+  if (raw === undefined || raw === null) return undefined;
+  const field = 'nonlinear_identity';
+  if (typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new NormalisationError(`${field} must be an object`, field, node.id);
+  }
+  const { operation, factor_ids, stated_in_brief } = raw as Record<string, unknown>;
+  if (typeof operation !== 'string' || !NONLINEAR_IDENTITY_OPERATIONS.has(operation)) {
+    throw new NormalisationError(
+      `${field}.operation must be one of product | sum (got ${JSON.stringify(operation)})`,
+      `${field}.operation`,
+      node.id
+    );
+  }
+  if (
+    !Array.isArray(factor_ids) ||
+    factor_ids.length === 0 ||
+    !factor_ids.every((id) => typeof id === 'string' && id.length > 0) ||
+    new Set(factor_ids).size !== factor_ids.length
+  ) {
+    throw new NormalisationError(
+      `${field}.factor_ids must be a non-empty list of distinct node ids`,
+      `${field}.factor_ids`,
+      node.id
+    );
+  }
+  if (typeof stated_in_brief !== 'boolean') {
+    throw new NormalisationError(`${field}.stated_in_brief must be a boolean`, `${field}.stated_in_brief`, node.id);
+  }
+  return { operation: operation as NonlinearIdentity['operation'], factor_ids: [...factor_ids], stated_in_brief };
+}
 
 /**
  * Normalize an upstream node to canonical EngineNodeV3 format.
@@ -453,6 +494,11 @@ export function normaliseNode(
     if (prov !== undefined) ceeConstraintFields.provenance = prov;
   }
 
+  // R3 slice 1 (B2): carry a declared accounting identity VERBATIM, or refuse the node. Never drop
+  // it (AIQ #70 5859633012): a silently dropped `sum`/`product` is exactly the declared-but-not-
+  // evaluated case R3-4 must then say, so an unknown operation or a malformed declaration is a 400.
+  const nonlinearIdentity = readNonlinearIdentity(node);
+
   return {
     id: node.id,
     kind,
@@ -465,6 +511,7 @@ export function normaliseNode(
     category,
     prior,
     ...ceeConstraintFields,
+    ...(nonlinearIdentity ? { nonlinear_identity: nonlinearIdentity } : {}),
   } as EngineNodeV3;
 }
 
