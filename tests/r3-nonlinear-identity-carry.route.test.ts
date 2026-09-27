@@ -103,7 +103,7 @@ vi.mock('../src/integrations/isl/index.ts', async () => {
 import { createServer } from '../src/createServer.js';
 
 import { NormalisationError, normaliseNode, readNonlinearIdentity } from '../src/normalisation/graph-normaliser.js';
-import { toISLNode } from '../src/integrations/isl/translator-v3.js';
+import { attachIdentityExecutionFrames, toISLNode } from '../src/integrations/isl/translator-v3.js';
 
 const FIXTURE_DIR = resolve(__dirname, 'fixtures/paul-own-a295e4a1-20260927');
 const PRODUCT = { operation: 'product', factor_ids: ['pro_plan_price', 'pro_paying_subscribers'], stated_in_brief: true };
@@ -165,6 +165,22 @@ describe('R3-3 unit — normaliseNode / toISLNode carry the declaration or refus
     expect(toISLNode(engine).nonlinear_identity).toEqual(withAddend);
   });
 
+  it('R3-8 — a participant with no resolvable frame gets none (ISL withholds; PLoT never infers one)', () => {
+    const engine = [
+      normaliseNode({ ...node, observed_state: { value: 0.6, cap: 125000 } }),
+      normaliseNode({ id: 'pro_plan_price', kind: 'factor', label: 'Price', observed_state: { value: 0.245 } } as any),
+      normaliseNode({ id: 'pro_paying_subscribers', kind: 'factor', label: 'Subs' } as any),
+    ];
+    const isl = engine.map(toISLNode);
+    attachIdentityExecutionFrames(isl, engine, new Map([['pro_plan_price', 200]]));
+    const byId = Object.fromEntries(isl.map((n) => [n.id, n.execution_frame]));
+    expect(byId).toEqual({
+      mrr: { frame: 125000, carrier: 'cap' },
+      pro_plan_price: { frame: 200, carrier: 'scale_frame' },
+      pro_paying_subscribers: undefined,
+    });
+  });
+
   it('`sum` is admitted (AIQ 5859633012: CEE widens the carrier to product | sum)', () => {
     expect(readNonlinearIdentity({ id: 't', nonlinear_identity: { ...PRODUCT, operation: 'sum' } } as any)?.operation).toBe('sum');
   });
@@ -212,7 +228,29 @@ describe("R3-3 route — Paul's request: the declaration reaches ISL exactly onc
   it('CONTROL — the same request without a declaration sends none (ISL body unchanged)', async () => {
     const res = await post(paulRequest());
     expect(res.status).toBe(200);
-    for (const body of islBodies) expect(occurrences(body)).toBe(0);
+    for (const body of islBodies) {
+      expect(occurrences(body)).toBe(0);
+      expect(JSON.stringify(body)).not.toContain('"execution_frame"');
+    }
+  });
+
+  it('R3-8 — every identity participant carries the frame PLoT resolved; no other node does', async () => {
+    const res = await post(paulRequest({ ...PRODUCT, addends: ['other_mrr_growth'] }));
+    expect(res.status).toBe(200);
+    expect(islBodies.length).toBeGreaterThan(0);
+    for (const body of islBodies) {
+      const frames = Object.fromEntries(
+        body.graph.nodes.filter((n: any) => n.execution_frame).map((n: any) => [n.id, n.execution_frame]),
+      );
+      expect(frames).toEqual({
+        mrr: { frame: 125000, carrier: 'cap' },
+        pro_plan_price: { frame: 200, carrier: 'cap' },
+        // Paul's CEE request carries `scale_frame` on these two, which outranks the pair (the same
+        // figures the value/raw_value pair gives: 1,500 / 0.15 and 1,000 / 0.02).
+        pro_paying_subscribers: { frame: 10000, carrier: 'scale_frame' },
+        other_mrr_growth: { frame: 50000, carrier: 'scale_frame' },
+      });
+    }
   });
 
   it('an UNKNOWN KEY is refused too (422): the carrier is rebuilt from known keys, so it would otherwise vanish', async () => {

@@ -86,7 +86,7 @@ import { filterTemporalConstraints } from '../../normalisation/constraint-filter
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, InternalMetadata } from '../../types/engine-v3.js';
-import { toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
+import { attachIdentityExecutionFrames, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
@@ -7654,6 +7654,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           body.user_stated_ranges,  // ROADMAP 2.720 (P4): the user's own stated ranges, projected onto ISL's declared members inside the translator (request-gated omit)
           parseGoalDirection(body.goal_direction)  // ROADMAP 2.920: attested objective sense; unrecognised ⇒ undefined ⇒ today's unattested maximiser
         );
+
+        // R3-8: each declared identity's participants carry the frame PLoT resolved (runtime
+        // metadata; ISL withholds an identity any of whose frames is absent — never infers one).
+        // Only identity participants are touched, so a request declaring none is byte-identical.
+        attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId);
 
         req.log.info(
           {
