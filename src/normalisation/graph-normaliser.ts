@@ -151,11 +151,19 @@ function isStructuralEdgeType(
 // -----------------------------------------------------------------------------
 
 const NONLINEAR_IDENTITY_OPERATIONS: ReadonlySet<string> = new Set(['product', 'sum']);
+const NONLINEAR_IDENTITY_KEYS: ReadonlySet<string> = new Set([
+  'operation',
+  'factor_ids',
+  'stated_in_brief',
+  'addends',
+]);
 
 /**
  * Validate a node's R3 identity declaration (`nonlinear_identity`, CEE NodeV3). Absent → undefined.
  * Present → exactly `{ operation: 'product' | 'sum', factor_ids: non-empty unique strings,
- * stated_in_brief: boolean }`, returned as a fresh object; anything else throws, naming the field.
+ * stated_in_brief: boolean, addends?: non-empty unique strings disjoint from factor_ids }`,
+ * returned as a fresh object; anything else throws, naming the field. An UNKNOWN KEY throws too:
+ * the object is rebuilt from the known keys, so an unknown one would otherwise be dropped silently.
  */
 export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | undefined {
   const raw = (node as any).nonlinear_identity ?? (node as any).data?.nonlinear_identity;
@@ -164,7 +172,15 @@ export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | u
   if (typeof raw !== 'object' || Array.isArray(raw)) {
     throw new NormalisationError(`${field} must be an object`, field, node.id);
   }
-  const { operation, factor_ids, stated_in_brief } = raw as Record<string, unknown>;
+  const unknownKeys = Object.keys(raw).filter((key) => !NONLINEAR_IDENTITY_KEYS.has(key));
+  if (unknownKeys.length > 0) {
+    throw new NormalisationError(
+      `${field} has unknown key(s) ${unknownKeys.map((key) => `${field}.${key}`).join(', ')} — refused, never dropped`,
+      `${field}.${unknownKeys[0]}`,
+      node.id
+    );
+  }
+  const { operation, factor_ids, stated_in_brief, addends } = raw as Record<string, unknown>;
   if (typeof operation !== 'string' || !NONLINEAR_IDENTITY_OPERATIONS.has(operation)) {
     throw new NormalisationError(
       `${field}.operation must be one of product | sum (got ${JSON.stringify(operation)})`,
@@ -187,7 +203,26 @@ export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | u
   if (typeof stated_in_brief !== 'boolean') {
     throw new NormalisationError(`${field}.stated_in_brief must be a boolean`, `${field}.stated_in_brief`, node.id);
   }
-  return { operation: operation as NonlinearIdentity['operation'], factor_ids: [...factor_ids], stated_in_brief };
+  if (
+    addends !== undefined &&
+    (!Array.isArray(addends) ||
+      addends.length === 0 ||
+      !addends.every((id) => typeof id === 'string' && id.length > 0) ||
+      new Set(addends).size !== addends.length ||
+      addends.some((id) => factor_ids.includes(id)))
+  ) {
+    throw new NormalisationError(
+      `${field}.addends must be a non-empty list of distinct node ids, disjoint from factor_ids`,
+      `${field}.addends`,
+      node.id
+    );
+  }
+  return {
+    operation: operation as NonlinearIdentity['operation'],
+    factor_ids: [...factor_ids],
+    stated_in_brief,
+    ...(addends !== undefined ? { addends: [...(addends as string[])] } : {}),
+  };
 }
 
 /**

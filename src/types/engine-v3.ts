@@ -102,6 +102,11 @@ export interface NonlinearIdentity {
   operation: 'product' | 'sum';
   factor_ids: string[];
   stated_in_brief: boolean;
+  /**
+   * Parents added EXACTLY to the identity term (AIQ #70 5860087988 item 5; minted by CEE with
+   * the same rules as `sum`, MG's rung c). Optional; disjoint from `factor_ids`.
+   */
+  addends?: string[];
 }
 
 export interface UpstreamNode {

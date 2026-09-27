@@ -734,6 +734,9 @@ export function toISLNode(node: EngineNodeV3): ISLNodeV3 {
             operation: node.nonlinear_identity.operation,
             factor_ids: [...node.nonlinear_identity.factor_ids],
             stated_in_brief: node.nonlinear_identity.stated_in_brief,
+            ...(node.nonlinear_identity.addends
+              ? { addends: [...node.nonlinear_identity.addends] }
+              : {}),
           },
         }
       : {}),

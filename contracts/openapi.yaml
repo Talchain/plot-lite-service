@@ -5704,6 +5704,13 @@ components:
             stated_in_brief:
               type: boolean
               description: 'True only when the brief itself states the identity; otherwise it is Olumi''s reading.'
+            addends:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              description: 'Parents added EXACTLY to the identity term (disjoint from factor_ids). Only a declared addend is definitional; it is never inferred from an edge.'
+              items:
+                type: string
 
     edgeV3:
       type: object

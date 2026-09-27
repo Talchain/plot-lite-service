@@ -143,6 +143,10 @@ describe('R3-3 unit — normaliseNode / toISLNode carry the declaration or refus
     [{ ...PRODUCT, factor_ids: ['a', 3] }, 'nonlinear_identity.factor_ids'],
     [{ ...PRODUCT, stated_in_brief: 'yes' }, 'nonlinear_identity.stated_in_brief'],
     ['product', 'nonlinear_identity'],
+    [{ ...PRODUCT, addends: [] }, 'nonlinear_identity.addends'],
+    [{ ...PRODUCT, addends: ['x', 'x'] }, 'nonlinear_identity.addends'],
+    [{ ...PRODUCT, addends: ['pro_plan_price'] }, 'nonlinear_identity.addends'],
+    [{ ...PRODUCT, weights: [1, 2] }, 'nonlinear_identity.weights'],
   ])('REFUSES a malformed declaration %j — never drops it (field %s)', (identity, field) => {
     let thrown: unknown;
     try {
@@ -152,6 +156,13 @@ describe('R3-3 unit — normaliseNode / toISLNode carry the declaration or refus
     }
     expect(thrown).toBeInstanceOf(NormalisationError);
     expect((thrown as NormalisationError).field).toBe(field);
+  });
+
+  it('declared `addends` are carried verbatim (AIQ 5860087988 item 5, MG rung c) — never dropped', () => {
+    const withAddend = { ...PRODUCT, addends: ['other_mrr_growth'] };
+    const engine = normaliseNode({ ...node, nonlinear_identity: withAddend });
+    expect(engine.nonlinear_identity).toEqual(withAddend);
+    expect(toISLNode(engine).nonlinear_identity).toEqual(withAddend);
   });
 
   it('`sum` is admitted (AIQ 5859633012: CEE widens the carrier to product | sum)', () => {
@@ -202,6 +213,13 @@ describe("R3-3 route — Paul's request: the declaration reaches ISL exactly onc
     const res = await post(paulRequest());
     expect(res.status).toBe(200);
     for (const body of islBodies) expect(occurrences(body)).toBe(0);
+  });
+
+  it('an UNKNOWN KEY is refused too (422): the carrier is rebuilt from known keys, so it would otherwise vanish', async () => {
+    const res = await post(paulRequest({ ...PRODUCT, weights: [1, 2] }));
+    expect(res.status).toBe(422);
+    expect(islBodies.length).toBe(0);
+    expect(await res.text()).toContain('nonlinear_identity.weights');
   });
 
   it('an unknown operation is REFUSED (422, the normalisation-error status), and ISL is never called with it', async () => {
