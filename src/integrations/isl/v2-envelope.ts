@@ -37,6 +37,44 @@ import type {
 } from './types/isl-types.js';
 
 /**
+ * Read the enhanced response's optional sampling measurements. These are
+ * top-level fields; the internal/legacy `_metadata` object is not an alternate
+ * public carrier. Missing data remains absent, including on older ISL builds.
+ *
+ * Reject a malformed map as a whole: retaining only valid entries would present
+ * an incomplete measurement as the producer's complete edge population. Values
+ * and opaque edge IDs are otherwise copied without rounding or reinterpretation.
+ */
+export function getIslSamplingDiagnostics(raw: unknown): {
+  values: Pick<ISLRobustnessAnalyzeV2Response, 'tie_rate' | 'edge_existence_rates'>;
+  invalid_fields: Array<'tie_rate' | 'edge_existence_rates'>;
+} {
+  const values: Pick<ISLRobustnessAnalyzeV2Response, 'tie_rate' | 'edge_existence_rates'> = {};
+  const invalid_fields: Array<'tie_rate' | 'edge_existence_rates'> = [];
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+    return { values, invalid_fields };
+  }
+  const response = raw as Record<string, unknown>;
+  const isRate = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 1;
+
+  if (response.tie_rate !== undefined) {
+    if (isRate(response.tie_rate)) values.tie_rate = response.tie_rate;
+    else invalid_fields.push('tie_rate');
+  }
+  if (response.edge_existence_rates !== undefined) {
+    const rates = response.edge_existence_rates;
+    if (rates !== null && typeof rates === 'object' && !Array.isArray(rates)) {
+      const entries = Object.entries(rates);
+      if (entries.every(([id, value]) => id.length > 0 && isRate(value))) {
+        values.edge_existence_rates = Object.fromEntries(entries) as Record<string, number>;
+      } else invalid_fields.push('edge_existence_rates');
+    } else invalid_fields.push('edge_existence_rates');
+  }
+  return { values, invalid_fields };
+}
+
+/**
  * Read edge E-values from an ISL response.
  *
  * Canonical V2 location is NESTED at `robustness.edge_e_values`; the V1-era
