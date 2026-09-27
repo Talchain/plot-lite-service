@@ -225,12 +225,12 @@ describe('V2 Run — request_id_chain', () => {
     {
       id: 'opt1',
       label: 'Option 1',
-      interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } },
+      interventions: { 'factor-a': { value: 0.9, source: 'user_specified' } }, // A3 round 2: a level that would clamp is withheld (AIQ #70 5855192170) ([0,1])
     },
     {
       id: 'opt2',
       label: 'Option 2',
-      interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+      interventions: { 'factor-b': { value: 0.8, source: 'user_specified' } },
     },
   ];
 
@@ -439,12 +439,12 @@ describe('V2 Run — _meta.request_id_chain (Brief 4 spec)', () => {
     {
       id: 'opt1',
       label: 'Option 1',
-      interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } },
+      interventions: { 'factor-a': { value: 0.9, source: 'user_specified' } }, // A3 round 2: a level that would clamp is withheld (AIQ #70 5855192170) ([0,1])
     },
     {
       id: 'opt2',
       label: 'Option 2',
-      interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+      interventions: { 'factor-b': { value: 0.8, source: 'user_specified' } },
     },
   ];
 

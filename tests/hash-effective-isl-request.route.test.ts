@@ -393,15 +393,19 @@ describe('ROADMAP 2.1024 — the freshness hash covers every analysis-changing i
         ],
         edges: [{ from: 'lever', to: 'goal_arr', strength: { mean: 0.6, std: 0.1 } }],
       },
+      // A3 round 2: a level that would clamp is now WITHHELD before ISL (AIQ
+      // #70 5855192170), so opt1 (60000 / 90000 on [0,50000]) never reaches
+      // the wire in either run; two in-range options keep the comparison.
       options: [
         { id: 'opt1', label: 'A', interventions: { lever: { value: leverA, source: 'user_specified' } } },
         { id: 'opt2', label: 'B', interventions: { lever: { value: 10000, source: 'user_specified' } } },
+        { id: 'opt3', label: 'C', interventions: { lever: { value: 20000, source: 'user_specified' } } },
       ],
       goal_node_id: 'goal_arr',
       seed: 'hash-v8-superset',
     });
 
-    // Both clamp to the ceiling, so the WIRE is identical...
+    // Both would clamp to the ceiling, so opt1 is withheld in both and the WIRE is identical...
     const a = await hashOf(clampPayload(60000));
     const b = await hashOf(clampPayload(90000));
 

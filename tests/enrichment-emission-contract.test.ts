@@ -211,8 +211,9 @@ describe('enrichment emission contract (route-level mixed-case fixture)', () => 
           ],
         },
         options: [
-          { id: 'opt1', label: 'Option A', interventions: { 'factor-a': { value: 10, source: 'user_specified' } } },
-          { id: 'opt2', label: 'Option B', interventions: { 'factor-b': { value: 5, source: 'user_specified' } } },
+          // A3 round 2: a level that would clamp is withheld (AIQ #70 5855192170); factor-a at 0.6 gives [0,1.2], factor-b at 0.5 gives [0,1].
+          { id: 'opt1', label: 'Option A', interventions: { 'factor-a': { value: 1.1, source: 'user_specified' } } },
+          { id: 'opt2', label: 'Option B', interventions: { 'factor-b': { value: 0.9, source: 'user_specified' } } },
         ],
         goal_node_id: 'goal',
         seed: '42',
@@ -315,8 +316,9 @@ describe('enrichment emission contract (route-level mixed-case fixture)', () => 
           ],
         },
         options: [
-          { id: 'opt1', label: 'Option A', interventions: { 'factor-a': { value: 10, source: 'user_specified' } } },
-          { id: 'opt2', label: 'Option B', interventions: { 'factor-b': { value: 5, source: 'user_specified' } } },
+          // A3 round 2: a level that would clamp is withheld (AIQ #70 5855192170); factor-a at 0.6 gives [0,1.2], factor-b at 0.5 gives [0,1].
+          { id: 'opt1', label: 'Option A', interventions: { 'factor-a': { value: 1.1, source: 'user_specified' } } },
+          { id: 'opt2', label: 'Option B', interventions: { 'factor-b': { value: 0.9, source: 'user_specified' } } },
         ],
         goal_node_id: 'goal',
         goal_constraints: [
