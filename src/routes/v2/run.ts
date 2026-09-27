@@ -59,6 +59,7 @@ import type {
   FactorStabilityEntry,
   StabilityThresholds,
   InferenceWarning,
+  JointWithheld,
   OutcomeStatsV3,
   InterventionValueV3,
   InterventionSource,
@@ -2677,11 +2678,25 @@ function buildConstraintFields(
   // every resolved id is a forwarded constraint (resolved ⊆ forwarded).
   const resolvedConstraintIds = new Set(constraintResults.map((r) => r.constraint_id));
   const forwardedIds = new Set(goalConstraints.map((gc) => gc.constraint_id));
+  // B5 (AI Quality #70 5855345225 / 5855511541): ONE LIMIT'S REFUSAL NEVER
+  // SILENCES ANOTHER. ISL 476b543+ scores each forwarded constraint on its own
+  // and omits a REFUSED one's row, naming it in a CONSTRAINT_NOT_CONVERTIBLE /
+  // CONSTRAINT_FRAME_UNSPECIFIED warning. A missing row is therefore honest
+  // coverage — the limit is unscored, and `joint_withheld` names it — but only
+  // when BOTH hold: every returned row carries ISL's echoed identity (a
+  // positional reconstruction of a SUBSET could misattribute), and ISL named
+  // every missing one. Anything else is a silent drop and still fails closed.
+  // With nothing missing this is exactly the one-to-one test above.
+  const missingForwarded = goalConstraints.filter((gc) => !resolvedConstraintIds.has(gc.constraint_id));
+  const refusedByIsl = collectIslRefusedConstraintIds(islResult);
+  const coverageHonest =
+    missingForwarded.length === 0 ||
+    (islConstraints.every((c) => typeof c.constraint_id === 'string' && c.constraint_id.length > 0) &&
+      missingForwarded.every((gc) => refusedByIsl.has(gc.constraint_id)));
   const exactCorrespondence =
-    constraintResults.length === goalConstraints.length &&
     resolvedConstraintIds.size === constraintResults.length &&
     [...resolvedConstraintIds].every((id) => forwardedIds.has(id)) &&
-    goalConstraints.every((gc) => resolvedConstraintIds.has(gc.constraint_id));
+    coverageHonest;
   if (!allConstraintProbabilitiesValid || !exactCorrespondence) {
     return { constraints_status: 'unavailable' };
   }
@@ -2811,6 +2826,14 @@ function buildConstraintFields(
   // targets deliver unchanged (callers pass only the suppressed partition).
   // Gated AFTER the early returns above so ISL 'error'/'unavailable'
   // outcomes keep their more specific status.
+  //
+  // B5: the gate is applied PER LIMIT. A suppressed target's own row (and every
+  // diagnostic / conditional that involves it) is withheld; the reliable limits
+  // keep theirs. Only when NO row survives is the block 'unavailable', which is
+  // exactly the pre-B5 result for every run whose limits were all suppressed.
+  let deliveredResults = constraintResults;
+  let deliveredDiagnostics = constraintDiagnostics;
+  let deliveredConditionals = conditionalProbabilities;
   if (suppressedConstraintTargets && suppressedConstraintTargets.length > 0) {
     logger?.warn({
       event: 'constraint_results_suppressed',
@@ -2819,7 +2842,15 @@ function buildConstraintFields(
       raw_conditional_probabilities: conditionalProbabilities,
       unreliable_targets: suppressedConstraintTargets,
     });
-    return { constraints_status: 'unavailable' };
+    const suppressedIds = new Set(suppressedConstraintTargets.map((t) => t.constraint_id));
+    deliveredResults = constraintResults.filter((r) => !suppressedIds.has(r.constraint_id));
+    if (deliveredResults.length === 0) {
+      return { constraints_status: 'unavailable' };
+    }
+    deliveredDiagnostics = constraintDiagnostics.filter((d) => !suppressedIds.has(d.constraint_id));
+    deliveredConditionals = conditionalProbabilities?.filter(
+      (cp) => !suppressedIds.has(cp.given_constraint_id) && !suppressedIds.has(cp.target_constraint_id),
+    );
   }
 
   // A3 adjacent-hunt FIX #1 (honesty leak): mirror the suppressed-target gate
@@ -2852,10 +2883,47 @@ function buildConstraintFields(
 
   return {
     constraints_status: 'computed',
-    constraint_results: constraintResults.length > 0 ? constraintResults : undefined,
-    constraint_diagnostics: constraintDiagnostics.length > 0 ? constraintDiagnostics : undefined,
-    conditional_probabilities: conditionalProbabilities ?? [],
+    constraint_results: deliveredResults.length > 0 ? deliveredResults : undefined,
+    constraint_diagnostics: deliveredDiagnostics.length > 0 ? deliveredDiagnostics : undefined,
+    conditional_probabilities: deliveredConditionals ?? [],
   };
+}
+
+/** ISL's per-limit refusal codes (B5): each names the refused limit in `detail.constraint_id`. */
+const ISL_CONSTRAINT_REFUSAL_CODES: ReadonlySet<string> = new Set([
+  'CONSTRAINT_NOT_CONVERTIBLE',
+  'CONSTRAINT_FRAME_UNSPECIFIED',
+]);
+
+/** The constraint ids ISL REFUSED by name on this run (B5). Empty when none. */
+function collectIslRefusedConstraintIds(islResult: any): Set<string> {
+  const ids = new Set<string>();
+  const warnings = islResult?.inference_warnings;
+  if (!Array.isArray(warnings)) return ids;
+  for (const w of warnings) {
+    const id = w?.detail?.constraint_id;
+    if (ISL_CONSTRAINT_REFUSAL_CODES.has(w?.code) && typeof id === 'string' && id.length > 0) ids.add(id);
+  }
+  return ids;
+}
+
+/**
+ * The ids of the forwarded constraints ISL returned a row for on ANY option
+ * (B5), resolved by the one identity ladder. ISL plans are run-level, so a limit
+ * it refused has no row on any option.
+ */
+function collectReturnedConstraintIds(
+  islOptionData: unknown,
+  goalConstraints: GoalConstraint[] | undefined,
+): Set<string> {
+  const ids = new Set<string>();
+  if (!Array.isArray(islOptionData)) return ids;
+  for (const r of islOptionData as any[]) {
+    const rows = r?.constraint_analysis?.constraints;
+    if (!Array.isArray(rows) || rows.length === 0) continue;
+    for (const id of resolveConstraintIds(rows as ISLConstraintResult[], goalConstraints)) ids.add(id);
+  }
+  return ids;
 }
 
 /**
@@ -3090,11 +3158,17 @@ function buildResponse(
     graph,
   );
   const suppressConstraintProbabilities = constraintTargetPartition.suppressed.length > 0;
-  // Modelled-basis delivery is only active when NOTHING suppresses: on a
-  // mixed run the run-level suppression wins (exactly today's behaviour).
-  const modelledBasisConstraintTargets = suppressConstraintProbabilities
-    ? []
-    : constraintTargetPartition.modelledBasis;
+  // B5 (AI Quality #70 5855345225 / 5855511541): ONE LIMIT'S REFUSAL NEVER
+  // SILENCES ANOTHER. The partition is applied PER LIMIT: a suppressed target's
+  // own probability is withheld and every other limit keeps its own. (Before
+  // B5 any suppressed target withheld every limit on the run, and modelled-basis
+  // delivery was switched off on a mixed run.) What stays run-level is the
+  // JOINT: see `unscoredConstraintIds` below.
+  const suppressedConstraintIds = new Set(
+    constraintTargetPartition.suppressed.map((t) => t.constraint_id),
+  );
+  const modelledBasisConstraintTargets = constraintTargetPartition.modelledBasis;
+  const modelledBasisConstraintIds = modelledBasisConstraintTargets.map((t) => t.constraint_id);
   // Sorted + deduplicated node ids for the per-option annotation.
   const modelledBasisNodeIds = [
     ...new Set(modelledBasisConstraintTargets.map((t) => t.node_id)),
@@ -3115,6 +3189,26 @@ function buildResponse(
   // Map ISL results to response format
   // ISL V2 uses 'options' field; V1 uses 'results'. Check both for compatibility.
   const islOptionData = islResult?.options ?? islResult?.results;
+  // B5: the run's UNSCORED limits — forwarded ones (in request order) whose
+  // target is suppressed-unreliable or that ISL returned no row for (ISL
+  // 476b543+ refuses per limit and names it), then any PLoT withheld before the
+  // engine (`_meta.filtered_constraints`). While ANY limit is unscored, "all your
+  // limits met" cannot be said: `probability_of_joint_goal` is omitted on every
+  // option and `joint_withheld` names these ids. Never a joint over the scored
+  // subset — that would certify a limit that was never checked.
+  const returnedConstraintIds = collectReturnedConstraintIds(islOptionData, goalConstraints);
+  const unscoredConstraintIds = [
+    ...new Set([
+      ...(goalConstraints ?? [])
+        .map((gc) => gc.constraint_id)
+        .filter((id) => suppressedConstraintIds.has(id) || !returnedConstraintIds.has(id)),
+      ...(meta.filteredConstraints ?? []).map((f) => f.constraint_id),
+    ]),
+  ];
+  const jointWithheld: JointWithheld | undefined =
+    unscoredConstraintIds.length > 0 && Array.isArray(islOptionData) && islOptionData.length > 0
+      ? { reason: 'limit_unscored', constraint_ids: unscoredConstraintIds }
+      : undefined;
   // Loop-invariant: the active constraint ids (the scale-provenance map's keys)
   // do NOT vary per option — materialise once rather than per .map iteration.
   const activeConstraintIds = constraintScaleProvenanceByConstraintId
@@ -3400,26 +3494,37 @@ function buildResponse(
           raw_probability_of_joint_goal: constraintAnalysis.joint_probability,
           raw_constraint_probabilities: constraintProbs,
         });
-      } else if (suppressConstraintProbabilities) {
-        // Producer honesty (item A): the computed values are structurally
-        // meaningless (default-range threshold and/or defaulted base). Emit
-        // NEITHER field — absence is honest — and keep the raw values in
-        // diagnostics logs only. CONSTRAINT_TARGET_UNRELIABLE (warning) is
-        // emitted once per affected node further below.
-        logger?.warn({
-          event: 'constraint_probability_suppressed',
-          option_id: optionId,
-          raw_probability_of_joint_goal: constraintAnalysis.joint_probability,
-          raw_constraint_probabilities: constraintProbs,
-          unreliable_targets: unreliableConstraintTargets,
-        });
       } else {
-        if (jointProb !== undefined) {
+        // Producer honesty (item A), PER LIMIT since B5: a suppressed target's
+        // computed value is structurally meaningless (default-range threshold
+        // and/or defaulted base / unanchored frame / unit collision). ITS
+        // probability and margin are withheld — absence is honest — and the raw
+        // values stay in the diagnostics log. Every other limit keeps its own.
+        // CONSTRAINT_TARGET_UNRELIABLE (warning) names the withheld limits once
+        // per affected node further below.
+        let deliveredProbs = constraintProbs;
+        let deliveredMargins = constraintMargins;
+        if (suppressConstraintProbabilities) {
+          logger?.warn({
+            event: 'constraint_probability_suppressed',
+            option_id: optionId,
+            raw_probability_of_joint_goal: constraintAnalysis.joint_probability,
+            raw_constraint_probabilities: constraintProbs,
+            unreliable_targets: unreliableConstraintTargets,
+          });
+          if (constraintProbs !== undefined) {
+            const kept = Object.entries(constraintProbs).filter(([id]) => !suppressedConstraintIds.has(id));
+            deliveredProbs = kept.length > 0 ? Object.fromEntries(kept) : undefined;
+          }
+          deliveredMargins = constraintMargins?.filter((m) => !suppressedConstraintIds.has(m.constraint_id));
+        }
+        // B5: "all your limits met" only when EVERY limit is scored.
+        if (jointProb !== undefined && unscoredConstraintIds.length === 0) {
           result.probability_of_joint_goal = jointProb;
         }
-        if (constraintProbs !== undefined) {
-          result.constraint_probabilities = constraintProbs;
-          logger?.info({ event: 'constraint_probs_mapped', option_id: optionId, count: Object.keys(constraintProbs).length });
+        if (deliveredProbs !== undefined) {
+          result.constraint_probabilities = deliveredProbs;
+          logger?.info({ event: 'constraint_probs_mapped', option_id: optionId, count: Object.keys(deliveredProbs).length });
         }
         // A3 trust marker: constraints_decision_grade for this option.
         //   - Zero participating ⇒ field ABSENT (fail-closed — never a vacuous
@@ -3448,16 +3553,19 @@ function buildResponse(
         // SAME honesty gate as the probabilities (never on a suppressed /
         // direction-suspect target). Absent-margin entries are still carried
         // (missing ≠ zero) with their margin fields omitted.
-        if (constraintMargins !== undefined && constraintMargins.length > 0) {
-          result.constraint_margins = constraintMargins;
+        if (deliveredMargins !== undefined && deliveredMargins.length > 0) {
+          result.constraint_margins = deliveredMargins;
         }
         // Doctrine B (P0-C2): honest provenance for delivered goal-fit scored
         // from the modelled outcome distribution (target base defaulted, no
         // observed baseline). Additive — absent on fully-reliable runs, and
         // only attached when the option actually carries a delivered value.
+        // B5: only when a modelled-basis limit's value actually ships here (on a
+        // mixed run the option may carry only other limits' values).
         if (
           modelledBasisNodeIds.length > 0 &&
-          (jointProb !== undefined || constraintProbs !== undefined)
+          (result.probability_of_joint_goal !== undefined ||
+            modelledBasisConstraintIds.some((id) => result.constraint_probabilities?.[id] !== undefined))
         ) {
           result.goal_fit_basis = {
             scored_from: GOAL_FIT_SCORED_FROM_MODELLED_OUTCOME,
@@ -3805,6 +3913,15 @@ function buildResponse(
   // the engine, and why", so any producer that files a record is counted the
   // moment it files one.
   const withheldConstraintCount = (meta.filteredConstraints ?? []).length;
+  // B5: a user limit that REACHED the engine and was not scored (ISL refused it
+  // by name, or its target is suppressed) is, for the crown's one-line verdict,
+  // the same fact as one withheld before it: "we could not check every limit you
+  // set on this run" (rung 4). Without this, per-limit delivery would move such a
+  // run to 'unverified' — a claim about the scale of limits that WERE checked.
+  // Zero on every run whose limits were all scored.
+  const engineUnscoredUserLimitCount = (goalConstraints ?? [])
+    .filter(isUserStatedLimit)
+    .filter((gc) => unscoredConstraintIds.includes(gc.constraint_id)).length;
   const crownCompliance = classifyCrownCompliance(
     crownedEntry === undefined
       ? undefined
@@ -3820,7 +3937,7 @@ function buildResponse(
     // `isUserStatedLimit` owns that distinction; see its docblock for why the
     // `_internal.source` test is exact rather than heuristic.
     (goalConstraints ?? []).filter(isUserStatedLimit).length,
-    withheldConstraintCount,
+    withheldConstraintCount + engineUnscoredUserLimitCount,
     anyCrownableCandidate,
   );
   robustness.recommended_option_compliance = crownCompliance;
@@ -3973,11 +4090,22 @@ function buildResponse(
   // code CONSTRAINT_TARGET_UNRELIABLE; message names the node and the
   // concrete user action (set a value/range) — raw suppressed numbers are
   // never quoted (they live in the constraint_probability_suppressed log).
+  //
+  // B5: one per affected node over the SUPPRESSED targets only (a modelled-basis
+  // target on a mixed run is delivered, so it is not "unreliable" on the wire),
+  // and each names the withheld limit(s) on that node in `constraint_ids`.
   if (suppressConstraintProbabilities) {
     const warnedNodeIds = new Set<string>();
-    for (const target of unreliableConstraintTargets) {
+    for (const target of constraintTargetPartition.suppressed) {
       if (warnedNodeIds.has(target.node_id)) continue;
       warnedNodeIds.add(target.node_id);
+      const withheldIdsOnNode = [
+        ...new Set(
+          constraintTargetPartition.suppressed
+            .filter((t) => t.node_id === target.node_id)
+            .map((t) => t.constraint_id),
+        ),
+      ];
       const nodeLabel = graph?.nodes?.find((n) => n.id === target.node_id)?.label ?? target.node_id;
       inferenceWarnings.push({
         code: INFERENCE_WARNING_CODES.CONSTRAINT_TARGET_UNRELIABLE,
@@ -3995,9 +4123,11 @@ function buildResponse(
           !directedEdgeTargets.has(target.node_id),
         ),
         severity: 'warning',
+        constraint_ids: withheldIdsOnNode,
       });
     }
-  } else if (modelledBasisConstraintTargets.length > 0) {
+  }
+  if (modelledBasisConstraintTargets.length > 0) {
     // Doctrine B (P0-C2): goal-fit was DELIVERED, scored from the modelled
     // outcome distribution. The honesty signal is downgraded to an
     // info-severity note — one per affected node — pairing with the
@@ -4356,6 +4486,9 @@ function buildResponse(
       // remove them?", not "did constraints arrive and none reach the engine?".
       withheldConstraintCount,
     ),
+    // B5: why `probability_of_joint_goal` is absent on every option, naming the
+    // unscored limits. Absent whenever every limit was scored.
+    ...(jointWithheld !== undefined && { joint_withheld: jointWithheld }),
 
     // Auto-noise disclosure (audit B3, P0). `auto_noise_applied` echoes
     // ISL's flag verbatim (or `null` when ISL's `_metadata` omits the

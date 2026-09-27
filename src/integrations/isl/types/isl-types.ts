@@ -921,7 +921,13 @@ export interface ISLConditionalProbability {
  */
 export interface ISLConstraintAnalysis {
   constraints: ISLConstraintResult[];
-  joint_probability: number;
+  /**
+   * P(all constraints satisfied). ABSENT (B5, ISL 476b543+) while any forwarded
+   * constraint is unscored: ISL then scores each resolvable constraint on its own,
+   * omits the refused ones' rows, and names each refusal in `inference_warnings`.
+   * Never a joint over the scored subset. Read via prob01().
+   */
+  joint_probability?: number;
   conditional_probabilities?: ISLConditionalProbability[];
 }
 
