@@ -385,4 +385,45 @@ describe("route — Paul's retention and conversion reach ISL on their node's fr
     for (const v of wireLevels('cut_churn', 'monthly_churn')) expect(v).toBe(0.8);
     for (const v of wireLevels('grandfather_flag', 'fac_existing_customers_grandfathered')) expect(v).toBe(1);
   });
+
+  // The residual above is NOT fixable on PLoT's side: opening the gate on a
+  // node's frame was built and measured (branch
+  // mg/a3-pct-alone-residual-180127-brieffix-REGRESSES) and it double-normalises
+  // CEE's demoted request above (churn 0.025 -> 0.00025, new subscribers
+  // 0.09 -> 0.00009, price 0.295 -> 0.001475). The fix is CEE's egress emitting
+  // the KNOWN unit form (`unitIntervalEquivalent`) whenever the request is
+  // already all-[0,1]. The two rows below pin the PLoT half of that handshake.
+
+  it('CONTRAST — "cut churn to 0.8%" in company with RAW price options: the gate is open, churn reaches ISL at 0.008 and the price options are byte-identical to the BEFORE wire', async () => {
+    const req = paulRequest();
+    const keep = ['keep_current_49_price', 'increase_price_to_59'];
+    req.options = req.options.filter((o: any) => keep.includes(o.id));
+    req.options.push({ id: 'cut_churn', option_id: 'cut_churn', label: 'Cut churn to 0.8%', interventions: { monthly_churn: 0.8 }, is_baseline: false });
+    const body = await run(req);
+    for (const v of wireLevels('cut_churn', 'monthly_churn')) expect(v).toBe(0.008);
+    const before = capturedBefore();
+    for (const b of islBodies) {
+      for (const id of keep) {
+        const now = (b.options ?? []).find((o: any) => o.id === id);
+        const then = before.options.find((o: any) => o.id === id);
+        expect(then, `${id} in the BEFORE capture`).toBeDefined();
+        expect(JSON.stringify(now?.interventions), id).toBe(JSON.stringify(then.interventions));
+      }
+    }
+    expect((body._meta?.repairs_applied ?? []).find((r: any) => r.field === 'intervention.value.monthly_churn' && r.action === 'normalised')).toMatchObject({
+      from_value: 0.8, to_value: 0.008, reason: 'normalised range=[0,100] source=scale_frame',
+    });
+  });
+
+  it('CEE-FIX CONTRACT — "cut churn to 0.8%" emitted in its UNIT form (0.008) beside the 0|1 flag reaches ISL at 0.008 verbatim: the gate stays shut, nothing is re-scaled', async () => {
+    const req = paulRequest();
+    req.options = [
+      { id: 'cut_churn', option_id: 'cut_churn', label: 'Cut churn to 0.8%', interventions: { monthly_churn: 0.008 }, is_baseline: false },
+      { id: 'grandfather_flag', option_id: 'grandfather_flag', label: 'Grandfather existing customers', interventions: { fac_existing_customers_grandfathered: 1 }, is_baseline: true },
+    ];
+    const body = await run(req);
+    for (const v of wireLevels('cut_churn', 'monthly_churn')) expect(v).toBe(0.008);
+    for (const v of wireLevels('grandfather_flag', 'fac_existing_customers_grandfathered')) expect(v).toBe(1);
+    expect((body._meta?.repairs_applied ?? []).filter((r: any) => String(r.field).startsWith('intervention.value.'))).toEqual([]);
+  });
 });
