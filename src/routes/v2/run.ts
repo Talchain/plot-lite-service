@@ -6034,8 +6034,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const goalThresholdMetaByNodeId = collectGoalThresholdNodeMeta(body.graph?.nodes);
         // The raw node's `scale_frame` — a framed factor's divisor when it has
         // no `observed_state.cap`. Same capture, same reason: the canonical node
-        // drops it. Read ONLY by the '%' rung (`resolvePercentTargetFrame`), so
-        // a '%' limit is read on its target's own frame, or refused.
+        // drops it. Read by the '%' rung (`resolvePercentTargetFrame`), so a '%'
+        // limit is read on its target's own frame, or refused — and (A3) by
+        // Phase 4a, so an intervened capless framed factor is scaled on that
+        // SAME frame (`deriveRange` rung 1.6, through `resolveNodeFrame`).
         const scaleFrameByNodeId = collectScaleFrameByNodeId(body.graph?.nodes);
         // L63: the same capture, for the FRAME stamp. Collected for EVERY raw
         // node rather than just the goal node — a constraint can target any
@@ -6933,7 +6935,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           const normResult = normaliseOptionsForISL(
             normalizedOptions,
             filteredGraph.nodes,
-            body.goal_node_id
+            body.goal_node_id,
+            undefined,
+            // A3: the raw node's `scale_frame` — an INTERVENED capless framed
+            // factor is scaled on its own frame (deriveRange rung 1.6), the
+            // same frame the '%' limit rung reads.
+            scaleFrameByNodeId,
           );
           optionsForISL = normResult.options;
           normalisationContext = normResult.context;
@@ -8564,6 +8571,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             from_value: r.from_value ?? null,
             to_value: r.to_value,
             reason: r.reason,
+            // A3 round 2: a per-option clamp keeps its option — the ledger's
+            // dedup key includes it, so two options clamping one factor stay two.
+            ...(r.option_id !== undefined && { option_id: r.option_id }),
           }));
 
           // Producer honesty (item A): mirror buildResponse's detection so the

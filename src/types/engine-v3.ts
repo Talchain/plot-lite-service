@@ -2774,7 +2774,7 @@ export interface FactorSensitivityResultV3 {
    * Indicates which priority tier was used to derive the normalisation range.
    * Surfaced from _meta.range_derivation_sources for per-factor UI display.
    *
-   * Values: 'explicit_cap' | 'explicit' | 'extracted' | 'inferred_spread' | 'inferred_baseline' | 'inferred_value' | 'default'
+   * Values: 'explicit_cap' | 'explicit' | 'extracted' | 'scale_frame' | 'pair_frame' | 'inferred_spread' | 'inferred_baseline' | 'inferred_value' | 'default'
    */
   range_derivation_source?: string;
   /** True when normalisation was active but denormalisation ranges were unavailable */
@@ -3339,6 +3339,13 @@ export interface RepairRecord {
   to_value: number | string;
   /** Human-readable reason for the repair */
   reason: string;
+  /**
+   * The option whose intervention this repair describes — set ONLY on a
+   * per-option intervention repair (A3: the `clamped` record). Part of the
+   * record's identity: the assumptions ledger keys on it, so two options that
+   * clamp the same factor stay two entries.
+   */
+  option_id?: string;
   // F.5 canonical fields — present on new-style repair entries (F.6 compliance)
   /** Canonical repair code (F.5) */
   code?: string;

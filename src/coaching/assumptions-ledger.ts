@@ -80,6 +80,8 @@ export function buildAssumptionsLedger(
     from_value: number | string | null;
     to_value: number | string;
     reason: string;
+    /** Set on a per-option intervention repair (A3 `clamped`); see mapRepairToAssumption. */
+    option_id?: string;
   }> = [],
   ceeCritiques: Array<{
     type: string;
@@ -136,20 +138,28 @@ function mapRepairToAssumption(
     from_value: number | string | null;
     to_value: number | string;
     reason: string;
+    option_id?: string;
   },
   inputs: CoachingInputs
 ): AssumptionRecord {
+  // A3 round 2: a per-option intervention repair (the normaliser's `clamped`
+  // record) names its option, and the option is part of its identity — two
+  // options clamping the same factor are two assumptions. Keyed WITHOUT it they
+  // collapsed into one ledger entry (the second silently overwrote the first).
+  const optionId =
+    typeof repair.option_id === 'string' && repair.option_id.length > 0 ? repair.option_id : undefined;
+
   // Parse field to extract entity info
   // Format: "edge.exists_probability", "node.value.mean", "edge.strength.std"
   const parts = repair.field.split('.');
-  const entityType = (parts[0] === 'edge' ? 'edge' : parts[0] === 'node' ? 'node' : 'global') as
-    | 'edge'
-    | 'node'
-    | 'global';
+  const entityType = (
+    optionId !== undefined ? 'option' : parts[0] === 'edge' ? 'edge' : parts[0] === 'node' ? 'node' : 'global'
+  ) as 'edge' | 'node' | 'option' | 'global';
 
   // Entity ID extraction would require context from repairs (not always available)
-  // For now, use field as entity_id since repairs don't include entity IDs
-  const entityId = 'unknown';
+  // For now, use field as entity_id since repairs don't include entity IDs —
+  // except a per-option repair, which carries its option id.
+  const entityId = optionId ?? 'unknown';
 
   const dedupKey = `plot_normaliser:${repair.action}:${entityType}:${entityId}:${repair.field}`;
 

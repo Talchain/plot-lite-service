@@ -31,7 +31,12 @@ export type { ConstraintUnitMismatch } from './constraint-units.js';
 
 /**
  * Range source for normalisation.
- * Priority order (interventions): explicit_cap > explicit > extracted > inferred_spread > inferred_baseline > inferred_value > default
+ * Priority order (interventions): explicit_cap > explicit > extracted > scale_frame > pair_frame > inferred_spread > inferred_baseline > inferred_value > default
+ *
+ * Intervention-only frame sources (A3 "one unit and frame" — see
+ * `resolveNodeFrame` and the Priority 1.6 rung of `deriveRange`):
+ * - 'scale_frame': the raw node's stored `scale_frame` (no `observed_state.cap`)
+ * - 'pair_frame': the frame CEE's capless `{value, raw_value}` pair encodes
  *
  * Constraint-only sources (P0-C1, producer-declared scales — see
  * normaliseGoalConstraints):
@@ -39,7 +44,7 @@ export type { ConstraintUnitMismatch } from './constraint-units.js';
  * - 'unit_percent': the constraint's '%' unit (house doctrine: '%' always
  *   normalises against 100)
  */
-export type RangeSource = 'explicit_cap' | 'explicit' | 'extracted' | 'inferred_spread' | 'inferred_baseline' | 'inferred_value' | 'default' | 'goal_threshold_cap' | 'unit_percent';
+export type RangeSource = 'explicit_cap' | 'explicit' | 'extracted' | 'scale_frame' | 'pair_frame' | 'inferred_spread' | 'inferred_baseline' | 'inferred_value' | 'default' | 'goal_threshold_cap' | 'unit_percent';
 
 /**
  * Range for normalisation.
@@ -250,6 +255,12 @@ function isValidExtractedRange(range: [number, number] | undefined): range is [n
  * |          |                    | Range: [0, cap]. Requires cap > 0.                       |
  * | 1        | `explicit`         | `state_space.range` (user-confirmed). Requires max > min. |
  * | 1.5      | `extracted`        | `intervention_hints.extracted_range` from CE extraction.  |
+ * | 1.6      | `scale_frame` /    | INTERVENED factors only (`interventionValues` non-empty): |
+ * |          | `pair_frame`       | the node's own frame — the raw node's `scale_frame`, else |
+ * |          |                    | the `{value, raw_value}` pair — read by `resolveNodeFrame`|
+ * |          |                    | (the SAME reader the '%' limit rung uses). Range          |
+ * |          |                    | [0, frame]. Skipped on a negative-domain node (value or   |
+ * |          |                    | baseline < 0), which keeps the D-9 rungs below.           |
  * | 1.75     | `inferred_spread`  | min/max of intervention values across options + 20%       |
  * |          |                    | padding. Requires ≥2 values with variation.               |
  * |          |                    | Outlier guard: skipped if maxVal > minVal × 100.          |
@@ -266,15 +277,21 @@ function isValidExtractedRange(range: [number, number] | undefined): range is [n
  * @param node Factor node
  * @param hints Optional intervention hints from CE
  * @param interventionValues Optional array of intervention values for this factor across options
+ * @param scaleFrame The RAW request node's `scale_frame` (`collectScaleFrameByNodeId`) — the
+ *   canonical EngineNodeV3 drops it. Read only by rung 1.6, only for an intervened factor.
  * @returns Normalisation range with source indicator (see RangeSource type)
  */
 export function deriveRange(
   node: EngineNodeV3,
   hints?: InterventionHints,
-  interventionValues?: number[]
+  interventionValues?: number[],
+  scaleFrame?: number,
 ): NormalisationRange {
   const stateSpace = node.state_space;
   const observedState = node.observed_state;
+  // The node's own frame, from the ONE reader the '%' limit rung also uses:
+  // observed_state.cap → the raw node's scale_frame → the {value, raw_value} pair.
+  const nodeFrame = resolveNodeFrame(observedState, scaleFrame);
 
   // Priority 0: Explicit cap from observed_state
   // Authoritative scale cap set by CEE (e.g., goal node with cap=1000 means value=200 → 0.2).
@@ -283,8 +300,10 @@ export function deriveRange(
   // F14: require a finite positive width at every source (isFiniteRange) so an
   // overflow-width range can never reach denormaliseValue — a rejected source
   // falls through to the next priority (ultimately the safe default [0,1]).
-  if (typeof observedState?.cap === 'number' && observedState.cap > 0 && isFiniteRange(0, observedState.cap)) {
-    return { min: 0, max: observedState.cap, source: 'explicit_cap' };
+  // (`resolveNodeFrame`'s cap rung is this exact predicate: a finite cap > 0
+  // with a finite positive width — `isPositiveFrame`.)
+  if (nodeFrame?.carrier === 'cap') {
+    return { min: 0, max: nodeFrame.frame, source: 'explicit_cap' };
   }
 
   // Priority 1: Explicit state_space.range
@@ -299,6 +318,49 @@ export function deriveRange(
   if (hints && isValidExtractedRange(hints.extracted_range)) {
     const [min, max] = hints.extracted_range;
     return { min, max, source: 'extracted' };
+  }
+
+  // Priority 1.6 (A3 "one unit and frame"): an INTERVENED factor with no cap is
+  // scaled on its OWN frame — the raw node's `scale_frame`, else the frame its
+  // `{value, raw_value}` pair encodes — never on a range inferred from the
+  // NORMALISED value.
+  //
+  // ⛔ THE DEFECT (WIRE, MG capture paul-own-a295e4a1, 27 Sep; AIQ
+  // olumi-programme-docs#70 5855100592). CEE's egress sends option
+  // interventions in RAW user scale (`plot-intervention-scale.ts`: churn 2.5,
+  // new subscribers 90) because "PLoT normalises by the node's cap". CEE's
+  // capless framed pair (`{value: 0.03, raw_value: 3}`, `scale_frame` 100)
+  // deliberately carries no cap, so this function fell to `inferred_baseline` /
+  // `inferred_value` = [0, 2 × the NORMALISED value] = [0, 0.06] and 2.5
+  // clamped to 1.0: "cut churn to 2.5%" ran as churn = 100%, silently.
+  //
+  // WHY ONLY FOR AN INTERVENED FACTOR. The raw-scale contract is a property of
+  // option interventions. Every other caller — `normaliseGoalConstraints` rung
+  // 6 and the flip-threshold `explicitCapRange` — passes no intervention
+  // values and is byte-identical; a framed factor no option sets keeps its
+  // range in the normalisation context (A3 scope; disclosed residual).
+  //
+  // WHY BEFORE `inferred_spread`. A spread of RAW option values ([2, 2.6]) is
+  // not the node's scale either: ISL's node sits at `value` = raw ÷ frame, so
+  // only the frame places an intervention on the same scale as the node.
+  //
+  // D-9 (sign). A frame is `[0, frame]`. CEE never frames a negative producer
+  // state (`recoverPairFrame` refuses value <= 0), but a stored `scale_frame`
+  // can sit on a node whose level or baseline is negative; [0, frame] would pin
+  // that level to 0. Such a node keeps the sign-preserving rungs below.
+  const isIntervened = interventionValues !== undefined && interventionValues.length > 0;
+  const nodeLevel = observedState?.value;
+  const nodeBaseline = observedState?.baseline;
+  const negativeDomain =
+    (typeof nodeLevel === 'number' && nodeLevel < 0) ||
+    (typeof nodeBaseline === 'number' && nodeBaseline < 0);
+  // (A cap already returned at Priority 0, so the carrier here is scale_frame or pair.)
+  if (isIntervened && nodeFrame !== undefined && !negativeDomain) {
+    return {
+      min: 0,
+      max: nodeFrame.frame,
+      source: nodeFrame.carrier === 'scale_frame' ? 'scale_frame' : 'pair_frame',
+    };
   }
 
   // Priority 1.75: Intervention spread across options
@@ -554,13 +616,15 @@ function collectInterventionValues(options: OptionV3[]): Map<string, number[]> {
  * @param goalNodeId Goal node ID
  * @param interventionHints Optional map of factor ID to intervention hints from CE
  * @param options Optional options array for intervention spread calculation
+ * @param scaleFrameByNodeId The raw request nodes' `scale_frame` (`collectScaleFrameByNodeId`)
  * @returns Normalisation context
  */
 export function buildNormalisationContext(
   nodes: EngineNodeV3[],
   goalNodeId: string,
   interventionHints?: Map<string, InterventionHints>,
-  options?: OptionV3[]
+  options?: OptionV3[],
+  scaleFrameByNodeId?: Map<string, number>,
 ): NormalisationContext {
   const factors = new Map<string, FactorNormalisationContext>();
   let goalContext: FactorNormalisationContext | undefined;
@@ -582,7 +646,7 @@ export function buildNormalisationContext(
     const hints = interventionHints?.get(node.id);
     // Get intervention values for spread calculation
     const interventionValues = interventionValuesByFactor.get(node.id);
-    const range = deriveRange(node, hints, interventionValues);
+    const range = deriveRange(node, hints, interventionValues, scaleFrameByNodeId?.get(node.id));
     const baseline = node.observed_state?.baseline ?? node.observed_state?.value ?? 0;
 
     const context: FactorNormalisationContext = {
@@ -737,6 +801,15 @@ export function normaliseOptions(
   // Track first raw value seen for each factor (for repair records)
   const firstRawValueByFactor = new Map<string, number>();
 
+  // A3: one typed `clamped` repair per (option, factor) the normaliser PINNED
+  // to an endpoint of [0,1]. A clamp changes WHAT IS ANALYSED — the option is
+  // evaluated at the range's edge, not at the level the user stated — and the
+  // per-factor `normalised` record below neither names the option nor says it
+  // clamped (the served retention option reached ISL at churn 1.0 with only
+  // `normalised range=[0,0.06]` to show for it). Same vocabulary as the
+  // constraint path: RepairAction `clamped` + the ` (clamped)` reason suffix.
+  const clampRepairs: RepairRecord[] = [];
+
   // Build fallback ranges for factors without context
   const fallbackRanges = buildFallbackRanges(options, context);
 
@@ -788,6 +861,21 @@ export function normaliseOptions(
         clamped,
       });
 
+      if (clamped) {
+        clampRepairs.push({
+          field: `intervention.value.${factorId}`,
+          action: 'clamped',
+          from_value: roundTo6Decimals(intervention.value),
+          to_value: roundTo6Decimals(normalised),
+          reason: `option=${option.id} ${formatNormalisationReason(range)} (clamped)`,
+          // A3 round 2: the option is part of this record's IDENTITY — two
+          // options clamping the same factor are two clamps, and the
+          // assumptions ledger keys on this (`mapRepairToAssumption`), so
+          // without it the second collapsed into the first.
+          option_id: option.id,
+        });
+      }
+
       // Track first raw value for this factor (for deduplicated repair record)
       if (!firstRawValueByFactor.has(factorId)) {
         firstRawValueByFactor.set(factorId, intervention.value);
@@ -814,7 +902,7 @@ export function normaliseOptions(
 
   // Build repair records from transforms (one per factor)
   // Include factor_id in field name for traceability: "intervention.value.{factor_id}"
-  const repairs: RepairRecord[] = Array.from(transforms.values()).map(transform => ({
+  const normalisedRepairs: RepairRecord[] = Array.from(transforms.values()).map(transform => ({
     field: `intervention.value.${transform.factor_id}`,
     action: 'normalised' as const,
     from_value: transform.raw,
@@ -825,6 +913,7 @@ export function normaliseOptions(
       source: transform.range_source,
     }),
   }));
+  const repairs: RepairRecord[] = normalisedRepairs.concat(clampRepairs);
 
   return { options: normalisedOptions, diagnostics, transforms, repairs };
 }
@@ -856,16 +945,19 @@ export interface NormalisationResult {
  * @param nodes Graph nodes (for building normalisation context)
  * @param goalNodeId Goal node ID
  * @param interventionHints Optional map of factor ID to intervention hints from CE
+ * @param scaleFrameByNodeId The raw request nodes' `scale_frame` (`collectScaleFrameByNodeId`);
+ *   the canonical nodes drop it, so the route captures it off the raw body.
  * @returns Normalised options, context, diagnostics, transforms, and repair records
  */
 export function normaliseOptionsForISL(
   options: OptionV3[],
   nodes: EngineNodeV3[],
   goalNodeId: string,
-  interventionHints?: Map<string, InterventionHints>
+  interventionHints?: Map<string, InterventionHints>,
+  scaleFrameByNodeId?: Map<string, number>,
 ): NormalisationResult {
   // Pass options to context builder for intervention spread calculation
-  const context = buildNormalisationContext(nodes, goalNodeId, interventionHints, options);
+  const context = buildNormalisationContext(nodes, goalNodeId, interventionHints, options, scaleFrameByNodeId);
   const { options: normalisedOptions, diagnostics, transforms, repairs } = normaliseOptions(options, context);
 
   return {
@@ -882,6 +974,28 @@ export function normaliseOptionsForISL(
  *
  * Returns true if any intervention value is outside [0, 1].
  * This allows skipping normalisation when values are already normalised.
+ *
+ * ⛔ DO NOT OPEN THIS GATE ON A NODE'S FRAME (A3 round 2, measured, not
+ * reasoned). An all-[0,1] request is CEE's UNIT-SCALE convention, and CEE
+ * depends on this gate skipping it: when a request mixes raw magnitudes with
+ * values that have no raw form, CEE's egress (`projectRequestInterventionsToWireScale`,
+ * `plot-intervention-scale.ts`, CEE staging 9cfdbb35) DEMOTES every value it
+ * can to its unit form "so the gate skips and the stranded values survive
+ * verbatim" — Paul's churn arrives as 0.025 (= 2.5%), not 2.5. Opening the
+ * gate because churn carries a `scale_frame` was MEASURED (A3 round 2, the
+ * gate widened exactly so, on CEE's own demoted emission for Paul's options)
+ * to send churn 0.025 → 0.00025, new subscribers 0.09 → 0.00009 and the
+ * capped price 0.295 → 0.001475: the whole-request double normalisation
+ * CEE's demotion exists to prevent.
+ *
+ * The residual this leaves is REAL and CEE-owned: "cut churn to 0.8%" with no
+ * other out-of-[0,1] value is emitted RAW (0.8, `raw_value_used`, not demoted
+ * because nothing is outside [0,1]) and read here as unit scale (80%). PLoT
+ * cannot tell that 0.8 from a demoted 0.8 on the same node — the number is
+ * the same and the wire carries no scale attestation — so the fix is at CEE's
+ * egress (emit the known unit form whenever the request will be all-[0,1]),
+ * or a wire attestation. Pinned: `tests/intervention-frame-rung.route.test.ts`
+ * "CEE's demoted request".
  *
  * @param options Options to check
  * @returns True if normalisation is needed
@@ -1458,18 +1572,48 @@ function recoverPairFrame(
   return coheresWithLegacy ? LEGACY_FRAME : frame;
 }
 
+/** Which carrier a node's frame was read from — see {@link resolveNodeFrame}. */
+export type NodeFrameCarrier = 'cap' | 'scale_frame' | 'pair';
+
+/** A node's own frame and the carrier it was read from. */
+export interface NodeFrame {
+  frame: number;
+  carrier: NodeFrameCarrier;
+}
+
+/**
+ * THE node-frame reader — ONE implementation, two callers: the '%' limit rung
+ * (`resolvePercentTargetFrame`) and intervention range derivation
+ * (`deriveRange`, rungs 0 and 1.6). Two copies of this ladder is exactly the
+ * hand-maintained mirror that lets a limit and the option levels it is scored
+ * against be read on two different frames.
+ *
+ * The order, and its domain, are the '%' rung's (documented above
+ * {@link PercentTargetFrame}):
+ *   1. `observed_state.cap`   finite and > 0
+ *   2. the raw `scale_frame`   finite and > 0
+ *   3. the `{value, raw_value}` pair (`recoverPairFrame`)
+ * A stored frame is NOT tested against the pair: a contradicting pair is
+ * OUTRANKED, not refused (the rung's recorded residual).
+ */
+export function resolveNodeFrame(
+  observed: { value?: unknown; raw_value?: unknown; cap?: unknown } | undefined,
+  scaleFrame: number | undefined,
+): NodeFrame | undefined {
+  const cap = observed?.cap;
+  if (isPositiveFrame(cap)) return { frame: cap, carrier: 'cap' };
+  if (isPositiveFrame(scaleFrame)) return { frame: scaleFrame, carrier: 'scale_frame' };
+  const pair = recoverPairFrame(observed);
+  return pair === undefined ? undefined : { frame: pair, carrier: 'pair' };
+}
+
 /** The target's own frame for a '%' limit — see {@link PercentTargetFrame}. */
 export function resolvePercentTargetFrame(
   targetNode: EngineNodeV3 | undefined,
   scaleFrame: number | undefined,
 ): PercentTargetFrame {
   const observed = targetNode?.observed_state;
-  const cap = observed?.cap;
-  const frame = isPositiveFrame(cap)
-    ? cap
-    : isPositiveFrame(scaleFrame)
-      ? scaleFrame
-      : recoverPairFrame(observed);
+  const frame = resolveNodeFrame(observed, scaleFrame)?.frame;
 
   const unit = observed?.unit;
   const declaredUnit = canonicaliseUnit(unit);
@@ -1624,6 +1768,31 @@ export function constraintsNeedPercentTargetFrame(
  * predicate's DOMAIN, not just the named case):
  *   explicit_cap       IN  — `[0, observed_state.cap]`; cap is stated in
  *                            `observed_state.unit`. THE WITNESSED DEFECT.
+ *   scale_frame        IN  — `[0, scale_frame]`: the frame the node's own
+ *                            `observed_state` level is stated against, in
+ *                            `observed_state.unit` (A3; intervened nodes only).
+ *   pair_frame         IN  — `[0, raw_value ÷ value]`, read off
+ *                            `observed_state` itself (A3; intervened nodes only).
+ *                            What these two REPLACE depends on how many option
+ *                            values the node carries, and the unit check moves
+ *                            differently in each case (A3 round 2 — an earlier
+ *                            line here claimed it was "kept, not lost" in all):
+ *                            - ONE value (Paul's retention shape), or several
+ *                              equal values: the old source was
+ *                              `inferred_baseline` / `inferred_value` — IN — so
+ *                              the unit check is KEPT.
+ *                            - TWO OR MORE DIFFERENT values: the old source was
+ *                              `inferred_spread` — OUT — so the unit check is
+ *                              GAINED. A '%' limit on a '% per month' node that
+ *                              several options set to different levels is now
+ *                              refused as a unit mismatch (withheld, with the
+ *                              unit reason), exactly as the one-option shape
+ *                              already was; before A3 its limit was normalised
+ *                              against a padded spread of the RAW option values
+ *                              with no unit check at all.
+ *                            Pinned both ways, by constraint_id and on the
+ *                            route's CONSTRAINT_TARGET_UNRELIABLE text:
+ *                            `tests/intervention-frame-rung*.test.ts`.
  *   inferred_baseline  IN  — bounds from `observed_state.baseline` / `.value`.
  *   inferred_value     IN  — bounds from `observed_state.value`.
  *   explicit           OUT — `state_space.range` carries NO unit field at all
@@ -1650,6 +1819,8 @@ export function constraintsNeedPercentTargetFrame(
  */
 const OBSERVED_STATE_SCALE_SOURCES: ReadonlySet<RangeSource> = new Set<RangeSource>([
   'explicit_cap',
+  'scale_frame',
+  'pair_frame',
   'inferred_baseline',
   'inferred_value',
 ]);
