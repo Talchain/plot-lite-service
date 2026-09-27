@@ -382,7 +382,7 @@ describe("route — Paul's retention and conversion reach ISL on their node's fr
       { id: 'grandfather_flag', option_id: 'grandfather_flag', label: 'Grandfather existing customers', interventions: { fac_existing_customers_grandfathered: 1 }, is_baseline: true },
     ];
     await run(req);
-    for (const v of wireLevels('cut_churn', 'monthly_churn')) expect(v).toBe(0.8);
+    for (const v of wireLevels('cut_churn', 'monthly_churn')) expect(v).toBe(0.008);
     for (const v of wireLevels('grandfather_flag', 'fac_existing_customers_grandfathered')) expect(v).toBe(1);
   });
 });

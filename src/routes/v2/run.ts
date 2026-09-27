@@ -6931,7 +6931,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // option_comparison[].constraints_decision_grade.
         let constraintScaleProvenanceByConstraintId: Map<string, ConstraintScaleProvenance> | undefined;
 
-        if (needsNormalisation(normalizedOptions)) {
+        if (needsNormalisation(normalizedOptions, filteredGraph.nodes, scaleFrameByNodeId)) {
           const normResult = normaliseOptionsForISL(
             normalizedOptions,
             filteredGraph.nodes,

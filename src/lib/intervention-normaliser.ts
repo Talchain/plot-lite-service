@@ -1000,13 +1000,21 @@ export function normaliseOptionsForISL(
  * @param options Options to check
  * @returns True if normalisation is needed
  */
-export function needsNormalisation(options: OptionV3[]): boolean {
+export function needsNormalisation(
+  options: OptionV3[],
+  nodes?: EngineNodeV3[],
+  scaleFrameByNodeId?: Map<string, number>,
+): boolean {
+  const byId = new Map<string, EngineNodeV3>();
+  for (const n of nodes ?? []) byId.set(n.id, n);
   for (const option of options) {
-    for (const intervention of Object.values(option.interventions)) {
+    for (const [nodeId, intervention] of Object.entries(option.interventions)) {
       const value = intervention.value;
       if (value < 0 || value > 1) {
         return true;
       }
+      const frame = resolveNodeFrame(byId.get(nodeId)?.observed_state, scaleFrameByNodeId?.get(nodeId));
+      if (frame !== undefined && frame.carrier !== 'cap') return true;
     }
   }
   return false;
