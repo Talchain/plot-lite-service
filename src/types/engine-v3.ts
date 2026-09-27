@@ -2774,7 +2774,7 @@ export interface FactorSensitivityResultV3 {
    * Indicates which priority tier was used to derive the normalisation range.
    * Surfaced from _meta.range_derivation_sources for per-factor UI display.
    *
-   * Values: 'explicit_cap' | 'explicit' | 'extracted' | 'inferred_spread' | 'inferred_baseline' | 'inferred_value' | 'default'
+   * Values: 'explicit_cap' | 'explicit' | 'extracted' | 'scale_frame' | 'pair_frame' | 'inferred_spread' | 'inferred_baseline' | 'inferred_value' | 'default'
    */
   range_derivation_source?: string;
   /** True when normalisation was active but denormalisation ranges were unavailable */
