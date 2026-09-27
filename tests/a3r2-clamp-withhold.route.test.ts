@@ -229,8 +229,7 @@ describe('A3 round 2 — the route withholds what would be clamped', () => {
     expect((body._meta?.filtered_constraints ?? []).filter((r: any) => r.constraint_id === CHURN_LIMIT)).toEqual([
       { constraint_id: CHURN_LIMIT, node_id: 'monthly_churn', reason: 'threshold_clamped' },
     ]);
-    const refusal = (body.critiques ?? body.inference_warnings ?? [])
-      .concat(body.critiques ?? [])
+    const refusal = (body.critiques ?? [])
       .find((c: any) => c.code === 'CONSTRAINT_REFUSED_FRAME_FIDELITY' && String(c.message).includes(CHURN_LIMIT));
     expect(refusal, 'a frame-fidelity critique names the refused limit').toBeDefined();
     // No P for it, on any option; and the joint over "all your limits" is withheld.
@@ -323,6 +322,27 @@ describe('A3 round 2 — the route withholds what would be clamped', () => {
     expect(withWire).toEqual(withoutWire);
   });
 
+  it('CASCADE — a survivor whose level fits only the withheld option\'s spread is withheld in turn (re-normalised until nothing clamps)', async () => {
+    // ADDED: `staff` (unframed, level 1) is set by 'grow' (5) and by 'hire_big'
+    // (20). With both, the staff spread is [2, 23] and 5 fits. 'hire_big' is
+    // withheld on its OWN clamp (sales_hires 100 on [0, 6]); without it, 5 is
+    // the only staff level, the range is Olumi's [0, 2], and 5 would clamp.
+    const req = body17d1();
+    addUnframedFactor(req, 'sales_hires', 3);
+    addUnframedFactor(req, 'staff', 1);
+    addOption(req, 'hire_big', { sales_hires: 100, staff: 20 });
+    addOption(req, 'grow', { staff: 5 });
+    const body = await run(req);
+    expect(body._meta?.withheld_options).toEqual([
+      { option_id: 'hire_big', reason: 'intervention_clamped', factor_id: 'sales_hires', stated: 100, applied: 6 },
+      { option_id: 'grow', reason: 'intervention_clamped', factor_id: 'staff', stated: 5, applied: 2 },
+    ]);
+    for (const ids of wireOptionIds()) {
+      expect(ids).toEqual(['keep_current_49_price', 'increase_price_to_59', 'increase_price_to_54']);
+    }
+    expect((body._meta?.repairs_applied ?? []).filter((r: any) => r.action === 'clamped').map((r: any) => r.option_id)).toEqual(['hire_big', 'grow']);
+  });
+
   it('every option clamped ⇒ the run is refused with a typed reason (INTERVENTION_CLAMPED_NO_COMPARISON)', async () => {
     const req = body17d1();
     addUnframedFactor(req, 'sales_hires', 3);
@@ -335,7 +355,7 @@ describe('A3 round 2 — the route withholds what would be clamped', () => {
     expect(islBodies).toEqual([]);
     const all = JSON.stringify(body);
     expect(all).toContain('INTERVENTION_CLAMPED_NO_COMPARISON');
-    const blocker = (body.critiques ?? body.error?.critiques ?? body.blockers ?? [])
+    const blocker = (body.critiques ?? [])
       .find((c: any) => c.code === 'INTERVENTION_CLAMPED_NO_COMPARISON');
     expect(blocker).toMatchObject({ severity: 'blocker', blocks_analysis: true });
     expect([...blocker.affected_option_ids].sort()).toEqual(['hire10', 'support12']);
