@@ -179,15 +179,18 @@ describe('V2 Run Golden Scenarios', () => {
             {
               id: 'opt1',
               label: 'New Option 1',
+              // A3 round 2: levels inside the factors' [0,1] (no level on
+              // either) — a level that would clamp is now withheld (AIQ #70
+              // 5855192170). Same for Scenario 4's factor-b (was 2.0).
               interventions: {
-                'factor-a': { value: 1.5, source: 'user_specified' },
+                'factor-a': { value: 0.9, source: 'user_specified' },
               },
             },
             {
               id: 'opt2',
               label: 'New Option 2',
               interventions: {
-                'factor-b': { value: 2.0, source: 'user_specified' },
+                'factor-b': { value: 0.8, source: 'user_specified' },
               },
             },
           ],
@@ -425,7 +428,7 @@ describe('V2 Run Golden Scenarios', () => {
             {
               id: 'opt2',
               label: 'Option 2',
-              interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+              interventions: { 'factor-b': { value: 0.8, source: 'user_specified' } },
             },
           ],
           goal_node_id: 'goal',
@@ -476,7 +479,7 @@ describe('V2 Run Golden Scenarios', () => {
             {
               id: 'opt2',
               label: 'Option 2',
-              interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+              interventions: { 'factor-b': { value: 0.8, source: 'user_specified' } },
             },
           ],
           goal_node_id: 'goal',
@@ -525,7 +528,7 @@ describe('V2 Run Golden Scenarios', () => {
             {
               id: 'opt2',
               label: 'Option 2',
-              interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+              interventions: { 'factor-b': { value: 0.8, source: 'user_specified' } },
             },
           ],
           goal_node_id: 'goal',

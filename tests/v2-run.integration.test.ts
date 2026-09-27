@@ -38,20 +38,22 @@ describe('POST /v2/run Integration', () => {
     ],
   };
 
-  // Valid options for testing
+  // Valid options for testing. A3 round 2: a level that would clamp is
+  // withheld (AIQ #70 5855192170), so each level sits inside its factor's
+  // range (neither factor carries a level here: [0,1]).
   const VALID_OPTIONS = [
     {
       id: 'opt1',
       label: 'Option 1',
       interventions: {
-        'factor-a': { value: 1.5, source: 'user_specified' },
+        'factor-a': { value: 0.9, source: 'user_specified' },
       },
     },
     {
       id: 'opt2',
       label: 'Option 2',
       interventions: {
-        'factor-b': { value: 2.0, source: 'user_specified' },
+        'factor-b': { value: 0.8, source: 'user_specified' },
       },
     },
   ];
@@ -286,12 +288,12 @@ describe('POST /v2/run Integration', () => {
             {
               id: 'opt1',
               label: 'Option 1',
-              interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } },
+              interventions: { 'factor-a': { value: 0.9, source: 'user_specified' } },
             },
             {
               id: 'opt2',
               label: 'Option 2',
-              interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+              interventions: { 'factor-b': { value: 0.8, source: 'user_specified' } },
             },
           ],
           goal_node_id: 'goal',
@@ -448,12 +450,12 @@ describe('POST /v2/run Integration', () => {
             {
               id: 'opt1',
               label: 'Option 1',
-              interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } },
+              interventions: { 'factor-a': { value: 0.9, source: 'user_specified' } },
             },
             {
               id: 'opt2',
               label: 'Option 2',
-              interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+              interventions: { 'factor-b': { value: 0.8, source: 'user_specified' } },
             },
           ],
           goal_node_id: 'goal',
@@ -490,12 +492,12 @@ describe('POST /v2/run Integration', () => {
             {
               id: 'opt1',
               label: 'Option 1',
-              interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } },
+              interventions: { 'factor-a': { value: 0.9, source: 'user_specified' } },
             },
             {
               id: 'opt2',
               label: 'Option 2',
-              interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+              interventions: { 'factor-b': { value: 0.8, source: 'user_specified' } },
             },
           ],
           goal_node_id: 'goal',
@@ -660,7 +662,15 @@ describe('POST /v2/run Integration', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          graph: VALID_GRAPH,
+          // A3 round 2: the dollar factor carries a cap that CONTAINS its
+          // stated level — on the default [0,1] a 180000 would clamp, and a
+          // clamped level is now withheld (AIQ #70 5855192170).
+          graph: {
+            ...VALID_GRAPH,
+            nodes: VALID_GRAPH.nodes.map((n) =>
+              n.id === 'factor-b' ? { ...n, observed_state: { value: 0.5, cap: 200000 } } : n,
+            ),
+          },
           options: [
             {
               id: 'opt1',

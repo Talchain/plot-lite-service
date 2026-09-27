@@ -13,7 +13,7 @@
  * @see Schema v2.6 §B.8 - Range derivation priority chain
  */
 
-import type { EngineNodeV3, OptionV3, InterventionValueV3, RepairRecord, ConstraintLevelDomain } from '../types/engine-v3.js';
+import type { EngineNodeV3, OptionV3, InterventionValueV3, RepairRecord, ConstraintLevelDomain, WithheldOptionRecord } from '../types/engine-v3.js';
 import { finiteNum } from '../util/numeric.js';
 import {
   PERCENT_UNIT_TOKENS,
@@ -1052,6 +1052,44 @@ export function collectInterventionsForwardedAsStated(
   return out;
 }
 
+/**
+ * A3 ROUND 2 — CLAMP ⇒ WITHHOLD (AIQ olumi-programme-docs#70 5855192170).
+ *
+ * Every (option, factor) the Phase-4a normaliser PINNED to an end of [0,1] —
+ * `normalised` outside [0,1] before the clamp — as a typed
+ * `intervention_clamped` record. Such an option would be analysed at the
+ * range's edge, not at the level stated: "hire 10" on an unframed factor at 3
+ * (`inferred_value` = [0, 6]) runs as "hire 6". A disclosed clamp beside a
+ * number answers a different question than the user asked, so the route
+ * WITHHOLDS the option (its share, mean gap and rank) and keeps the
+ * normaliser's `clamped` repair as the evidence.
+ *
+ * `stated` is the level as it arrived; `applied` is the level the clamp would
+ * have analysed, in the SAME units (the edge of the range, denormalised) —
+ * never the internal [0,1] number. Read off the RECORDED diagnostics, the same
+ * source the clamp repair is built from, so the two cannot disagree about
+ * which (option, factor) clamped.
+ */
+export function collectInterventionClamps(
+  diagnostics: ReadonlyArray<Pick<NormalisationDiagnostic, 'option_id' | 'factor_id' | 'original_value' | 'normalised_value' | 'range' | 'clamped'>>,
+): WithheldOptionRecord[] {
+  const out: WithheldOptionRecord[] = [];
+  for (const d of diagnostics) {
+    if (!d.clamped) continue;
+    const applied = denormaliseValue(d.normalised_value, d.range);
+    out.push({
+      option_id: d.option_id,
+      reason: 'intervention_clamped',
+      factor_id: d.factor_id,
+      stated: roundTo6Decimals(d.original_value),
+      // A clamped edge on a usable range always denormalises; the fallback is
+      // the range endpoint itself, never an invented number.
+      applied: roundTo6Decimals(applied ?? (d.normalised_value >= 1 ? d.range.max : d.range.min)),
+    });
+  }
+  return out;
+}
+
 // -----------------------------------------------------------------------------
 // ISL Result Denormalisation
 // -----------------------------------------------------------------------------
@@ -1929,10 +1967,16 @@ export interface ConstraintNormalisationResult {
  *     own frame is not stated in percent (or cannot be shown to be), or whose
  *     target declares a non-percent unit (framed or not), so no reading of the
  *     '%' places the limit on that node's scale (`resolvePercentTargetFrame`).
+ *   threshold_clamped — A3 round 2 (AIQ olumi-programme-docs#70 5855192170,
+ *     rule 3; B5's per-limit code of the same name, 5855511541). A LEVEL limit
+ *     whose threshold would be PINNED to an end of [0,1] by the resolved
+ *     range: the engine would be asked about the edge of the scale, not the
+ *     limit stated, so P(meet) is 0 or 1 by arithmetic. Refused, never scored.
  */
 export type ConstraintRefusalReason =
   | 'delta_frame_value_altered_by_normalisation'
-  | 'percent_unit_disagrees_with_target_frame';
+  | 'percent_unit_disagrees_with_target_frame'
+  | 'threshold_clamped';
 
 /** ROADMAP 2.878 — see {@link ConstraintRefusalReason}. */
 export const DELTA_FRAME_VALUE_ALTERED: ConstraintRefusalReason =
@@ -1941,6 +1985,9 @@ export const DELTA_FRAME_VALUE_ALTERED: ConstraintRefusalReason =
 /** See {@link ConstraintRefusalReason} and {@link resolvePercentTargetFrame}. */
 export const PERCENT_UNIT_DISAGREES_WITH_TARGET_FRAME: ConstraintRefusalReason =
   'percent_unit_disagrees_with_target_frame';
+
+/** A3 round 2, rule 3 — see {@link ConstraintRefusalReason}. */
+export const THRESHOLD_CLAMPED: ConstraintRefusalReason = 'threshold_clamped';
 
 /**
  * ROADMAP 2.878 — a constraint that PLoT declined to send to ISL, with the
@@ -2479,6 +2526,62 @@ export function normaliseGoalConstraints(
     const isAutoSynthesised =
       (constraint as { _internal?: { source?: string } })._internal?.source ===
       'auto_from_goal_threshold';
+
+    // A3 ROUND 2 — A CLAMPED THRESHOLD IS REFUSED, NEVER SCORED (AIQ
+    // olumi-programme-docs#70 5855192170 rule 3: "a clamped threshold is
+    // refused, never scored"; B5's per-limit code `threshold_clamped`,
+    // 5855511541).
+    //
+    // WHAT IT DID BEFORE. A LEVEL limit outside its resolved range was PINNED
+    // to 0 or 1 and SENT: the engine answered "P(level <= the edge of the
+    // scale)", which every option meets (or misses) by arithmetic. F2a's
+    // `threshold_clamped` on `scale_provenance` kept it off `decision_grade`,
+    // but the number was still published as the limit's P(meet) and fed ISL's
+    // joint — a typed flag beside a still-present number.
+    //
+    // THE RULE. Same per-constraint refusal as the '%' frame and 2.878 delta
+    // refusals: the limit leaves the ISL payload AND (in the route) the active
+    // list, is disclosed in `_meta.filtered_constraints` with this typed reason
+    // and a CONSTRAINT_REFUSED_FRAME_FIDELITY critique, and every other limit
+    // still delivers. The route also withholds `probability_of_joint_goal`
+    // (the joint over "all your limits" cannot cover a limit that was not
+    // scored).
+    //
+    // SCOPE, stated rather than smoothed over:
+    //   · `value_frame === 'level'` only. A clamped DELTA is refused below
+    //     under 2.878's more specific reason (its `clamped` arm).
+    //   · NOT the auto-synthesised goal constraint: refusing it would withdraw
+    //     the user's TARGET with it (2.1023, below). A clamped target keeps
+    //     today's disclosed path (`threshold_clamped` on `scale_provenance`,
+    //     never decision-grade).
+    //   · An UNFRAMED constraint (no `value_frame`) keeps today's path too:
+    //     ISL does not score an unstamped constraint (see 2.878 below).
+    //
+    // ⛔ NOT TOUCHED: Paul's 17d1 churn limit ('%' relabel, 4 on the '%'
+    // rung's [0,100]) normalises to 0.04 UNCLAMPED, so it never reaches here
+    // (MG replay 27 Sep: EXECUTED + hash-bound WIRE, ISL-bound 0.04).
+    if (value_frame === 'level' && clamped && !isAutoSynthesised) {
+      refused.push({
+        constraint_id,
+        node_id,
+        reason: THRESHOLD_CLAMPED,
+        stated_value: value,
+        would_have_sent: normalised,
+        range,
+      });
+      repairs.push({
+        field: `constraint.value.${constraint_id}`,
+        action: 'removed',
+        from_value: value,
+        to_value: 'refused',
+        reason:
+          `refused (threshold_clamped): the limit ${value} lies outside its node's scale ` +
+          `range=[${range.min},${range.max}] source=${range.source} and would have been pinned ` +
+          `to ${normalised}, asking the engine about the edge of the scale rather than the ` +
+          `limit stated.`,
+      });
+      continue;
+    }
 
     if (
       value_frame === 'delta' &&
