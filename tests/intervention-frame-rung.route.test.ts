@@ -246,4 +246,143 @@ describe("route — Paul's retention and conversion reach ISL on their node's fr
       reason: 'option=ca47b368 normalised range=[0,100] source=scale_frame (clamped)',
     });
   });
+
+  // ===========================================================================
+  // A3 ROUND 2 — the unit check on the frame sources (verifier mutant M10)
+  // ===========================================================================
+  //
+  // What the user sees for Paul's churn limit ('%') on a '% per month' node.
+  // Bound by the node's identity (its label in the warning) and by the unit
+  // clause written from what the user must be told — not read back off the
+  // message builder.
+  const CHURN_LIMIT = 'agent-lane:monthly_churn:<=';
+  const UNIT_CLAUSE = 'your target is stated in % while "Monthly churn" is measured in % per month';
+  const TOPOLOGY_CLAUSE = '"Monthly churn" is calculated from the factors feeding into it';
+
+  function churnLimitWarnings(body: any): any[] {
+    return (body.inference_warnings ?? []).filter(
+      (w: any) => w.code === 'CONSTRAINT_TARGET_UNRELIABLE' && String(w.message).startsWith('The target on "Monthly churn"'),
+    );
+  }
+
+  function deliveredChurnLimitResults(body: any): any[] {
+    return (body.constraint_results ?? []).filter((c: any) => c.constraint_id === CHURN_LIMIT);
+  }
+
+  it("(a) UNIT CHECK KEPT — Paul's one-option shape: the churn limit is withheld WITH the unit reason", async () => {
+    const body = await run(paulRequest());
+    const warnings = churnLimitWarnings(body);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].message).toContain(UNIT_CLAUSE);
+    expect(body.constraints_status).toBe('unavailable');
+    expect(deliveredChurnLimitResults(body)).toEqual([]);
+  });
+
+  it('(b) UNIT CHECK GAINED — a second option sets churn to a DIFFERENT level (2): withheld WITH the unit reason', async () => {
+    const req = paulRequest();
+    req.options.push({ id: 'retention_b', option_id: 'retention_b', label: 'Retention B', interventions: { monthly_churn: 2 }, is_baseline: false });
+    const body = await run(req);
+    for (const v of wireLevels('ca47b368', 'monthly_churn')) expect(v).toBe(0.025);
+    for (const v of wireLevels('retention_b', 'monthly_churn')) expect(v).toBe(0.02);
+    const warnings = churnLimitWarnings(body);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].message).toContain(UNIT_CLAUSE);
+    expect(deliveredChurnLimitResults(body)).toEqual([]);
+  });
+
+  it('(b) the unit is the SOLE reason — only the two retention options (churn pinned by every option): withheld on the unit alone', async () => {
+    // Every option sets churn, so the sample frame is anchored
+    // (`pinned_by_every_option`) and the unit mismatch is the ONLY thing that
+    // can withhold this limit. MEASURED at base 1f6ad52 (this row's request):
+    // the class was DELIVERED — constraints_status 'computed', scale_provenance
+    // {source: 'inferred_spread', threshold_clamped: 'high', decision_grade:
+    // false}, churn on the wire at 0.857 / 0.143 and the 4% limit clamped to 1,
+    // no warning. The unit check is GAINED here; this row is what shows it.
+    const req = paulRequest();
+    req.options = [
+      { id: 'ca47b368', option_id: 'ca47b368', label: 'Retention A', interventions: { monthly_churn: 2.5 }, is_baseline: true },
+      { id: 'retention_b', option_id: 'retention_b', label: 'Retention B', interventions: { monthly_churn: 2 }, is_baseline: false },
+    ];
+    const body = await run(req);
+    for (const v of wireLevels('ca47b368', 'monthly_churn')) expect(v).toBe(0.025);
+    for (const v of wireLevels('retention_b', 'monthly_churn')) expect(v).toBe(0.02);
+    for (const c of wireConstraint(CHURN_LIMIT)) expect(c?.value).toBe(0.04);
+    const warnings = churnLimitWarnings(body);
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0].message).toContain(UNIT_CLAUSE);
+    expect(warnings[0].message).not.toContain(TOPOLOGY_CLAUSE);
+    expect(deliveredChurnLimitResults(body)).toEqual([]);
+  });
+
+  // ===========================================================================
+  // A3 ROUND 2 — (e) the ledger keeps one clamp per OPTION, through the route
+  // ===========================================================================
+  it('RED→GREEN — two options clamp churn (150, 200 on frame 100): two clamp repairs and two ledger entries, one per option', async () => {
+    const req = paulRequest();
+    req.options.find((o: any) => o.id === 'ca47b368').interventions.monthly_churn = 150;
+    req.options.push({ id: 'retention_b', option_id: 'retention_b', label: 'Retention B', interventions: { monthly_churn: 200 }, is_baseline: false });
+    const body = await run(req);
+    const clamps = (body._meta?.repairs_applied ?? []).filter((r: any) => r.action === 'clamped');
+    expect(clamps.map((r: any) => [r.option_id, r.field, r.from_value])).toEqual([
+      ['ca47b368', 'intervention.value.monthly_churn', 150],
+      ['retention_b', 'intervention.value.monthly_churn', 200],
+    ]);
+    const ledger = (body.m1_coaching?.assumptions_ledger?.assumptions ?? []).filter((a: any) => a.action === 'clamped');
+    expect(ledger.map((a: any) => [a.entity_type, a.entity_id, a.field, a.from_value])).toEqual([
+      ['option', 'ca47b368', 'intervention.value.monthly_churn', 150],
+      ['option', 'retention_b', 'intervention.value.monthly_churn', 200],
+    ]);
+  });
+
+  // ===========================================================================
+  // A3 ROUND 2 — (d) NOT BUILT: CEE's demoted request depends on the gate
+  // skipping an all-[0,1] request. See `needsNormalisation`.
+  // ===========================================================================
+  //
+  // These option levels are NOT authored here. They are what CEE's own egress
+  // (`projectRequestInterventionsToWireScale`, CEE staging 9cfdbb35, run
+  // locally and read-only on Paul's persisted option interventions — MG
+  // capture paul-own-a295e4a1 `snapshot.A-agent-policy-flag-on.json`) emits
+  // when ONE extra option sets a 0|1 flag with no raw form: the request is
+  // "mixed", so CEE DEMOTES every value it can to its unit form (price
+  // 59 → 0.295, new subscribers 90 → 0.09, churn 2.5 → 0.025) and ships an
+  // all-[0,1] request for PLoT's gate to skip. The flag option is the one input
+  // chosen here.
+  it("CEE's demoted request (all-[0,1], framed churn in UNIT form) reaches ISL verbatim — the gate must not open on the frame", async () => {
+    const req = paulRequest();
+    const demoted: Record<string, Record<string, number>> = {
+      increase_price_to_59: { pro_plan_price: 0.295 },
+      increase_price_to_54: { pro_plan_price: 0.27 },
+      '146aa89d': { pro_plan_price: 0.295 },
+      '6dbac00d': { monthly_new_pro_subscribers: 0.09 },
+      ca47b368: { monthly_churn: 0.025 },
+    };
+    req.options = req.options
+      .filter((o: any) => o.id in demoted)
+      .map((o: any) => ({ ...o, interventions: demoted[o.id] }));
+    req.options.push({ id: 'grandfather_flag', option_id: 'grandfather_flag', label: 'Grandfather existing customers', interventions: { fac_existing_customers_grandfathered: 1 }, is_baseline: false });
+    const body = await run(req);
+    for (const v of wireLevels('ca47b368', 'monthly_churn')) expect(v).toBe(0.025);
+    for (const v of wireLevels('6dbac00d', 'monthly_new_pro_subscribers')) expect(v).toBe(0.09);
+    for (const v of wireLevels('increase_price_to_59', 'pro_plan_price')) expect(v).toBe(0.295);
+    for (const v of wireLevels('grandfather_flag', 'fac_existing_customers_grandfathered')) expect(v).toBe(1);
+    expect((body._meta?.repairs_applied ?? []).filter((r: any) => String(r.field).startsWith('intervention.value.'))).toEqual([]);
+  });
+
+  it('KNOWN RESIDUAL (CEE-owned) — "cut churn to 0.8%" alone is emitted raw (0.8) and forwarded as unit scale: PLoT cannot tell it from a demoted 0.8', async () => {
+    // CEE's egress (same function, same commit) emits this option's raw_value
+    // (0.8, `raw_value_used`) beside the 0|1 flag (`no_cap`) and does NOT
+    // demote, because nothing in the request is outside [0,1]. The same number,
+    // on the same node, is what a demoted request carries for an 80% level. The
+    // fix is at CEE's egress (or a wire attestation) — this row pins where the
+    // boundary is today, so it REDs if PLoT's side moves.
+    const req = paulRequest();
+    req.options = [
+      { id: 'cut_churn', option_id: 'cut_churn', label: 'Cut churn to 0.8%', interventions: { monthly_churn: 0.8 }, is_baseline: false },
+      { id: 'grandfather_flag', option_id: 'grandfather_flag', label: 'Grandfather existing customers', interventions: { fac_existing_customers_grandfathered: 1 }, is_baseline: true },
+    ];
+    await run(req);
+    for (const v of wireLevels('cut_churn', 'monthly_churn')) expect(v).toBe(0.8);
+    for (const v of wireLevels('grandfather_flag', 'fac_existing_customers_grandfathered')) expect(v).toBe(1);
+  });
 });

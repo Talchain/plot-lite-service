@@ -71,6 +71,8 @@ export function generateM1Coaching(
     from_value: number | string | null;
     to_value: number | string;
     reason: string;
+    /** Per-option intervention repair (A3 `clamped`) — part of the ledger key. */
+    option_id?: string;
   }>,
   ceeCritiques?: Array<{
     type: string;

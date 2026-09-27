@@ -31,10 +31,14 @@ import {
   deriveRange,
   buildNormalisationContext,
   normaliseOptionsForISL,
+  normaliseGoalConstraints,
   collectScaleFrameByNodeId,
   resolveNodeFrame,
   resolvePercentTargetFrame,
+  resolveScaleUnit,
+  type NormalisationRange,
 } from '../src/lib/intervention-normaliser.js';
+import { buildAssumptionsLedger } from '../src/coaching/assumptions-ledger.js';
 import type { EngineNodeV3, OptionV3 } from '../src/types/engine-v3.js';
 
 const FIXTURE = resolve(__dirname, 'fixtures/paul-own-a295e4a1-20260927/cee-to-plot.request.json');
@@ -240,6 +244,7 @@ describe('A3 — the frame rung: precedence, domain and the clamp disclosure', (
         from_value: 0.9,
         to_value: 1,
         reason: 'option=only normalised range=[0,0.6] source=inferred_value (clamped)',
+        option_id: 'only',
       },
     ]);
     // The per-factor `normalised` record is unchanged in shape.
@@ -263,6 +268,7 @@ describe('A3 — the frame rung: precedence, domain and the clamp disclosure', (
         from_value: 150,
         to_value: 1,
         reason: 'option=x normalised range=[0,100] source=scale_frame (clamped)',
+        option_id: 'x',
       },
     ]);
   });
@@ -341,5 +347,130 @@ describe('A3 — ONE frame reader, two callers', () => {
       const node: EngineNodeV3 = { id: 'n', kind: 'factor', label: 'n', observed_state: s.observed };
       expect(deriveRange(node, undefined, [1], s.scaleFrame).max, s.name).toBe(s.frame);
     }
+  });
+});
+
+// =============================================================================
+// A3 ROUND 2 — independent verifier CHANGES_REQUIRED (mutant M10) + the ledger
+// =============================================================================
+
+/**
+ * The route's constraint pass, reproduced on Paul's own request: Phase 4a's
+ * per-node intervention scale (the FIRST diagnostic range per node — the route's
+ * `interventionScaleByNodeId`) handed to `normaliseGoalConstraints` with the
+ * constraint units captured off the raw request. Returns the diagnostic for
+ * `constraintId`, bound BY ID.
+ */
+function churnLimitDiagnostic(req: any, constraintId: string) {
+  const phase4a = run(req);
+  const interventionScaleByNodeId = new Map<string, NormalisationRange>();
+  for (const d of phase4a.diagnostics) {
+    if (!interventionScaleByNodeId.has(d.factor_id)) interventionScaleByNodeId.set(d.factor_id, d.range);
+  }
+  const unitsByConstraintId = new Map<string, string>(
+    req.goal_constraints.map((c: any) => [c.constraint_id, c.unit] as [string, string]),
+  );
+  const out = normaliseGoalConstraints(req.goal_constraints, nodesOf(req), {
+    unitsByConstraintId,
+    scaleFrameByNodeId: collectScaleFrameByNodeId(req.graph.nodes),
+    interventionScaleByNodeId,
+    normaliseWithoutScale: true,
+  });
+  const d = out.diagnostics.find((x) => x.constraint_id === constraintId);
+  expect(d, `a diagnostic for ${constraintId}`).toBeDefined();
+  return d!;
+}
+
+const CHURN_LIMIT = 'agent-lane:monthly_churn:<=';
+const PERCENT_VS_PER_MONTH = { constraint_unit: '%', scale_unit: '% per month' };
+
+describe("A3 round 2 — the frame sources keep the '%'-vs-'% per month' unit check (M10)", () => {
+  it("PRECONDITION — Paul's churn limit is '%' on a '% per month' node", () => {
+    const req = paulRequest();
+    expect(req.goal_constraints.find((c: any) => c.constraint_id === CHURN_LIMIT)).toMatchObject({ node_id: CHURN, unit: '%', value: 4 });
+    expect(req.graph.nodes.find((n: any) => n.id === CHURN).observed_state.unit).toBe('% per month');
+  });
+
+  it("(a) KEPT — Paul's ONE-option shape: the limit is scaled on scale_frame AND records the unit mismatch, by constraint_id", () => {
+    const d = churnLimitDiagnostic(paulRequest(), CHURN_LIMIT);
+    expect(d.range).toEqual({ min: 0, max: 100, source: 'scale_frame' });
+    expect(d.unit_mismatch).toEqual(PERCENT_VS_PER_MONTH);
+  });
+
+  it('(a) KEPT — the same shape carried by the PAIR alone (no scale_frame): pair_frame, same unit mismatch', () => {
+    const req = paulRequest();
+    for (const n of req.graph.nodes) delete n.scale_frame;
+    const d = churnLimitDiagnostic(req, CHURN_LIMIT);
+    expect(d.range).toEqual({ min: 0, max: 100, source: 'pair_frame' });
+    expect(d.unit_mismatch).toEqual(PERCENT_VS_PER_MONTH);
+  });
+
+  it('(b) GAINED — TWO options set churn to DIFFERENT levels (2.5 / 2): the limit records the unit mismatch, by constraint_id', () => {
+    const req = paulRequest();
+    req.options.push({ id: 'retention_b', option_id: 'retention_b', label: 'Retention B', interventions: { [CHURN]: 2 }, is_baseline: false });
+    const d = churnLimitDiagnostic(req, CHURN_LIMIT);
+    expect(d.range).toEqual({ min: 0, max: 100, source: 'scale_frame' });
+    expect(d.unit_mismatch).toEqual(PERCENT_VS_PER_MONTH);
+  });
+
+  it('(b) WHY "GAINED" — without the frame the two-option node resolves to inferred_spread, which has NO declared scale unit', () => {
+    const churn = nodesOf(paulRequest()).find((n) => n.id === CHURN)!;
+    // The pre-A3 ladder for this class: no frame rung ⇒ the padded spread of the raw values.
+    const frameless: EngineNodeV3 = { ...churn, observed_state: { ...churn.observed_state!, raw_value: undefined } };
+    const spread = deriveRange(frameless, undefined, [2.5, 2]);
+    expect(spread.source).toBe('inferred_spread');
+    expect(resolveScaleUnit(spread, churn)).toBeUndefined();
+  });
+
+  it('the scale-unit DOMAIN, member by member, on the churn node', () => {
+    const churn = nodesOf(paulRequest()).find((n) => n.id === CHURN)!;
+    const at = (source: NormalisationRange['source']) => resolveScaleUnit({ min: 0, max: 100, source }, churn);
+    expect(at('scale_frame')).toBe('% per month');
+    expect(at('pair_frame')).toBe('% per month');
+    expect(at('explicit_cap')).toBe('% per month');
+    expect(at('inferred_baseline')).toBe('% per month');
+    expect(at('inferred_value')).toBe('% per month');
+    expect(at('inferred_spread')).toBeUndefined();
+    expect(at('extracted')).toBeUndefined();
+    expect(at('explicit')).toBeUndefined();
+    expect(at('default')).toBeUndefined();
+  });
+});
+
+describe('A3 round 2 — a clamp is per OPTION in the assumptions ledger (e)', () => {
+  const churn: EngineNodeV3 = { id: 'churn', kind: 'factor', label: 'Churn', observed_state: { value: 0.03, raw_value: 3, unit: '% per month' } };
+  const coachingInputs = { fragileEdges: [], factorSensitivity: [] } as any;
+
+  it('RED→GREEN — two options clamp the SAME factor: two clamp repairs AND two ledger entries, one per option', () => {
+    const result = normaliseOptionsForISL(
+      [opt('x', { price: 49, churn: 150 }), opt('y', { price: 54, churn: 200 })],
+      [PRICE, churn, GOAL],
+      'goal',
+      undefined,
+      new Map([['churn', 100]]),
+    );
+    expect(result.repairs.filter((r) => r.action === 'clamped').map((r) => [r.option_id, r.from_value])).toEqual([
+      ['x', 150],
+      ['y', 200],
+    ]);
+    const ledger = buildAssumptionsLedger(coachingInputs, result.repairs);
+    const clamps = ledger.assumptions.filter((a) => a.action === 'clamped');
+    expect(clamps.map((a) => [a.entity_type, a.entity_id, a.field, a.from_value, a.dedup_key])).toEqual([
+      ['option', 'x', 'intervention.value.churn', 150, 'plot_normaliser:clamped:option:x:intervention.value.churn'],
+      ['option', 'y', 'intervention.value.churn', 200, 'plot_normaliser:clamped:option:y:intervention.value.churn'],
+    ]);
+  });
+
+  it('CONTRAST — a repair with no option (the per-factor `normalised` record) keeps its key', () => {
+    const result = normaliseOptionsForISL([opt('x', { price: 49, churn: 150 })], [PRICE, churn, GOAL], 'goal', undefined, new Map([['churn', 100]]));
+    const normalised = result.repairs.find((r) => r.action === 'normalised' && r.field === 'intervention.value.churn');
+    expect(normalised).toBeDefined();
+    expect(normalised!.option_id).toBeUndefined();
+    const entry = buildAssumptionsLedger(coachingInputs, [normalised!]).assumptions[0];
+    expect([entry.entity_type, entry.entity_id, entry.dedup_key]).toEqual([
+      'global',
+      'unknown',
+      'plot_normaliser:normalised:global:unknown:intervention.value.churn',
+    ]);
   });
 });

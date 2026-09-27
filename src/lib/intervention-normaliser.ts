@@ -868,6 +868,11 @@ export function normaliseOptions(
           from_value: roundTo6Decimals(intervention.value),
           to_value: roundTo6Decimals(normalised),
           reason: `option=${option.id} ${formatNormalisationReason(range)} (clamped)`,
+          // A3 round 2: the option is part of this record's IDENTITY — two
+          // options clamping the same factor are two clamps, and the
+          // assumptions ledger keys on this (`mapRepairToAssumption`), so
+          // without it the second collapsed into the first.
+          option_id: option.id,
         });
       }
 
@@ -969,6 +974,28 @@ export function normaliseOptionsForISL(
  *
  * Returns true if any intervention value is outside [0, 1].
  * This allows skipping normalisation when values are already normalised.
+ *
+ * ⛔ DO NOT OPEN THIS GATE ON A NODE'S FRAME (A3 round 2, measured, not
+ * reasoned). An all-[0,1] request is CEE's UNIT-SCALE convention, and CEE
+ * depends on this gate skipping it: when a request mixes raw magnitudes with
+ * values that have no raw form, CEE's egress (`projectRequestInterventionsToWireScale`,
+ * `plot-intervention-scale.ts`, CEE staging 9cfdbb35) DEMOTES every value it
+ * can to its unit form "so the gate skips and the stranded values survive
+ * verbatim" — Paul's churn arrives as 0.025 (= 2.5%), not 2.5. Opening the
+ * gate because churn carries a `scale_frame` was MEASURED (A3 round 2, the
+ * gate widened exactly so, on CEE's own demoted emission for Paul's options)
+ * to send churn 0.025 → 0.00025, new subscribers 0.09 → 0.00009 and the
+ * capped price 0.295 → 0.001475: the whole-request double normalisation
+ * CEE's demotion exists to prevent.
+ *
+ * The residual this leaves is REAL and CEE-owned: "cut churn to 0.8%" with no
+ * other out-of-[0,1] value is emitted RAW (0.8, `raw_value_used`, not demoted
+ * because nothing is outside [0,1]) and read here as unit scale (80%). PLoT
+ * cannot tell that 0.8 from a demoted 0.8 on the same node — the number is
+ * the same and the wire carries no scale attestation — so the fix is at CEE's
+ * egress (emit the known unit form whenever the request will be all-[0,1]),
+ * or a wire attestation. Pinned: `tests/intervention-frame-rung.route.test.ts`
+ * "CEE's demoted request".
  *
  * @param options Options to check
  * @returns True if normalisation is needed
@@ -1746,8 +1773,26 @@ export function constraintsNeedPercentTargetFrame(
  *                            `observed_state.unit` (A3; intervened nodes only).
  *   pair_frame         IN  — `[0, raw_value ÷ value]`, read off
  *                            `observed_state` itself (A3; intervened nodes only).
- *                            Both replace an `inferred_*` range that was IN on
- *                            the same node, so the unit check is kept, not lost.
+ *                            What these two REPLACE depends on how many option
+ *                            values the node carries, and the unit check moves
+ *                            differently in each case (A3 round 2 — an earlier
+ *                            line here claimed it was "kept, not lost" in all):
+ *                            - ONE value (Paul's retention shape), or several
+ *                              equal values: the old source was
+ *                              `inferred_baseline` / `inferred_value` — IN — so
+ *                              the unit check is KEPT.
+ *                            - TWO OR MORE DIFFERENT values: the old source was
+ *                              `inferred_spread` — OUT — so the unit check is
+ *                              GAINED. A '%' limit on a '% per month' node that
+ *                              several options set to different levels is now
+ *                              refused as a unit mismatch (withheld, with the
+ *                              unit reason), exactly as the one-option shape
+ *                              already was; before A3 its limit was normalised
+ *                              against a padded spread of the RAW option values
+ *                              with no unit check at all.
+ *                            Pinned both ways, by constraint_id and on the
+ *                            route's CONSTRAINT_TARGET_UNRELIABLE text:
+ *                            `tests/intervention-frame-rung*.test.ts`.
  *   inferred_baseline  IN  — bounds from `observed_state.baseline` / `.value`.
  *   inferred_value     IN  — bounds from `observed_state.value`.
  *   explicit           OUT — `state_space.range` carries NO unit field at all

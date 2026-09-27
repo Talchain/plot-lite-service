@@ -8571,6 +8571,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             from_value: r.from_value ?? null,
             to_value: r.to_value,
             reason: r.reason,
+            // A3 round 2: a per-option clamp keeps its option — the ledger's
+            // dedup key includes it, so two options clamping one factor stay two.
+            ...(r.option_id !== undefined && { option_id: r.option_id }),
           }));
 
           // Producer honesty (item A): mirror buildResponse's detection so the

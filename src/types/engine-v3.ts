@@ -3339,6 +3339,13 @@ export interface RepairRecord {
   to_value: number | string;
   /** Human-readable reason for the repair */
   reason: string;
+  /**
+   * The option whose intervention this repair describes — set ONLY on a
+   * per-option intervention repair (A3: the `clamped` record). Part of the
+   * record's identity: the assumptions ledger keys on it, so two options that
+   * clamp the same factor stay two entries.
+   */
+  option_id?: string;
   // F.5 canonical fields — present on new-style repair entries (F.6 compliance)
   /** Canonical repair code (F.5) */
   code?: string;
