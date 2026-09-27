@@ -2556,11 +2556,23 @@ export function normaliseGoalConstraints(
     //     never decision-grade).
     //   · An UNFRAMED constraint (no `value_frame`) keeps today's path too:
     //     ISL does not score an unstamped constraint (see 2.878 below).
+    //   · NOT a threshold on a DEFAULT range (`range.source === 'default'`).
+    //     There is no scale to be "beyond": the range is a placeholder, so the
+    //     clamp is a symptom of the missing frame, not a finding about the
+    //     limit. That limit is already refused PER LIMIT by B5 (#378) under its
+    //     truer typed causes: `detectUnreliableConstraintTargets` gives every
+    //     default-range threshold `threshold_normalisation_defaulted`, which
+    //     `partitionConstraintTargets` can never deliver (doctrine B needs the
+    //     reason set to be exactly {target_base_defaulted}), so its P and the
+    //     joint are withheld and CONSTRAINT_TARGET_UNRELIABLE names it. Refusing
+    //     it HERE instead would replace those causes with this one, and move
+    //     the ISL request B5's captured fixtures answer (Paul's 0e19bb82 spend
+    //     limit, pinned in tests/constraint-per-limit-b5.route.test.ts).
     //
     // ⛔ NOT TOUCHED: Paul's 17d1 churn limit ('%' relabel, 4 on the '%'
     // rung's [0,100]) normalises to 0.04 UNCLAMPED, so it never reaches here
     // (MG replay 27 Sep: EXECUTED + hash-bound WIRE, ISL-bound 0.04).
-    if (value_frame === 'level' && clamped && !isAutoSynthesised) {
+    if (value_frame === 'level' && clamped && !isAutoSynthesised && range.source !== 'default') {
       refused.push({
         constraint_id,
         node_id,

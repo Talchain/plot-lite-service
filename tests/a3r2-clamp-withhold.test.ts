@@ -29,6 +29,7 @@ import {
   THRESHOLD_CLAMPED,
   DELTA_FRAME_VALUE_ALTERED,
 } from '../src/lib/intervention-normaliser.js';
+import { detectUnreliableConstraintTargets, partitionConstraintTargets } from '../src/lib/constraint-reliability.js';
 import type { EngineNodeV3, GoalConstraint, OptionV3 } from '../src/types/engine-v3.js';
 
 const FIXTURE_17D1 = resolve(__dirname, 'fixtures/paul-17d1cd3a-20260927/cee-to-plot.request.json');
@@ -104,6 +105,28 @@ describe('rule 3 — a level limit whose threshold would clamp is refused (thres
     const c: GoalConstraint = { constraint_id: 'churn_cut', node_id: 'churn_pct', operator: '<=', value: -150, value_frame: 'delta' };
     const res = normalise([c], pctNode, {});
     expect(res.refused.map((r) => [r.constraint_id, r.reason])).toEqual([['churn_cut', DELTA_FRAME_VALUE_ALTERED]]);
+  });
+
+  it("SCOPE (merge with B5 #378) — a level limit on a DEFAULT range is not refused here; B5 refuses it per limit (threshold_normalisation_defaulted, always suppressed)", () => {
+    // The shape of Paul's 0e19bb82 spend limit (tests/constraint-per-limit-b5.route.test.ts):
+    // a £ limit on a calculated outcome with no observed_state, so no scale exists.
+    const nodes = [{ id: 'spend', kind: 'outcome', label: 'Spend' }] as unknown as EngineNodeV3[];
+    const c: GoalConstraint = { constraint_id: 'spend_cap', node_id: 'spend', operator: '<=', value: 20000, value_frame: 'level' };
+    const res = normalise([c], nodes, { spend_cap: 'GBP' });
+    const d = res.diagnostics.find((x) => x.constraint_id === 'spend_cap');
+    // Precondition: the range is the placeholder, and the threshold clamps against it.
+    expect(d?.range.source).toBe('default');
+    expect(d?.clamped).toBe(true);
+    // Not refused as threshold_clamped …
+    expect(res.refused).toEqual([]);
+    // … because B5 already refuses it: every default-range threshold is typed
+    // threshold_normalisation_defaulted, and that target is SUPPRESSED (never
+    // delivered under doctrine B), even with a forward-propagated target node.
+    const targets = detectUnreliableConstraintTargets([c], new Map([['spend_cap', d!.range]]), undefined);
+    expect(targets.map((t) => [t.constraint_id, t.reasons])).toEqual([['spend_cap', ['threshold_normalisation_defaulted']]]);
+    const partition = partitionConstraintTargets(targets, { edges: [{ from: 'price', to: 'spend' }] });
+    expect(partition.suppressed.map((t) => t.constraint_id)).toEqual(['spend_cap']);
+    expect(partition.modelledBasis).toEqual([]);
   });
 
   it("SCOPE — the auto-synthesised goal constraint is NOT refused when it clamps (refusing it would withdraw the user's target, 2.1023)", () => {
