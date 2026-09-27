@@ -66,9 +66,9 @@ export type { GoalThresholdFrameType };
  * ISL emits `GOAL_DIRECTION_UNATTESTED` on every unstamped run and says in terms
  * that "the historical rule crowned the worst option" for a quantity to reduce.
  *
- * ⚠ DEFINED LOCALLY, NOT IMPORTED. `@talchain/schemas` 0.55.0 exports
- * `GoalThresholdFrame` but has NO `GoalDirection` (verified against the vendored
- * tarball, with `GoalThresholdFrame` as the contrast control). When CEE wires the
+ * ⚠ DEFINED LOCALLY, NOT IMPORTED. `@talchain/schemas` 0.59.0 exports
+ * `GoalThresholdFrame` but has NO `GoalDirection` (re-verified against the vendored
+ * 0.59.0 tarball's dist/, with `GoalThresholdFrame` as the contrast control). When CEE wires the
  * producer side the shared package should carry it and this local type should be
  * replaced by the import — exactly as `value_frame` uses `GoalThresholdFrameType`.
  */

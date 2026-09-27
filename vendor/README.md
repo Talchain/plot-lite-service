@@ -9,6 +9,50 @@ and `DecisionGuideAI` (UI).
 
 ## Current contents
 
+### `talchain-schemas-0.60.0.tgz`
+
+**Purpose:** READER-FIRST adoption of 0.60.0 (DL #70 5856251322). CEE is about to emit `per_limit`/`joint`. PLoT sits on the CEE path, so it must know the release before a producer uses it. Meant to be INERT here.
+
+**Bytes:** CEE's vendored tarball from `olumi-assistants-service` #2115 (merged 18:05Z, head c848d9d7). Its sha256 is `31b5f066a2a086af6d2669f5ac1e76d683992ce544655bdc3bd2c703380ff92b`, equal to CEE's manifest. The tag is `v0.60.0` → `2a451c7e2177459793258da65e6ed330139fdda3`.
+⚠ UNVERIFIED for this bump: unlike 0.59.0 below, the contents were NOT re-packed from the tag and diffed. Parity rests on CEE's reviewed manifest.
+
+**What changed in 0.59.0 → 0.60.0** (olumi-schemas #68):
+- `ConstraintVerdictSchema.per_limit` / `joint`;
+- `edge_strength_edit.band` (`StrengthBand`).
+**PLoT consumes none of them:** `ConstraintVerdict|StrengthBand|edge_strength_edit|per_limit` occur 0 times in `src`, while the contrast `AnalysisEnrichmentSchema` is present.
+
+### `talchain-schemas-0.59.0.tgz`
+
+**Purpose:** PARITY with CEE. This is DL #70 5856233213, row A8 "schema pin skew". On 27 Sep, CEE vendored 0.59.0 while PLoT and the UI sat on 0.55.0. Under hazard 1 of the estate's CLAUDE.md, a consumer on an older pin silently drops fields it does not know. Like earlier parity bumps, this is **meant to be INERT here**: PLoT must never be the hop that hard-fails on a field a producer has started sending.
+
+⚠ The 0.41–0.55 bumps were not recorded in this README; 0.55.0 was the pin being replaced. The 0.40.0 section below is historical.
+
+**Provenance of these bytes.** These are CEE's vendored bytes (`olumi-assistants-service` `vendor/talchain-schemas-0.59.0.tgz` at staging), taken for byte parity across the estate. They were checked against the tag:
+
+| | |
+|---|---|
+| tag | `v0.59.0` |
+| commit | `195b64c4c09088b3d3716b4856f3ff08fa5c25e8` (`v0.59.0^{commit}`) |
+| sha256 (these bytes; equal to CEE's `.sha256` manifest) | `5851e23ef7e597d849cfc4ebcbe5df9be89691ad4d4b5c2ccf7d01d93e6d7bf8` |
+| clean pack of the tag (npm ci + build + pack) | `fcc40d5cc4e6e9cf1dd711a84230aeedae93a3dc3ebb469b6e509f50cd65bcb2` |
+
+The two tarball hashes differ, but the **CONTENTS are identical**:
+- both unpack to 231 files, and `diff -r` returns rc 0;
+- positive control: a one-byte edit to the unpacked `package.json` makes `diff -rq` report it (rc 1).
+So the difference is gzip/npm-version framing, not content.
+
+**What changed, derived from `git log v0.55.0..v0.59.0` and `git diff v0.55.0 v0.59.0 -- src/`** (9 files, +870/−3), set against PLoT's import list (18 symbols, from `@talchain/schemas` and `/boundary`):
+
+| change | does PLoT consume it? |
+|---|---|
+| #60 `observed_state.raw_value` and `.cap` declared (additive; previously `.passthrough()`) | **Yes, via types only**: `NodeV3 as SchemaNodeV3` (src/types/engine-v3.ts). The fields become typed optional numbers. |
+| #59 docs on `ObservedState.value`/`.baseline` | No (docs only) |
+| #61 `analysis_participation_withheld` (typed reduced-model counts) | No: not in PLoT's import list |
+| #66 (0.58.0) `run_provenance` on `AnalysisEnrichmentSchema` (optional; CEE-authored) | Parsed but inert: `enrichment-egress-guard.ts` parses PLoT's OWN enrichment, and PLoT never emits `run_provenance` |
+| #67 (0.59.0) `goal_target_edit` (a UI → CEE system event) | No: not in PLoT's import list |
+
+`GoalDirection` is still not exported in 0.59.0. `src/integrations/isl/translator-v3.ts`'s local type stays, with its note re-verified.
+
 ### `talchain-schemas-0.40.0.tgz`
 
 **Purpose:** PARITY (0.39.0 → 0.40.0, one minor), taken as part of ROADMAP

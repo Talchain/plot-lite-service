@@ -1447,6 +1447,15 @@ export interface RunResponseV3 {
   conditional_probabilities?: ConditionalProbability[];
 
   /**
+   * B5 (AI Quality #70 5855345225 / 5855511541): "all your limits met" is
+   * WITHHELD while any limit is unscored — `probability_of_joint_goal` is then
+   * omitted on EVERY option (never computed over the scored subset), and this
+   * names the limits that caused it, in request order. Absent when every limit
+   * was scored (a fully-scoreable run is byte-identical to before B5).
+   */
+  joint_withheld?: JointWithheld;
+
+  /**
    * Whether ISL applied auto-noise to outcome/risk distributions on this run
    * (`auto_scaled_noise` heuristic at `robustness_analyzer_v2.py:1113`).
    *
@@ -3040,10 +3049,24 @@ export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof
  * Diagnostic warning emitted when inference metadata is inconsistent.
  * Code is typed as string to accept both PLoT-originated and ISL-forwarded codes.
  */
+/** Why `probability_of_joint_goal` was withheld on a run (B5). */
+export interface JointWithheld {
+  reason: 'limit_unscored';
+  /** The unscored limits, in request order (PLoT-withheld ones first-class too). */
+  constraint_ids: string[];
+}
+
 export interface InferenceWarning {
   code: InferenceWarningCode | string;
   message: string;
   severity: 'info' | 'warning';
+  /**
+   * B5: the limit(s) this warning is about, by their ratified ids — set on
+   * CONSTRAINT_TARGET_UNRELIABLE, which is emitted once per target NODE and so
+   * may cover more than one limit. Present only when the warning is about
+   * specific limits.
+   */
+  constraint_ids?: string[];
   /**
    * F4 (Codex deep review): the field path the warning is about, preserved
    * verbatim from ISL's real `InferenceWarning.field` (e.g. `factor_evpi`,
