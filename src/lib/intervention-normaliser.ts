@@ -781,11 +781,15 @@ function formatNormalisationReason(range: NormalisationRange): string {
  *
  * @param options Original options with raw intervention values
  * @param context Normalisation context
+ * @param rangeOptions The option set the fallback ranges are derived from
+ *   (default: `options`). A3 round 2 C1: the route passes the FULL set, fixed
+ *   before any option is withheld — see {@link normaliseOptionsForISL}.
  * @returns Normalised options, diagnostics, transforms, and repair records
  */
 export function normaliseOptions(
   options: OptionV3[],
-  context: NormalisationContext
+  context: NormalisationContext,
+  rangeOptions: OptionV3[] = options,
 ): {
   options: OptionV3[];
   diagnostics: NormalisationDiagnostic[];
@@ -810,8 +814,9 @@ export function normaliseOptions(
   // constraint path: RepairAction `clamped` + the ` (clamped)` reason suffix.
   const clampRepairs: RepairRecord[] = [];
 
-  // Build fallback ranges for factors without context
-  const fallbackRanges = buildFallbackRanges(options, context);
+  // Build fallback ranges for factors without context — from the RANGE set
+  // (the options themselves unless the caller fixed a wider set; A3 r2 C1).
+  const fallbackRanges = buildFallbackRanges(rangeOptions, context);
 
   const normalisedOptions: OptionV3[] = options.map(option => {
     const normalisedInterventions: Record<string, InterventionValueV3> = {};
@@ -947,6 +952,20 @@ export interface NormalisationResult {
  * @param interventionHints Optional map of factor ID to intervention hints from CE
  * @param scaleFrameByNodeId The raw request nodes' `scale_frame` (`collectScaleFrameByNodeId`);
  *   the canonical nodes drop it, so the route captures it off the raw body.
+ * @param rangeOptions The option set EVERY range is derived from — the
+ *   `inferred_spread` of a graph factor and the fallback range of an unknown
+ *   one (default: `options`, today's behaviour).
+ *
+ *   A3 ROUND 2, C1 (AIQ olumi-programme-docs#70 5859510098; DL CHANGES_REQUIRED
+ *   on PLoT #376): WITHHOLDING ONE OPTION MUST NEVER CHANGE ANOTHER. An
+ *   `inferred_spread` range is a property of the option SET, so re-deriving it
+ *   from the survivors after a clamped option is withheld narrows it and moves
+ *   every survivor's normalised level — a result that depends on which options
+ *   happened to be present, and a CASCADE (a survivor that fitted the full-set
+ *   range clamps on the narrowed one and is withheld in turn). The route
+ *   therefore fixes the range set to the FULL option set BEFORE withholding and
+ *   normalises the survivors against it: each survivor reaches ISL byte-identical
+ *   to its full-set normalisation.
  * @returns Normalised options, context, diagnostics, transforms, and repair records
  */
 export function normaliseOptionsForISL(
@@ -955,10 +974,11 @@ export function normaliseOptionsForISL(
   goalNodeId: string,
   interventionHints?: Map<string, InterventionHints>,
   scaleFrameByNodeId?: Map<string, number>,
+  rangeOptions: OptionV3[] = options,
 ): NormalisationResult {
-  // Pass options to context builder for intervention spread calculation
-  const context = buildNormalisationContext(nodes, goalNodeId, interventionHints, options, scaleFrameByNodeId);
-  const { options: normalisedOptions, diagnostics, transforms, repairs } = normaliseOptions(options, context);
+  // Pass the RANGE set to the context builder for intervention spread calculation
+  const context = buildNormalisationContext(nodes, goalNodeId, interventionHints, rangeOptions, scaleFrameByNodeId);
+  const { options: normalisedOptions, diagnostics, transforms, repairs } = normaliseOptions(options, context, rangeOptions);
 
   return {
     options: normalisedOptions,

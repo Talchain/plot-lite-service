@@ -1855,9 +1855,11 @@ function buildBlockedResponse(
   options: ReadonlyArray<{ id: string; label: string }> | undefined,
   requestId: string,
   computedAt: string,
+  /** A3 r2 C2: options withheld before the block (`withheld_options`); omitted when none. */
+  withheldOptions?: ReadonlyArray<import('../../types/engine-v3.js').WithheldOptionRecord>,
 ): V2RunError {
   // V2 contract: blocked = 422, communicates failure via analysis_status
-  return buildV2RunError({
+  const error = buildV2RunError({
     analysisStatus: 'blocked',
     statusReason,
     retryable: false,
@@ -1865,6 +1867,9 @@ function buildBlockedResponse(
     computedAt,
     critiques: addUserMessages(critiques, graph, options),
   });
+  return withheldOptions && withheldOptions.length > 0
+    ? { ...error, withheld_options: withheldOptions.map((r) => ({ ...r })) }
+    : error;
 }
 
 /**
@@ -6628,13 +6633,22 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // survivors — an INTERVENTION_CLAMPED warning names it, and fewer than
         // two left blocks the run (INTERVENTION_CLAMPED_NO_COMPARISON).
         //
-        // WHY RE-NORMALISE UNTIL NOTHING CLAMPS. A withheld option's level on
-        // ANOTHER factor can widen that factor's `inferred_spread`, i.e. change
-        // the scale the survivors are normalised on. So the survivors are
-        // normalised again WITHOUT it — exactly as dedupe's dropped options never
-        // reach Phase 4a — and a survivor that clamps on its own scale is
-        // withheld in turn. Each round removes at least one option, so it ends.
-        // Phase 4a below then recomputes the final round's ranges verbatim.
+        // ONE PASS, AGAINST RANGES FIXED FROM THE FULL SET (C1: AIQ #70
+        // 5859510098; DL CHANGES_REQUIRED on #376). WITHHOLDING ONE OPTION MUST
+        // NEVER CHANGE ANOTHER. A factor's `inferred_spread` range is a property
+        // of the option SET. The first version re-normalised the survivors
+        // WITHOUT the withheld option and withheld again until nothing clamped:
+        // that moved every survivor's level on such a factor, and CASCADED — a
+        // survivor at staff 5 fitted the full-set staff range [2, 23], clamped
+        // on the narrowed [0, 2], and was withheld only because ANOTHER option
+        // was withheld on a DIFFERENT factor. Now every range is derived ONCE,
+        // from the full (post-dedupe) option set `rangeOptionSet`, BEFORE
+        // anything is withheld; an option is withheld only if it clamps against
+        // those ranges; and Phase 4a normalises the survivors against the SAME
+        // set. So each survivor reaches ISL byte-identical to its full-set
+        // normalisation, and nothing cascades. (Dedupe, above, is not a
+        // withhold: a duplicate carries the same levels, so it cannot move a
+        // spread.)
         //
         // THE GATE IS THE REQUEST'S. `needsNormalisation` is read ONCE, on the
         // options as sent, and Phase 4a uses that decision: the survivors'
@@ -6647,31 +6661,26 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // withheld options' `clamped` repairs are kept in `repairs_applied` as
         // the evidence.
         const interventionNormalisationGateOpen = needsNormalisation(normalizedOptions);
+        // C1: the option set EVERY range is derived from — fixed here, before
+        // anything is withheld, and handed to Phase 4a. Identical to
+        // `normalizedOptions` whenever nothing is withheld.
+        const rangeOptionSet = normalizedOptions;
         if (interventionNormalisationGateOpen) {
-          let survivors = normalizedOptions;
-          const withheldIds = new Set<string>();
-          const withheldClampRepairs: RepairRecord[] = [];
-          for (;;) {
-            const trial = normaliseOptionsForISL(
-              survivors,
-              filteredGraph.nodes,
-              body.goal_node_id,
-              undefined,
-              scaleFrameByNodeId,
-            );
-            const clamps = collectInterventionClamps(trial.diagnostics);
-            if (clamps.length === 0) break;
-            const roundIds = new Set(clamps.map((r) => r.option_id));
-            withheldOptionRecords.push(...clamps);
-            withheldClampRepairs.push(
-              ...trial.repairs.filter(
-                (r) => r.action === 'clamped' && r.option_id !== undefined && roundIds.has(r.option_id),
-              ),
-            );
-            for (const id of roundIds) withheldIds.add(id);
-            survivors = survivors.filter((o) => !roundIds.has(o.id));
-            if (survivors.length < 2) break;
-          }
+          const trial = normaliseOptionsForISL(
+            normalizedOptions,
+            filteredGraph.nodes,
+            body.goal_node_id,
+            undefined,
+            scaleFrameByNodeId,
+            rangeOptionSet,
+          );
+          const clamps = collectInterventionClamps(trial.diagnostics);
+          const withheldIds = new Set(clamps.map((r) => r.option_id));
+          withheldOptionRecords.push(...clamps);
+          const withheldClampRepairs: RepairRecord[] = trial.repairs.filter(
+            (r) => r.action === 'clamped' && r.option_id !== undefined && withheldIds.has(r.option_id),
+          );
+          const survivors = normalizedOptions.filter((o) => !withheldIds.has(o.id));
 
           if (withheldIds.size > 0) {
             const labelOf = (id: string): string => normalizedOptions.find((o) => o.id === id)?.label ?? id;
@@ -6725,6 +6734,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 normalizedOptions,
                 requestId,
                 requestComputedAt,
+                // C2 (AIQ #70 5859510098): the typed records ride the 422 too,
+                // so a consumer can say WHICH option was withheld and why —
+                // never a generic "analysis failed".
+                withheldOptionRecords,
               ));
             }
             preflight.warnings.push(...clampWarnings);
@@ -7239,6 +7252,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             // factor is scaled on its own frame (deriveRange rung 1.6), the
             // same frame the '%' limit rung reads.
             scaleFrameByNodeId,
+            // A3 r2 C1: the survivors are normalised on the ranges of the FULL
+            // set (fixed in Phase 2+ before anything was withheld), never
+            // re-derived from the survivors.
+            rangeOptionSet,
           );
           optionsForISL = normResult.options;
           normalisationContext = normResult.context;

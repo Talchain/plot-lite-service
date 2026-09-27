@@ -46,12 +46,25 @@ function echoConstraintAnalysis(goalConstraints: any[] | undefined) {
   };
 }
 
+/**
+ * C1 (b): when set, each option's mocked outcome mean is a pure function of its
+ * OWN ISL-bound interventions (a string hash), so "a survivor's outcome mean
+ * equals its full-set value" is observable through the whole route — and moves
+ * whenever that option's wire moves. Off by default (index-based, as before).
+ */
+let meanFromWire = false;
+function wireMean(opt: any): number {
+  let h = 0;
+  for (const ch of JSON.stringify(opt.interventions ?? {})) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return 0.5 + (h % 1000) / 10000;
+}
+
 function optionResults(options: any[], goalConstraints?: any[]) {
   const ca = echoConstraintAnalysis(goalConstraints);
   return options.map((opt: any, idx: number) => ({
     option_id: opt.id,
     outcome: {
-      mean: 0.6 + idx * 0.01, std: 0.1, p10: 0.5, p50: 0.6, p90: 0.7,
+      mean: meanFromWire ? wireMean(opt) : 0.6 + idx * 0.01, std: 0.1, p10: 0.5, p50: 0.6, p90: 0.7,
       n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0,
     },
     rank: idx + 1,
@@ -302,31 +315,89 @@ describe('A3 round 2 — the route withholds what would be clamped', () => {
     expect((body.critiques ?? []).find((c: any) => c.code === 'INTERVENTION_CLAMPED')).toBeUndefined();
   });
 
-  it('a withheld option does not contaminate the survivors: their wire is identical to a request that never contained it', async () => {
-    // ADDED: an unframed spend factor two price options set (20, 30) and the
-    // withheld option sets to 200 — widening the spend spread if it counted.
-    const make = (withWithheld: boolean): any => {
+  const SURVIVORS_17D1 = ['keep_current_49_price', 'increase_price_to_59', 'increase_price_to_54'];
+
+  /** Each call's ISL-bound option object for `id`, serialised (THE WIRE, byte for byte). */
+  function wireBytes(ids: string[]): Record<string, string[]> {
+    return Object.fromEntries(ids.map((id) => [id, wireOption(id).map((o) => JSON.stringify(o))]));
+  }
+
+  function meanOf(body: any, id: string): number | undefined {
+    return (body.option_comparison ?? []).find((o: any) => o.option_id === id)?.outcome?.mean;
+  }
+
+  function normalisedReason(body: any, factorId: string): string | undefined {
+    return (body._meta?.repairs_applied ?? [])
+      .find((r: any) => r.action === 'normalised' && r.field === `intervention.value.${factorId}`)?.reason;
+  }
+
+  // FLIPPED (C1, DL CHANGES_REQUIRED on #376 / AIQ #70 5859510098). Was: "a
+  // withheld option does not contaminate the survivors: their wire is identical
+  // to a request that never contained it" — i.e. the survivors' ranges were
+  // re-derived WITHOUT the withheld option. That is the rule C1 forbids: a
+  // survivor's result then depends on which options happened to be present.
+  // Now: ranges come from the FULL set before withholding, so every survivor is
+  // exactly what it is in the full-set run.
+  it("C1 (b) — withholding one option never changes another: every survivor reaches ISL byte-identical to the FULL-SET run, with the same outcome mean", async () => {
+    // ADDED: an unframed spend factor two price options set (20, 30) and
+    // 'hire10' sets to 200, so its level is part of the FULL-set spread
+    // [20, 200] (range [0, 236], inferred_spread). 'hire10' also sets
+    // sales_hires (level 3, range [0, 6]): at 10 it clamps and is withheld; at 5
+    // it fits, and nothing is withheld — the FULL-SET run.
+    const make = (hire10SalesHires: number | undefined): any => {
       const req = body17d1();
       addUnframedFactor(req, 'sales_hires', 3);
       addUnframedFactor(req, 'ad_spend', 0.5);
       req.options.find((o: any) => o.id === 'keep_current_49_price').interventions.ad_spend = 20;
       req.options.find((o: any) => o.id === 'increase_price_to_59').interventions.ad_spend = 30;
-      if (withWithheld) addOption(req, 'hire10', { sales_hires: 10, ad_spend: 200 });
+      if (hire10SalesHires !== undefined) addOption(req, 'hire10', { sales_hires: hire10SalesHires, ad_spend: 200 });
       return req;
     };
-    const withBody = await run(make(true));
-    const withWire = islBodies.map((b) => JSON.stringify(b.options));
-    expect(withBody._meta?.withheld_options?.map((r: any) => r.option_id)).toEqual(['hire10']);
-    await run(make(false));
-    const withoutWire = islBodies.map((b) => JSON.stringify(b.options));
-    expect(withWire).toEqual(withoutWire);
+    meanFromWire = true;
+    let withheld: any; let full: any; let never: any;
+    let withheldWire: Record<string, string[]>; let fullWire: Record<string, string[]>; let neverWire: Record<string, string[]>;
+    try {
+      withheld = await run(make(10));
+      withheldWire = wireBytes(SURVIVORS_17D1);
+      full = await run(make(5));
+      fullWire = wireBytes(SURVIVORS_17D1);
+      never = await run(make(undefined));
+      neverWire = wireBytes(SURVIVORS_17D1);
+    } finally {
+      meanFromWire = false;
+    }
+    // Preconditions: the withheld run withholds exactly 'hire10'; the full-set
+    // run withholds nothing and analyses 'hire10'.
+    expect(withheld._meta?.withheld_options?.map((r: any) => r.option_id)).toEqual(['hire10']);
+    expect(full._meta?.withheld_options).toBeUndefined();
+    expect((full.option_comparison ?? []).map((o: any) => o.option_id)).toContain('hire10');
+
+    // THE ROW: byte for byte on the ISL wire, and the same outcome mean, per survivor.
+    for (const id of SURVIVORS_17D1) {
+      expect(withheldWire![id].length, id).toBeGreaterThan(0);
+      expect(withheldWire![id], id).toEqual(fullWire![id]);
+      expect(meanOf(withheld, id), id).toBeDefined();
+      expect(meanOf(withheld, id), id).toBe(meanOf(full, id));
+    }
+    // … because both runs scale ad_spend on the SAME full-set range.
+    expect(normalisedReason(withheld, 'ad_spend')).toBe('normalised range=[0,236] source=inferred_spread');
+    expect(normalisedReason(full, 'ad_spend')).toBe(normalisedReason(withheld, 'ad_spend'));
+    // CONTRAST (the scenario discriminates): a request that never contained
+    // 'hire10' scales ad_spend on [18, 32], so the survivors that set it move.
+    expect(normalisedReason(never, 'ad_spend')).toBe('normalised range=[18,32] source=inferred_spread');
+    expect(neverWire!.keep_current_49_price).not.toEqual(withheldWire!.keep_current_49_price);
+    expect(meanOf(never, 'keep_current_49_price')).not.toBe(meanOf(withheld, 'keep_current_49_price'));
   });
 
-  it('CASCADE — a survivor whose level fits only the withheld option\'s spread is withheld in turn (re-normalised until nothing clamps)', async () => {
+  // FLIPPED (C1). Was: "CASCADE — a survivor whose level fits only the withheld
+  // option's spread is withheld in turn (re-normalised until nothing clamps)",
+  // pinning 'grow' withheld {stated 5, applied 2}. That cascade is the defect:
+  // 'grow' fits the FULL-set staff range and was withheld only because
+  // 'hire_big' was withheld on a DIFFERENT factor.
+  it("C1 (a) — no cascade: 'grow' (staff 5) is analysed at 5 on the FULL-set staff range [2, 23]; 'hire_big' alone is withheld", async () => {
     // ADDED: `staff` (unframed, level 1) is set by 'grow' (5) and by 'hire_big'
-    // (20). With both, the staff spread is [2, 23] and 5 fits. 'hire_big' is
-    // withheld on its OWN clamp (sales_hires 100 on [0, 6]); without it, 5 is
-    // the only staff level, the range is Olumi's [0, 2], and 5 would clamp.
+    // (20): the full-set spread is [5, 20] → range [2, 23]. 'hire_big' is
+    // withheld on its OWN clamp (sales_hires 100 on [0, 6]).
     const req = body17d1();
     addUnframedFactor(req, 'sales_hires', 3);
     addUnframedFactor(req, 'staff', 1);
@@ -335,15 +406,22 @@ describe('A3 round 2 — the route withholds what would be clamped', () => {
     const body = await run(req);
     expect(body._meta?.withheld_options).toEqual([
       { option_id: 'hire_big', reason: 'intervention_clamped', factor_id: 'sales_hires', stated: 100, applied: 6 },
-      { option_id: 'grow', reason: 'intervention_clamped', factor_id: 'staff', stated: 5, applied: 2 },
     ]);
     for (const ids of wireOptionIds()) {
-      expect(ids).toEqual(['keep_current_49_price', 'increase_price_to_59', 'increase_price_to_54']);
+      expect(ids).toEqual([...SURVIVORS_17D1, 'grow']);
     }
-    expect((body._meta?.repairs_applied ?? []).filter((r: any) => r.action === 'clamped').map((r: any) => r.option_id)).toEqual(['hire_big', 'grow']);
+    // Analysed at 5 on [2, 23]: (5 − 2) / (23 − 2).
+    for (const o of wireOption('grow')) {
+      const iv = o?.interventions?.staff;
+      expect(typeof iv === 'number' ? iv : iv?.value).toBeCloseTo(3 / 21, 12);
+    }
+    expect(normalisedReason(body, 'staff')).toBe('normalised range=[2,23] source=inferred_spread');
+    expect((body.option_comparison ?? []).map((o: any) => o.option_id)).toContain('grow');
+    expect((body._meta?.repairs_applied ?? []).filter((r: any) => r.action === 'clamped').map((r: any) => r.option_id)).toEqual(['hire_big']);
+    expect((body.critiques ?? []).filter((c: any) => c.code === 'INTERVENTION_CLAMPED').map((c: any) => c.affected_option_ids)).toEqual([['hire_big']]);
   });
 
-  it('every option clamped ⇒ the run is refused with a typed reason (INTERVENTION_CLAMPED_NO_COMPARISON)', async () => {
+  it('every option clamped ⇒ the run is refused with a typed reason (INTERVENTION_CLAMPED_NO_COMPARISON) carrying each typed record (C2)', async () => {
     const req = body17d1();
     addUnframedFactor(req, 'sales_hires', 3);
     addUnframedFactor(req, 'support_hires', 2);
@@ -359,6 +437,39 @@ describe('A3 round 2 — the route withholds what would be clamped', () => {
       .find((c: any) => c.code === 'INTERVENTION_CLAMPED_NO_COMPARISON');
     expect(blocker).toMatchObject({ severity: 'blocker', blocks_analysis: true });
     expect([...blocker.affected_option_ids].sort()).toEqual(['hire10', 'support12']);
+    // C2: WHICH option, on WHICH factor, stated vs the level it would have run at.
+    expect(body.withheld_options).toEqual([
+      { option_id: 'hire10', reason: 'intervention_clamped', factor_id: 'sales_hires', stated: 10, applied: 6 },
+      { option_id: 'support12', reason: 'intervention_clamped', factor_id: 'support_hires', stated: 12, applied: 4 },
+    ]);
+  });
+
+  it('C2 — ONE survivor (< 2 left) ⇒ 422 INTERVENTION_CLAMPED_NO_COMPARISON carrying each typed record; the survivor is not withheld and ISL is never called', async () => {
+    // ADDED: three unframed factors, one option each. 'ops3' fits (3 on
+    // ops_hires' [0, 4]); the other two clamp on their own factors. One option
+    // left is no comparison.
+    const req = body17d1();
+    addUnframedFactor(req, 'sales_hires', 3);
+    addUnframedFactor(req, 'support_hires', 2);
+    addUnframedFactor(req, 'ops_hires', 2);
+    req.options = [];
+    addOption(req, 'hire10', { sales_hires: 10 });
+    addOption(req, 'ops3', { ops_hires: 3 });
+    addOption(req, 'support12', { support_hires: 12 });
+    const { status, body } = await post(req);
+    expect(status).toBe(422);
+    expect(islBodies).toEqual([]);
+    expect(body.analysis_status).toBe('blocked');
+    const blocker = (body.critiques ?? []).find((c: any) => c.code === 'INTERVENTION_CLAMPED_NO_COMPARISON');
+    expect(blocker).toMatchObject({ severity: 'blocker', blocks_analysis: true, affected_option_ids: ['hire10', 'support12'] });
+    expect(String(blocker.message)).toContain('leaving 1 to compare');
+    expect(body.withheld_options).toEqual([
+      { option_id: 'hire10', reason: 'intervention_clamped', factor_id: 'sales_hires', stated: 10, applied: 6 },
+      { option_id: 'support12', reason: 'intervention_clamped', factor_id: 'support_hires', stated: 12, applied: 4 },
+    ]);
+    // Each withheld option also keeps its own INTERVENTION_CLAMPED warning.
+    expect((body.critiques ?? []).filter((c: any) => c.code === 'INTERVENTION_CLAMPED').map((c: any) => c.affected_option_ids))
+      .toEqual([['hire10'], ['support12']]);
   });
 
   // ===========================================================================

@@ -1359,6 +1359,14 @@ export interface V2RunError {
     request_id: string;
     computed_at: string;
   };
+  /**
+   * A3 round 2, C2 (AIQ olumi-programme-docs#70 5859510098): on the 422
+   * INTERVENTION_CLAMPED_NO_COMPARISON block, every option withheld because a
+   * stated level would clamp — the SAME typed records a 200 carries in
+   * `_meta.withheld_options` — so a consumer can say WHICH option and why.
+   * Absent on every other error.
+   */
+  withheld_options?: WithheldOptionRecord[];
 }
 
 /**
