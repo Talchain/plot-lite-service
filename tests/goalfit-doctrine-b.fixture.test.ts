@@ -349,7 +349,12 @@ describe('goal-fit doctrine B (P0-C2 — scored from the modelled outcome distri
     }
   });
 
-  it('PIN: a mixed multi-constraint run (one doctrine-B-eligible, one default-range) suppresses the whole run', async () => {
+  // B5 (AI Quality #70 5855345225 / 5855511541) SUPERSEDES the run-level pin
+  // that stood here ("suppresses the whole run"): one limit's refusal never
+  // silences another. The doctrine-B limit is delivered on its modelled basis
+  // (annotated + noted), the default-range limit alone is withheld and named,
+  // and "all limits met" is withheld because one limit is unscored.
+  it('PIN: a mixed multi-constraint run (one doctrine-B-eligible, one default-range) delivers the doctrine-B limit and withholds only the other', async () => {
     defaultBaseNodeId = 'goal_productivity';
     try {
       const body = await run(GRAPH_GOAL_TARGET, [
@@ -366,14 +371,14 @@ describe('goal-fit doctrine B (P0-C2 — scored from the modelled outcome distri
 
       for (const opt of body.option_comparison) {
         expect(opt, opt.option_id).not.toHaveProperty('probability_of_joint_goal');
-        expect(opt, opt.option_id).not.toHaveProperty('constraint_probabilities');
-        expect(opt, opt.option_id).not.toHaveProperty('goal_fit_basis');
+        expect(Object.keys(opt.constraint_probabilities ?? {}), opt.option_id).toEqual([AT_LEAST_20_PCT.constraint_id]);
+        expect(opt.goal_fit_basis?.node_ids, opt.option_id).toEqual(['goal_productivity']);
       }
-      // Exactly today's multi-target behaviour: one warning per affected node.
+      expect(body.joint_withheld).toEqual({ reason: 'limit_unscored', constraint_ids: ['focus_floor'] });
       const warnings = warningsByCode(body, 'CONSTRAINT_TARGET_UNRELIABLE');
-      expect(warnings.length).toBeGreaterThanOrEqual(1);
+      expect(warnings.map((w: any) => w.constraint_ids)).toEqual([['focus_floor']]);
       for (const w of warnings) expect(w.severity).toBe('warning');
-      expect(warningsByCode(body, 'CONSTRAINT_GOALFIT_MODELLED_BASIS')).toHaveLength(0);
+      expect(warningsByCode(body, 'CONSTRAINT_GOALFIT_MODELLED_BASIS')).toHaveLength(1);
     } finally {
       defaultBaseNodeId = null;
     }

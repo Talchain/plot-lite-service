@@ -377,16 +377,27 @@ describe('observed_baseline_level — a LEVEL limit on an outcome the options mo
     expect(warnings(body, 'CONSTRAINT_TARGET_UNRELIABLE')).toEqual([]);
   });
 
-  it('MIX: a scoreable level limit beside an unanchored one — the run-level suppression still wins, and names only the unanchored target', async () => {
+  // B5 (AI Quality #70 5855345225 / 5855511541) SUPERSEDES the run-level pin
+  // that stood here ("the run-level suppression still wins"): one limit's
+  // refusal never silences another. The scoreable limit keeps its P; only the
+  // unanchored one is withheld, and "all limits met" is withheld with it — even
+  // though this mock (like pre-B5 ISL) still sends a joint over BOTH limits.
+  it('MIX: a scoreable level limit beside an unanchored one — each is judged on its own, and the joint is withheld naming only the unanchored limit', async () => {
     const { body } = await run(graph(SUB_WITH_BASELINE), [
       GC_L2B,
       { constraint_id: 'gc_goal_unframed', node_id: 'goal_revenue', operator: '>=', value: 0.1 },
     ]);
     const opts = byOption(body);
-    expect(opts.opt_hold.constraint_probabilities).toBeUndefined();
-    expect(opts.opt_raise.probability_of_joint_goal).toBeUndefined();
+    expect(opts.opt_hold.constraint_probabilities).toEqual({ gc_l2b: 0.4895 });
+    expect(opts.opt_raise.constraint_probabilities).toEqual({ gc_l2b: 0.781 });
+    for (const option of Object.values(opts) as any[]) {
+      expect(option, option.option_id).not.toHaveProperty('probability_of_joint_goal');
+    }
+    expect(body.joint_withheld).toEqual({ reason: 'limit_unscored', constraint_ids: ['gc_goal_unframed'] });
+    expect((body.constraint_results ?? []).map((r: any) => r.constraint_id)).toEqual(['gc_l2b']);
     const warned = warnings(body, 'CONSTRAINT_TARGET_UNRELIABLE');
     expect(warned).toHaveLength(1);
+    expect(warned[0].constraint_ids).toEqual(['gc_goal_unframed']);
     expect(warned[0].message).toContain('Monthly revenue');
     expect(warned[0].message).not.toContain('Paying subscribers');
   });
