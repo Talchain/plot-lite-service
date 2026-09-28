@@ -47,6 +47,20 @@ export type { ConstraintUnitMismatch } from './constraint-units.js';
 export type RangeSource = 'explicit_cap' | 'explicit' | 'extracted' | 'scale_frame' | 'pair_frame' | 'inferred_spread' | 'inferred_baseline' | 'inferred_value' | 'default' | 'goal_threshold_cap' | 'unit_percent';
 
 /**
+ * The range sources whose normalisation is DECISION-GRADE (with `range_unified` and no threshold
+ * clamp). Moved here from routes/v2/run.ts so the normaliser and the route read ONE set (the route
+ * imports it; its doctrine block stays beside `buildConstraintScaleProvenance`).
+ */
+export const DECISION_GRADE_SOURCES: ReadonlySet<RangeSource> = new Set<RangeSource>([
+  'inferred_spread',
+  'explicit', // = state_space.range (spec: "state_space")
+  'explicit_cap',
+  'goal_threshold_cap',
+  'unit_percent',
+  'scale_frame', // the node's own frame (rung 1.6) — DL 5861214582 "(3)"
+]);
+
+/**
  * Range for normalisation.
  */
 export interface NormalisationRange {
@@ -2482,7 +2496,10 @@ export function normaliseGoalConstraints(
     if (isChangeFrame(value_frame)) {
       const span = range.max - range.min;
       if (value_frame === 'change_rel') {
-        if (range.source !== 'default' && Number.isFinite(span) && span > 0 && !rawRangeConflicted.has(node_id)) {
+        // AIQ #72 5876151887: the raw bounds go to ISL ONLY on a decision-grade, unified range. A
+        // DERIVED guess (e.g. `inferred_value`) sends none, so ISL refuses the relative change by name,
+        // exactly as on the default range — never an estimate scored as decision-grade.
+        if (DECISION_GRADE_SOURCES.has(range.source) && rangeUnified && Number.isFinite(span) && span > 0 && !rawRangeConflicted.has(node_id)) {
           const prior = rawRangeByNodeId.get(node_id);
           if (prior === undefined) {
             rawRangeByNodeId.set(node_id, { min: range.min, max: range.max });

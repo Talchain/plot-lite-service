@@ -139,6 +139,23 @@ describe('R1 S3 — change_rel is a fraction: forwarded as r, with the node raw 
     expect(res.raw_range_by_node_id.has('monthly_cloud_spend')).toBe(false);
   });
 
+  it('S3-9b a DERIVED range is not decision-grade: r is sent, NO raw range (AIQ #72 5876151887)', () => {
+    // A value with no cap, no scale_frame and no producer range: the ladder can only DERIVE a range
+    // from the value itself. That guess must never reach ISL as the bounds a relative change is read on.
+    const guessed = {
+      id: 'monthly_cloud_spend',
+      kind: 'factor',
+      label: 'Monthly cloud spend',
+      observed_state: { value: 45000, unit: 'GBP/month', source: 'brief_extraction' },
+    } as EngineNodeV3;
+    const res = normaliseGoalConstraints([limit({ value: -0.2, value_frame: 'change_rel' })], [guessed]);
+    expect(byId(res.constraints, 'c_spend')!.value).toBe(-0.2);
+    expect(res.raw_range_by_node_id.has('monthly_cloud_spend')).toBe(false);
+    // CONTROL (S3-7's shape): the same limit on a producer cap still records its bounds.
+    const capped = normaliseGoalConstraints([limit({ value: -0.2, value_frame: 'change_rel' })], [spend()]);
+    expect(capped.raw_range_by_node_id.get('monthly_cloud_spend')).toEqual({ min: 0, max: 100000 });
+  });
+
   it('S3-10 two change_rel limits on one node that resolve DIFFERENT ranges: no raw range (fail closed)', () => {
     const res = normaliseGoalConstraints(
       [

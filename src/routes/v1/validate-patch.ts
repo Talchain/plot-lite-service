@@ -527,6 +527,9 @@ export const HASHED_NODE_FIELDS: readonly (keyof EngineNodeV3)[] = [
   // R3 rung (a): a declared identity changes how ISL computes the node, so two graphs
   // that differ only here must not share a hash. (Nodes are hashed whole anyway.)
   'nonlinear_identity',
+  // R1 S3 (@talchain/schemas 0.61.0 adds it to the analysis-hash node fields): what a node's value
+  // measures changes how ISL compares a target on it. Classification only — nodes are hashed whole.
+  'quantity_frame',
 ];
 
 /** Node fields deliberately kept OUT of `graph_hash`. Empty by design — see above. */

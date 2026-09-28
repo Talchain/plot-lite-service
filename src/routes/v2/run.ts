@@ -212,6 +212,7 @@ import {
   constraintsNeedPercentTargetFrame,
   collectScaleFrameByNodeId,
   isIdentityRange,
+  DECISION_GRADE_SOURCES,
   deriveClampDirection,
   collectInterventionsForwardedAsStated,
   collectInterventionClamps,
@@ -2425,14 +2426,7 @@ const REFUSAL_CRITIQUE_COPY: Record<ConstraintRefusalReason, string> = {
  * `decision_grade`'s derivation (the whitelist AND) is unchanged — only its
  * `range_unified` input is now correct + projected.
  */
-const DECISION_GRADE_SOURCES: ReadonlySet<RangeSource> = new Set<RangeSource>([
-  'inferred_spread',
-  'explicit', // = state_space.range (spec: "state_space")
-  'explicit_cap',
-  'goal_threshold_cap',
-  'unit_percent',
-  'scale_frame', // the node's own frame (rung 1.6) — DL 5861214582 "(3)"
-]);
+// DECISION_GRADE_SOURCES is imported from lib/intervention-normaliser (one set for the route and the normaliser).
 
 export function buildConstraintScaleProvenance(
   activeConstraints: GoalConstraint[],
