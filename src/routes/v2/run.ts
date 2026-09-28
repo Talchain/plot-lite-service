@@ -87,7 +87,7 @@ import { filterTemporalConstraints } from '../../normalisation/constraint-filter
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, InternalMetadata } from '../../types/engine-v3.js';
-import { withdrawInferredUnevaluatedIdentities, attachIdentityExecutionFrames, attachChangeFrameTargetFacts, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, correlatedFactorIdsOf, zeroFactorsHeldExact, zeroFactorHeldWarnings, exactInputOptionIds, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
+import { withdrawInferredUnevaluatedIdentities, attachIdentityExecutionFrames, attachChangeFrameRawRanges, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, correlatedFactorIdsOf, zeroFactorsHeldExact, zeroFactorHeldWarnings, exactInputOptionIds, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
@@ -8018,19 +8018,15 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
         identitiesNotForwarded.push(...attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId, goalCapByNodeId, identityDerivedFrames));
 
-        // R1 S3 (wire R3 #72 5872798858) — a RELATIVE change needs its target's raw bounds and base
-        // owner. Targets: every change_rel limit on the wire, plus the goal when its threshold is a
+        // R1 S3 (wire R3 #72 5872798858) — a RELATIVE change needs its target's raw bounds (its base
+        // owner rides `observed_state.source`, already on the wire). Targets: every change_rel limit on the wire, plus the goal when its threshold is a
         // change_rel. The goal's bounds are its producer cap [0, goal_threshold_cap] (CEE normalises
         // the goal on it); a limit's are the range the normaliser read it on. Two different copies
         // for one node ⇒ none (fail closed; ISL refuses by name).
         {
-          const changeRelTargets = new Set<string>(
-            (islRequest.goal_constraints ?? []).filter((c) => c.value_frame === 'change_rel').map((c) => c.node_id),
-          );
           const rawRanges = new Map(changeRelRawRangeByNodeId);
           if (islRequest.goal_threshold !== undefined && islRequest.goal_threshold_frame === 'change_rel') {
             const goalId = body.goal_node_id;
-            changeRelTargets.add(goalId);
             const cap = goalCapByNodeId.get(goalId);
             const goalRange = typeof cap === 'number' && Number.isFinite(cap) && cap > 0 ? { min: 0, max: cap } : undefined;
             const limitOnGoal = (islRequest.goal_constraints ?? []).some((c) => c.node_id === goalId && c.value_frame === 'change_rel');
@@ -8043,7 +8039,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             if (agreed === undefined) rawRanges.delete(goalId);
             else rawRanges.set(goalId, agreed);
           }
-          attachChangeFrameTargetFacts(islRequest.graph.nodes, filteredGraph.nodes, rawRanges, changeRelTargets);
+          attachChangeFrameRawRanges(islRequest.graph.nodes, rawRanges);
         }
 
         req.log.info(

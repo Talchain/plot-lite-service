@@ -7,8 +7,8 @@
  *     node's scale and never by its offset: value = c / (max − min). On a `default` range there is
  *     no scale to read a change on, so a non-zero change is refused by name (0 is scale-free).
  *   · `change_rel` — a relative change, forwarded as the raw fraction r, never normalised. ISL
- *     resolves it against the target node's `raw_range {min, max}` and the base's owner
- *     (`observed_state.baseline_owner`). With no real range PLoT sends no `raw_range`, and ISL
+ *     resolves it against the target node's `raw_range {min, max}`; WHOSE base it is rides the target's
+ *     `observed_state.source` (olumi-schemas #69, decision (b)). With no real range PLoT sends no `raw_range`, and ISL
  *     refuses by name; PLoT never guesses `min = 0`.
  *   · `quantity_frame` — what a node's value measures; forwarded on the node, absent = level.
  *
@@ -27,8 +27,7 @@ import { normaliseNode } from '../src/normalisation/graph-normaliser.js';
 import {
   toISLNode,
   toISLRobustnessRequest,
-  attachChangeFrameTargetFacts,
-  baselineOwnerOf,
+  attachChangeFrameRawRanges,
 } from '../src/integrations/isl/translator-v3.js';
 import type { EngineNodeV3, GoalConstraint } from '../src/types/engine-v3.js';
 
@@ -178,7 +177,7 @@ describe('R1 S3 — change_rel is a fraction: forwarded as r, with the node raw 
   });
 });
 
-describe('R1 S3 — node facts ISL reads: quantity_frame, raw_range, baseline_owner', () => {
+describe('R1 S3 — node facts ISL reads: quantity_frame, raw_range (whose base rides source)', () => {
   it('S3-13 normaliseNode keeps a contract quantity_frame and drops a junk one (absent = level)', () => {
     const kept = normaliseNode({ id: 'code_quality_change', kind: 'factor', label: 'Code quality change', quantity_frame: 'change' } as never);
     expect(kept.quantity_frame).toBe('change');
@@ -195,38 +194,21 @@ describe('R1 S3 — node facts ISL reads: quantity_frame, raw_range, baseline_ow
     expect('quantity_frame' in without).toBe(false);
   });
 
-  it('S3-15 baselineOwnerOf: the user\'s words and edits → user; Olumi\'s estimate → olumi; anything else → absent', () => {
-    for (const s of ['brief_extraction', 'explicit', 'user_override', 'user_confirmed', 'user', 'user_edited', 'user_calibration', 'panel_elicited']) {
-      expect([s, baselineOwnerOf(s)]).toEqual([s, 'user']);
-    }
-    for (const s of ['cee_inference', 'inferred', 'cee_repair']) {
-      expect([s, baselineOwnerOf(s)]).toEqual([s, 'olumi']);
-    }
-    for (const s of ['user_assumption', 'something_new', undefined, 7]) {
-      expect(baselineOwnerOf(s)).toBeUndefined();
-    }
+  it('S3-15 the base owner rides observed_state.source (decision (b)): forwarded as is, no baseline_owner minted', () => {
+    const n = toISLNode(spend());
+    expect(n.observed_state?.source).toBe('brief_extraction');
+    expect('baseline_owner' in (n.observed_state ?? {})).toBe(false);
   });
 
-  it('S3-16 attachChangeFrameTargetFacts stamps ONLY change_rel targets; every other node is byte-identical', () => {
+  it('S3-16 attachChangeFrameRawRanges stamps ONLY the nodes it was given a range for; every other node is byte-identical', () => {
     const engine = [
       spend(),
-      { id: 'churn', kind: 'factor', label: 'Churn', observed_state: { value: 0.03, source: 'cee_inference' } } as EngineNodeV3,
       { id: 'other', kind: 'factor', label: 'Other', observed_state: { value: 0.3, source: 'brief_extraction' } } as EngineNodeV3,
     ];
     const req = toISLRobustnessRequest({ nodes: engine, edges: [] } as never, [], 'monthly_cloud_spend', 'r1');
     const before = JSON.stringify(req.graph.nodes.find((n) => n.id === 'other'));
-    attachChangeFrameTargetFacts(
-      req.graph.nodes,
-      engine,
-      new Map([['monthly_cloud_spend', { min: 0, max: 100000 }]]),
-      new Set(['monthly_cloud_spend', 'churn']),
-    );
-    const s = req.graph.nodes.find((n) => n.id === 'monthly_cloud_spend')!;
-    expect(s.raw_range).toEqual({ min: 0, max: 100000 });
-    expect(s.observed_state?.baseline_owner).toBe('user');
-    const c = req.graph.nodes.find((n) => n.id === 'churn')!;
-    expect('raw_range' in c).toBe(false); // no agreed range → none sent
-    expect(c.observed_state?.baseline_owner).toBe('olumi');
+    attachChangeFrameRawRanges(req.graph.nodes, new Map([['monthly_cloud_spend', { min: 0, max: 100000 }]]));
+    expect(req.graph.nodes.find((n) => n.id === 'monthly_cloud_spend')!.raw_range).toEqual({ min: 0, max: 100000 });
     expect(JSON.stringify(req.graph.nodes.find((n) => n.id === 'other'))).toBe(before);
   });
 });

@@ -149,21 +149,21 @@ describe('R1 S3 route — the goal channel carries a change from today', () => {
     expect((isl.goal_constraints ?? []).map((c: any) => c.constraint_id)).not.toContain('auto_goal_threshold');
   });
 
-  it('SR-2 "cut by 20%" (change_rel −0.2): r on the wire, the goal node carries raw_range and the user\'s base owner', async () => {
+  it('SR-2 "cut by 20%" (change_rel −0.2): r on the wire, the goal node carries raw_range; whose base rides source', async () => {
     const { isl } = await run(payload(cloudGraph({ goal_threshold: -0.2, goal_threshold_cap: 50000, goal_threshold_frame: 'change_rel' }), { goal_direction: 'minimise' }));
     expect(isl.goal_threshold).toBe(-0.2);
     expect(isl.goal_threshold_frame).toBe('change_rel');
     const goal = nodeOf(isl, 'monthly_cloud_bill');
     expect(goal.raw_range).toEqual({ min: 0, max: 50000 });
-    expect(goal.observed_state.baseline_owner).toBe('user');
+    expect(goal.observed_state.source).toBe('brief_extraction'); // ISL derives the owner from it (decision (b))
+    expect('baseline_owner' in goal.observed_state).toBe(false);
     // Only the target: every other node is untouched.
     for (const id of ['commitment', 'egress']) {
       expect('raw_range' in nodeOf(isl, id), id).toBe(false);
-      expect('baseline_owner' in (nodeOf(isl, id).observed_state ?? {}), id).toBe(false);
     }
   });
 
-  it('SR-3 a change_rel LIMIT: r untouched, its node carries the range it was read on and Olumi\'s base owner', async () => {
+  it('SR-3 a change_rel LIMIT: r untouched, its node carries the range it was read on; its source says Olumi\'s', async () => {
     const { isl } = await run(payload(cloudGraph(), {
       goal_constraints: [{ constraint_id: 'egress_cut', node_id: 'egress', operator: '<=', value: -0.1, value_frame: 'change_rel' }],
     }));
@@ -173,7 +173,7 @@ describe('R1 S3 route — the goal channel carries a change from today', () => {
     expect(sent.value_frame).toBe('change_rel');
     const egress = nodeOf(isl, 'egress');
     expect(egress.raw_range).toEqual({ min: 0, max: 10000 });
-    expect(egress.observed_state.baseline_owner).toBe('olumi');
+    expect(egress.observed_state.source).toBe('cee_inference');
     expect('raw_range' in nodeOf(isl, 'monthly_cloud_bill')).toBe(false);
   });
 
