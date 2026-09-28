@@ -1,0 +1,113 @@
+{
+ "constraints_status": "computed",
+ "joint_withheld": null,
+ "constraint_results": [
+  {
+   "constraint_id": "agent-lane:monthly_churn:<=",
+   "node_id": "monthly_churn",
+   "operator": "<=",
+   "value": 4,
+   "probability": 0.5,
+   "option_id": "keep_current_49_price",
+   "scale_provenance": {
+    "source": "unit_percent",
+    "range_unified": true,
+    "decision_grade": true
+   }
+  }
+ ],
+ "option_comparison": [
+  {
+   "option_id": "keep_current_49_price",
+   "constraint_probabilities": {
+    "agent-lane:monthly_churn:<=": 0.5
+   },
+   "probability_of_joint_goal": 0.5,
+   "constraints_decision_grade": true,
+   "constraint_margins": [
+    {
+     "constraint_id": "agent-lane:monthly_churn:<=",
+     "failure_margin_median": 1,
+     "near_miss_fraction": 0.1
+    }
+   ],
+   "goal_fit_basis": null
+  },
+  {
+   "option_id": "increase_price_to_59",
+   "constraint_probabilities": {
+    "agent-lane:monthly_churn:<=": 0.51
+   },
+   "probability_of_joint_goal": 0.51,
+   "constraints_decision_grade": true,
+   "constraint_margins": [
+    {
+     "constraint_id": "agent-lane:monthly_churn:<=",
+     "failure_margin_median": 1,
+     "near_miss_fraction": 0.1
+    }
+   ],
+   "goal_fit_basis": null
+  },
+  {
+   "option_id": "increase_price_to_54",
+   "constraint_probabilities": {
+    "agent-lane:monthly_churn:<=": 0.52
+   },
+   "probability_of_joint_goal": 0.52,
+   "constraints_decision_grade": true,
+   "constraint_margins": [
+    {
+     "constraint_id": "agent-lane:monthly_churn:<=",
+     "failure_margin_median": 1,
+     "near_miss_fraction": 0.1
+    }
+   ],
+   "goal_fit_basis": null
+  },
+  {
+   "option_id": "6dbac00d",
+   "constraint_probabilities": {
+    "agent-lane:monthly_churn:<=": 0.53
+   },
+   "probability_of_joint_goal": 0.53,
+   "constraints_decision_grade": true,
+   "constraint_margins": [
+    {
+     "constraint_id": "agent-lane:monthly_churn:<=",
+     "failure_margin_median": 1,
+     "near_miss_fraction": 0.1
+    }
+   ],
+   "goal_fit_basis": null
+  }
+ ],
+ "unreliable": [],
+ "constraint_repairs": [
+  {
+   "field": "constraint.value.agent-lane:monthly_churn:<=",
+   "action": "normalised",
+   "from_value": 4,
+   "to_value": 0.04,
+   "reason": "normalised range=[0,100] source=unit_percent",
+   "code": "LEGACY_REPAIR",
+   "layer": "plot",
+   "field_path": "constraint.value.agent-lane:monthly_churn:<=",
+   "before": 4,
+   "after": 0.04,
+   "severity": "info"
+  }
+ ],
+ "isl_constraint": {
+  "constraint_id": "agent-lane:monthly_churn:<=",
+  "node_id": "monthly_churn",
+  "operator": "<=",
+  "value": 0.04,
+  "label": "Monthly churn",
+  "value_frame": "level",
+  "level_domain": {
+   "min": 0,
+   "max": 1
+  }
+ }
+}

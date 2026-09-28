@@ -204,10 +204,13 @@ describe("route — Paul's retention and conversion reach ISL on their node's fr
       expect(c.value).toBe(0.04);
     }
     const repair = (body._meta?.repairs_applied ?? []).find((r: any) => r.field === 'constraint.value.agent-lane:monthly_churn:<=');
-    expect(repair).toMatchObject({ action: 'normalised', from_value: 4, to_value: 0.04, reason: 'normalised range=[0,100] source=scale_frame' });
-    // (This mock yields `constraints_status: 'unavailable'` for this graph at
-    // base AND with the fix, so the trust marker is not asserted here; by code,
-    // `scale_frame` is outside DECISION_GRADE_SOURCES and fails closed.)
+    // RE-RULED (DL olumi-programme-docs#72 5861214582): the SAME [0,100] bounds
+    // (0.04 unchanged), now read on the '%' limit's own rung because CEE's
+    // stamp says the '%' was relabelled from the node's own '% per month'
+    // (`sameUnitRelabelReadsOnPercentRung`). Was `source=scale_frame`. The
+    // trust marker and delivery are asserted in
+    // `nonroot-same-period-limit.route.test.ts` (R1).
+    expect(repair).toMatchObject({ action: 'normalised', from_value: 4, to_value: 0.04, reason: 'normalised range=[0,100] source=unit_percent' });
   });
 
   it('the ROUTE passes the raw scale_frame into Phase 4a: churn with scale_frame but NO pair still reaches 0.025', async () => {
@@ -269,8 +272,32 @@ describe("route — Paul's retention and conversion reach ISL on their node's fr
     return (body.constraint_results ?? []).filter((c: any) => c.constraint_id === CHURN_LIMIT);
   }
 
-  it("(a) UNIT CHECK KEPT — Paul's one-option shape: the churn limit is withheld WITH the unit reason", async () => {
+  // ⭐ RE-RULED 28 Sep 2026 — Delivery Lead, olumi-programme-docs#72
+  // 5861214582: A3 r2's "(a) UNIT CHECK KEPT" is re-ruled for the SAME-PERIOD
+  // relabel ONLY. Paul's wire carries CEE's stamp
+  // `provenance_unit_relabelled.pre_normalisation_unit: '% per month'` — the
+  // node's own unit — so the '%' is the same quantity with the period dropped
+  // from the label: scored as `unit_percent` on churn's own frame, with
+  // `level_domain`. A DIFFERENT period and a limit with NO stamp keep the unit
+  // check: the rows below (and R5/R6 in `nonroot-same-period-limit.route.test.ts`)
+  // strip or change the stamp and stay withheld with the unit reason.
+  const withoutStamp = (req: any) => {
+    for (const c of [...(req.goal_constraints ?? []), ...(req.graph?.goal_constraints ?? [])]) {
+      if (c.constraint_id === CHURN_LIMIT) delete c.provenance_unit_relabelled;
+    }
+    return req;
+  };
+
+  it("(a) RE-RULED (DL 5861214582) — Paul's one-option shape, SAME-PERIOD stamp: the churn limit is scored, decision-grade, no unit warning", async () => {
     const body = await run(paulRequest());
+    expect(churnLimitWarnings(body)).toEqual([]);
+    expect(body.constraints_status).toBe('computed');
+    const [result] = deliveredChurnLimitResults(body);
+    expect(result?.scale_provenance).toEqual({ source: 'unit_percent', range_unified: true, decision_grade: true });
+  });
+
+  it("(a) UNIT CHECK KEPT — Paul's one-option shape with NO stamp: the churn limit is withheld WITH the unit reason", async () => {
+    const body = await run(withoutStamp(paulRequest()));
     const warnings = churnLimitWarnings(body);
     expect(warnings).toHaveLength(1);
     expect(warnings[0].message).toContain(UNIT_CLAUSE);
@@ -278,8 +305,8 @@ describe("route — Paul's retention and conversion reach ISL on their node's fr
     expect(deliveredChurnLimitResults(body)).toEqual([]);
   });
 
-  it('(b) UNIT CHECK GAINED — a second option sets churn to a DIFFERENT level (2): withheld WITH the unit reason', async () => {
-    const req = paulRequest();
+  it('(b) UNIT CHECK GAINED — NO stamp; a second option sets churn to a DIFFERENT level (2): withheld WITH the unit reason', async () => {
+    const req = withoutStamp(paulRequest());
     req.options.push({ id: 'retention_b', option_id: 'retention_b', label: 'Retention B', interventions: { monthly_churn: 2 }, is_baseline: false });
     const body = await run(req);
     for (const v of wireLevels('ca47b368', 'monthly_churn')) expect(v).toBe(0.025);
@@ -290,7 +317,7 @@ describe("route — Paul's retention and conversion reach ISL on their node's fr
     expect(deliveredChurnLimitResults(body)).toEqual([]);
   });
 
-  it('(b) the unit is the SOLE reason — only the two retention options (churn pinned by every option): withheld on the unit alone', async () => {
+  it('(b) the unit is the SOLE reason — NO stamp; only the two retention options (churn pinned by every option): withheld on the unit alone', async () => {
     // Every option sets churn, so the sample frame is anchored
     // (`pinned_by_every_option`) and the unit mismatch is the ONLY thing that
     // can withhold this limit. MEASURED at base 1f6ad52 (this row's request):
@@ -298,7 +325,7 @@ describe("route — Paul's retention and conversion reach ISL on their node's fr
     // {source: 'inferred_spread', threshold_clamped: 'high', decision_grade:
     // false}, churn on the wire at 0.857 / 0.143 and the 4% limit clamped to 1,
     // no warning. The unit check is GAINED here; this row is what shows it.
-    const req = paulRequest();
+    const req = withoutStamp(paulRequest());
     req.options = [
       { id: 'ca47b368', option_id: 'ca47b368', label: 'Retention A', interventions: { monthly_churn: 2.5 }, is_baseline: true },
       { id: 'retention_b', option_id: 'retention_b', label: 'Retention B', interventions: { monthly_churn: 2 }, is_baseline: false },
@@ -312,6 +339,19 @@ describe("route — Paul's retention and conversion reach ISL on their node's fr
     expect(warnings[0].message).toContain(UNIT_CLAUSE);
     expect(warnings[0].message).not.toContain(TOPOLOGY_CLAUSE);
     expect(deliveredChurnLimitResults(body)).toEqual([]);
+  });
+
+  it('(b) RE-RULED twin (DL 5861214582) — the SAME two retention options WITH the same-period stamp: scored on unit_percent, decision-grade', async () => {
+    const req = paulRequest();
+    req.options = [
+      { id: 'ca47b368', option_id: 'ca47b368', label: 'Retention A', interventions: { monthly_churn: 2.5 }, is_baseline: true },
+      { id: 'retention_b', option_id: 'retention_b', label: 'Retention B', interventions: { monthly_churn: 2 }, is_baseline: false },
+    ];
+    const body = await run(req);
+    for (const c of wireConstraint(CHURN_LIMIT)) expect(c).toMatchObject({ value: 0.04, level_domain: { min: 0, max: 1 } });
+    expect(churnLimitWarnings(body)).toEqual([]);
+    const [result] = deliveredChurnLimitResults(body);
+    expect(result?.scale_provenance).toEqual({ source: 'unit_percent', range_unified: true, decision_grade: true });
   });
 
   // ===========================================================================
