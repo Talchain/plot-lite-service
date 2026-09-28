@@ -567,7 +567,9 @@ describe('B4: Next Actions', () => {
         { factor_id: 'f1', factor_label: 'Cost', voi_score: 0.5, confidence: 0.3, influence: 0.8 },
         { factor_id: 'f2', factor_label: 'Risk', voi_score: 0.4, confidence: 0.4, influence: 0.6 },
       ],
-      getThresholds()
+      getThresholds(),
+      // AIQ 5866850180 / DL #389: the gap branch needs the top gap MEASURED above resolution (fails closed without it).
+      { resolvedEvppiFactorIds: new Set(['f1']) },
     );
     expect(readiness).toBe('needs_evidence');
   });
@@ -919,6 +921,8 @@ describe('NextAction Targeting Fields', () => {
       ],
       fragileEdges: [],
       robustness: {},
+      // AIQ 5866850180 / DL #389: an evidence action names only a factor whose EVPPI was MEASURED above resolution.
+      resolvedEvppiFactorIds: new Set(['f1']),
     };
 
     const evidenceGaps = [

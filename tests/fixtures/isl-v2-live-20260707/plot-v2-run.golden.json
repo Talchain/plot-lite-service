@@ -711,7 +711,7 @@
         "confidence_defaulted": false,
         "influence": 0.4971042471042471,
         "influence_display": "50%",
-        "suggestion": "Gather data on \"Hiring and Salary Cost\" to reduce uncertainty",
+        "suggestion": "Confidence in \"Hiring and Salary Cost\" is low; no measured evidence says learning it would change which option leads.",
         "notes": [],
         "value": 0,
         "evpi_percentage_points": 5.1,
@@ -726,7 +726,7 @@
         "confidence_defaulted": false,
         "influence": 0.39045780474351904,
         "influence_display": "39%",
-        "suggestion": "Gather data on \"Team Technical Maturity\" to reduce uncertainty",
+        "suggestion": "Confidence in \"Team Technical Maturity\" is low; no measured evidence says learning it would change which option leads.",
         "notes": [],
         "evpi_percentage_points": 4,
         "evpi_method": "heuristic"
@@ -1611,7 +1611,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:a37066d3dad670d9"
+    "response_content_hash": "rch_v2:751d55b61a61c153"
   },
   "meta": {
     "seed_used": "2034401427",

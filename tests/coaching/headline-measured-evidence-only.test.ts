@@ -18,7 +18,7 @@ import { detectHeadlineType, generateHeadlines } from '../../src/coaching/headli
 import { computeReadiness, generateNextActions } from '../../src/coaching/next-actions.js';
 import { generateExecutiveSummary } from '../../src/coaching/executive-summary.js';
 import { getThresholds } from '../../src/coaching/thresholds.js';
-import type { CoachingInputs, EngineGraphV3, EvidenceGap } from '../../src/coaching/types.js';
+import { evidenceAdviceMayName, type CoachingInputs, type EngineGraphV3, type EvidenceGap } from '../../src/coaching/types.js';
 
 const graph = (): EngineGraphV3 => ({
   nodes: [
@@ -76,6 +76,15 @@ describe('"highly uncertain" only when the result is (AIQ 5866850180)', () => {
 
 describe('"Gather evidence on X" only when X\'s EVPPI was measured (AIQ 5866850180)', () => {
   const t = getThresholds();
+
+  it('FAIL CLOSED (DL on #389): a caller that passes no measured set names nothing — readiness, action, gap', () => {
+    const i = { ...inputs(1, 0, undefined) };
+    expect(evidenceAdviceMayName(undefined, 'other_growth')).toBe(false);
+    expect(evidenceAdviceMayName(i, 'other_growth')).toBe(false);
+    expect(computeReadiness('clear_winner', [], GAPS, t, i)).toBe('ready');
+    expect(computeReadiness('clear_winner', [], GAPS, t)).toBe('ready');
+    expect(generateNextActions(i, 'needs_evidence', [], GAPS).map((a) => a.action).join(' | ')).not.toMatch(/Gather evidence on/);
+  });
 
   it('RED P1: every EVPPI below resolution → readiness is not needs_evidence, and no action or summary names a factor', () => {
     const i = inputs(1, 0, []);
