@@ -167,13 +167,16 @@ export function attachIdentityExecutionFrames(
    * `kind: 'goal'` participant, and ONLY when the node-frame reader resolves nothing — see `goalCapFrame`.
    */
   goalCapByNodeId: ReadonlyMap<string, number> = new Map(),
-): void {
+): IdentityNotForwarded[] {
   const engineById = new Map(engineNodes.map((node) => [node.id, node]));
   const islById = new Map(islNodes.map((node) => [node.id, node]));
+  const participantsOf = (node: ISLNodeV3): string[] => {
+    const identity = node.nonlinear_identity!;
+    return [node.id, ...identity.factor_ids, ...(identity.addends ?? [])];
+  };
   for (const node of islNodes) {
-    const identity = node.nonlinear_identity;
-    if (!identity) continue;
-    for (const id of [node.id, ...identity.factor_ids, ...(identity.addends ?? [])]) {
+    if (!node.nonlinear_identity) continue;
+    for (const id of participantsOf(node)) {
       const participant = islById.get(id);
       if (!participant || participant.execution_frame) continue;
       const engine = engineById.get(id);
@@ -182,6 +185,33 @@ export function attachIdentityExecutionFrames(
       if (resolved) participant.execution_frame = { frame: resolved.frame, carrier: resolved.carrier };
     }
   }
+  // ⛔ Variant (b) (DL #72 5863297824): an INFERRED identity (`stated_in_brief: false`) with any participant left
+  // frameless is NOT forwarded — the node stays linear, exactly as served before the re-land — and is said
+  // (`IdentityNotForwarded`). ISL would refuse the whole Run (`identity_frame_missing`) for a figure the user never
+  // stated and cannot answer. A STATED identity is always forwarded: ISL's refusal stands (AIQ's rule).
+  const notForwarded: IdentityNotForwarded[] = [];
+  for (const node of islNodes) {
+    const identity = node.nonlinear_identity;
+    if (!identity || identity.stated_in_brief !== false) continue;
+    const missing = participantsOf(node).filter((id) => !islById.get(id)?.execution_frame);
+    if (missing.length === 0) continue;
+    delete node.nonlinear_identity;
+    notForwarded.push({ node_id: node.id, reason: 'inferred_identity_frame_unresolved', frameless_node_ids: missing });
+  }
+  // A frame is carried only on a participant of an identity that IS forwarded (R3-8: no other node is touched).
+  if (notForwarded.length > 0) {
+    const kept = new Set(islNodes.filter((n) => n.nonlinear_identity).flatMap(participantsOf));
+    for (const node of islNodes) if (node.execution_frame && !kept.has(node.id)) delete node.execution_frame;
+  }
+  return notForwarded;
+}
+
+/** An inferred identity PLoT did not forward to ISL, and why (`_meta.identities_not_forwarded`). */
+export interface IdentityNotForwarded {
+  node_id: string;
+  reason: 'inferred_identity_frame_unresolved';
+  /** The identity's own nodes that had no frame — the node, a factor or an addend. */
+  frameless_node_ids: string[];
 }
 
 /**

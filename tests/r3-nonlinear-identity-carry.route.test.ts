@@ -268,6 +268,45 @@ describe('R3-3 unit — normaliseNode / toISLNode carry the declaration or refus
     expect(goalCarrier({}, caps).mrr).toBeUndefined();
   });
 
+  // ⛔ Variant (b) (DL #72 5863297824): an INFERRED identity with a frameless participant is NOT forwarded — the node
+  // stays linear, as served before the re-land — and is said. A STATED one is forwarded frameless: ISL refuses (AIQ).
+  function framed(identity: Record<string, unknown>, goalCaps: ReadonlyMap<string, number>) {
+    const engine = [
+      normaliseNode({ ...node, nonlinear_identity: { ...PRODUCT, ...identity } } as any),
+      normaliseNode({ id: 'pro_plan_price', kind: 'factor', label: 'Price', observed_state: { value: 0.245, cap: 200 } } as any),
+      normaliseNode({ id: 'pro_paying_subscribers', kind: 'factor', label: 'Subs' } as any),
+    ];
+    const isl = engine.map(toISLNode);
+    const notForwarded = attachIdentityExecutionFrames(isl, engine, new Map([['pro_paying_subscribers', 2000]]), goalCaps);
+    return { isl, notForwarded, frames: Object.fromEntries(isl.map((n) => [n.id, n.execution_frame])) };
+  }
+
+  it('(b) RED: an INFERRED identity whose carrier has no frame is NOT forwarded — no declaration, no frames — and is said', () => {
+    const { isl, notForwarded, frames } = framed({ stated_in_brief: false }, new Map());
+    expect(isl.find((n) => n.id === 'mrr')).not.toHaveProperty('nonlinear_identity');
+    expect(frames).toEqual({ mrr: undefined, pro_plan_price: undefined, pro_paying_subscribers: undefined });
+    expect(notForwarded).toEqual([{ node_id: 'mrr', reason: 'inferred_identity_frame_unresolved', frameless_node_ids: ['mrr'] }]);
+  });
+
+  it('(b) CONTRAST: a STATED identity with the same frameless carrier IS forwarded (ISL refuses it: AIQ\'s rule)', () => {
+    const { isl, notForwarded, frames } = framed({ stated_in_brief: true }, new Map());
+    expect(isl.find((n) => n.id === 'mrr')?.nonlinear_identity).toEqual({ ...PRODUCT, stated_in_brief: true });
+    expect(frames.mrr).toBeUndefined();
+    expect(frames.pro_plan_price).toEqual({ frame: 200, carrier: 'cap' });
+    expect(notForwarded).toEqual([]);
+  });
+
+  it('(b) CONTRAST: an INFERRED identity the goal cap frames IS forwarded, every participant framed, nothing said', () => {
+    const { isl, notForwarded, frames } = framed({ stated_in_brief: false }, new Map([['mrr', 25000]]));
+    expect(isl.find((n) => n.id === 'mrr')?.nonlinear_identity).toEqual({ ...PRODUCT, stated_in_brief: false });
+    expect(frames).toEqual({
+      mrr: { frame: 25000, carrier: 'cap' },
+      pro_plan_price: { frame: 200, carrier: 'cap' },
+      pro_paying_subscribers: { frame: 2000, carrier: 'scale_frame' },
+    });
+    expect(notForwarded).toEqual([]);
+  });
+
   it('`sum` is admitted (AIQ 5859633012: CEE widens the carrier to product | sum)', () => {
     expect(readNonlinearIdentity({ id: 't', nonlinear_identity: { ...PRODUCT, operation: 'sum' } } as any)?.operation).toBe('sum');
   });

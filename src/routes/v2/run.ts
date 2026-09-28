@@ -1789,6 +1789,8 @@ interface MetaParams {
   filteredConstraints?: import('../../types/engine-v3.js').FilteredConstraintRecord[];
   /** A3 round 2: options withheld before ISL (a stated level would clamp) — _meta.withheld_options */
   withheldOptions?: import('../../types/engine-v3.js').WithheldOptionRecord[];
+  /** Variant (b): inferred identities not forwarded to ISL (frameless) — _meta.identities_not_forwarded */
+  identitiesNotForwarded?: import('../../integrations/isl/translator-v3.js').IdentityNotForwarded[];
   /** Per-factor range derivation source (maps factor_id → derivation tier) */
   rangeDerivationSources?: Record<string, string>;
 }
@@ -4852,6 +4854,11 @@ function buildResponse(
         baseMeta.withheld_options = meta.withheldOptions;
       }
 
+      // Variant (b): each inferred identity not forwarded to ISL (frameless), and why (absent when none).
+      if (meta.identitiesNotForwarded && meta.identitiesNotForwarded.length > 0) {
+        (baseMeta as any).identities_not_forwarded = meta.identitiesNotForwarded;
+      }
+
       // Per-factor range derivation sources (diagnostic — shows which tier each factor used)
       if (meta.rangeDerivationSources && Object.keys(meta.rangeDerivationSources).length > 0) {
         baseMeta.range_derivation_sources = meta.rangeDerivationSources;
@@ -6337,6 +6344,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // right after the preflight dedupe (below); lands in
         // `_meta.withheld_options`.
         const withheldOptionRecords: import('../../types/engine-v3.js').WithheldOptionRecord[] = [];
+        // Variant (b): inferred identities PLoT did not forward (frameless) — `_meta.identities_not_forwarded`.
+        const identitiesNotForwarded: import('../../integrations/isl/translator-v3.js').IdentityNotForwarded[] = [];
 
         if (filteredConstraintRecords.length > 0) {
           req.log.info({
@@ -7923,7 +7932,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         for (const [nodeId, meta] of goalThresholdMetaByNodeId) {
           if (meta.goal_threshold_cap !== undefined) goalCapByNodeId.set(nodeId, meta.goal_threshold_cap);
         }
-        attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId, goalCapByNodeId);
+        identitiesNotForwarded.push(...attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId, goalCapByNodeId));
 
         req.log.info(
           {
@@ -9520,6 +9529,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               })),
             ],
             withheldOptions: withheldOptionRecords,
+            identitiesNotForwarded,
             rangeDerivationSources: normalisationContext
               ? Object.fromEntries([...normalisationContext.factors].map(([id, ctx]) => [id, ctx.range.source]))
               : buildDefaultRangeDerivationSources(normalizedOptions),
