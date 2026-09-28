@@ -209,9 +209,64 @@ export function attachIdentityExecutionFrames(
 /** An inferred identity PLoT did not forward to ISL, and why (`_meta.identities_not_forwarded`). */
 export interface IdentityNotForwarded {
   node_id: string;
-  reason: 'inferred_identity_frame_unresolved';
-  /** The identity's own nodes that had no frame — the node, a factor or an addend. */
+  reason: 'inferred_identity_frame_unresolved' | 'inferred_identity_inconsistent';
+  /** The identity's own nodes that had no frame — the node, a factor or an addend (empty when inconsistent). */
   frameless_node_ids: string[];
+  /** `inferred_identity_inconsistent` only: ISL's own reconciliation, verbatim from its critique. */
+  reconciliation?: { reconstructed?: number; stated?: number; mismatch_share?: number };
+}
+
+/**
+ * ⛔ Variant (c) (DL #72 5864468829, HIGH): an INFERRED identity (`stated_in_brief: false`) that ISL itself finds
+ * INCONSISTENT is withdrawn and the Run asked again, once — exactly as variant (b) withdraws a frameless one.
+ *
+ * Served journey C since #383 (3 of 6 final Runs refused, 0 before): Olumi's reading "MRR = Pro price × Pro paying
+ * subscribers" held Olumi's OWN estimate of subscribers (1,000); the user then said "our current MRR is £72,000";
+ * £49 × 1,000 ≠ £72,000, so ISL withheld the identity (`identity_inconsistent`, share > 5%) and — by its R3 rule, a
+ * declared identity the decision depends on that is not evaluated is a blocker — refused the whole Run. The user was
+ * refused over a contradiction Olumi's own guess created.
+ *
+ * ISL stays the ONE judge of consistency: PLoT re-derives nothing. It reads ISL's 422 and acts only when EVERY blocker
+ * is an `IDENTITY_NOT_EVALUATED` critique whose typed identity is `identity_inconsistent` on a node PLoT forwarded as
+ * INFERRED. Then those declarations (and the frames only they needed) are removed, the node stays linear as before
+ * #383, and each is said with ISL's own figures. Anything else — a STATED identity (the user's own figures conflict:
+ * AIQ's rule stands), another withheld reason, or any other blocker — returns `null`: ISL's refusal stands. Mutates
+ * `islNodes` only when it returns a non-empty list.
+ */
+export function withdrawInferredInconsistentIdentities(
+  islNodes: ISLNodeV3[],
+  critiques: ReadonlyArray<{ code?: unknown; severity?: unknown; identity?: unknown }> | undefined,
+): IdentityNotForwarded[] | null {
+  const blockers = (critiques ?? []).filter((c) => c.severity === 'blocker');
+  if (blockers.length === 0) return null;
+  const byId = new Map(islNodes.map((node) => [node.id, node]));
+  const withdrawn: IdentityNotForwarded[] = [];
+  for (const c of blockers) {
+    const identity = (c.identity ?? null) as Record<string, unknown> | null;
+    const nodeId = identity?.node_id;
+    if (c.code !== 'IDENTITY_NOT_EVALUATED' || identity === null || identity.withheld_reason !== 'identity_inconsistent'
+      || typeof nodeId !== 'string') return null;
+    const declared = byId.get(nodeId)?.nonlinear_identity;
+    if (!declared || declared.stated_in_brief !== false) return null;
+    const finite = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+    const reconciliation = {
+      ...(finite(identity.reconstructed) !== undefined && { reconstructed: finite(identity.reconstructed) }),
+      ...(finite(identity.stated) !== undefined && { stated: finite(identity.stated) }),
+      ...(finite(identity.mismatch_share) !== undefined && { mismatch_share: finite(identity.mismatch_share) }),
+    };
+    if (!withdrawn.some((w) => w.node_id === nodeId)) {
+      withdrawn.push({ node_id: nodeId, reason: 'inferred_identity_inconsistent', frameless_node_ids: [], reconciliation });
+    }
+  }
+  const participantsOf = (node: ISLNodeV3): string[] => {
+    const identity = node.nonlinear_identity!;
+    return [node.id, ...identity.factor_ids, ...(identity.addends ?? [])];
+  };
+  for (const w of withdrawn) delete byId.get(w.node_id)!.nonlinear_identity;
+  // As variant (b): a frame is carried only on a participant of an identity that IS still forwarded (R3-8).
+  const kept = new Set(islNodes.filter((n) => n.nonlinear_identity).flatMap(participantsOf));
+  for (const node of islNodes) if (node.execution_frame && !kept.has(node.id)) delete node.execution_frame;
+  return withdrawn;
 }
 
 /**
