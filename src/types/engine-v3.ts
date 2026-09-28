@@ -2984,7 +2984,12 @@ export const INFERENCE_WARNING_CODES = {
    * unaffected. PLoT does not invent a substitute.
    */
   EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE: 'EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE',
-  /** T7b 4b (AIQ #72 5869679096): a zero-valued factor nothing gives a scale is held at 0 with no uncertainty. */
+  /**
+   * T7b 4b (AIQ #72 5869679096): a zero-valued factor nothing gives a scale — its own starting level is held at 0
+   * (point_mass). The `message` says which of two things is true (AIQ #72 5871640445): "with no uncertainty" only when
+   * no option reaches the factor; otherwise its starting level is held exact and the options still move it. A reader
+   * keyed on this code alone must not render it as "no uncertainty".
+   */
   ZERO_FACTOR_HELD_EXACT: 'ZERO_FACTOR_HELD_EXACT',
   /**
    * Edge E-values were requested (include_e_values: true on every ISL call)
