@@ -22,7 +22,7 @@ import {
   DEFAULT_STD_FLOOR,
   BINARY_DEFAULT_STD,
   VALUE_BASED_STD_FRACTION,
-  FALLBACK_STD,
+  MIN_USER_STD,
   resolveUserSuppliedStd,
 } from './parameter-uncertainty-bounds.js';
 import { sha8 } from '../../util/pii-redact.js';
@@ -990,6 +990,24 @@ export function toISLOption(option: OptionV3): ISLOptionV3 {
 }
 
 /**
+ * The largest |level| each factor is set to by any option (T7b). Levels are
+ * read in whatever units the options carry — callers pass the options as ISL
+ * receives them, so this is in the factor's normalised units. A non-finite
+ * level contributes nothing (it cannot reach the wire: toISLInterventions throws).
+ */
+function maxAbsOptionLevelByFactor(options: readonly OptionV3[]): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const option of options) {
+    for (const [factorId, intervention] of Object.entries(option.interventions ?? {})) {
+      const level = intervention?.value;
+      if (typeof level !== 'number' || !Number.isFinite(level)) continue;
+      out.set(factorId, Math.max(out.get(factorId) ?? 0, Math.abs(level)));
+    }
+  }
+  return out;
+}
+
+/**
  * Build parameter uncertainties from factor nodes with observed_state.
  *
  * For each factor node with an observed value, create a parameter uncertainty
@@ -1001,11 +1019,28 @@ export function toISLOption(option: OptionV3): ISLOptionV3 {
  *    does NOT apply.
  * 2. Binary factors (0/1 range or labelled yes/no) → BINARY_DEFAULT_STD.
  * 3. Non-zero continuous factors → |value| × VALUE_BASED_STD_FRACTION.
- * 4. Zero-valued continuous factors → FALLBACK_STD.
+ * 4. Zero-valued continuous factors → VALUE_BASED_STD_FRACTION × the largest
+ *    |level| any of `options` sets for the factor, never below MIN_USER_STD.
+ *    With no non-zero option level there is no scale, so the factor is HELD at
+ *    its stated 0 (std = MIN_USER_STD, ISL's minimum admissible normal).
  *
- * The DEFAULT_STD_FLOOR is applied ONLY to priorities 2–4 (synthesised defaults),
+ * The DEFAULT_STD_FLOOR is applied ONLY to priorities 2–3 (synthesised defaults),
  * never to user-supplied values. This is the fix for the silent-widening bug
  * where `observed_state.std = 0.001` was being floored to 0.1.
+ *
+ * ⛔ PRIORITY 4 NEVER TAKES ITS SPREAD FROM THE FRAME (T7b, AI Quality re-rule
+ * olumi-programme-docs #72 5867008723, R3-2 root 1). A std here is in the
+ * factor's NORMALISED units — a fraction of its frame (cap / scale_frame). The
+ * old FALLBACK_STD = 0.5 was therefore "half the frame": AIQ's served journey C
+ * sampled a £0 lever at ±£50,000 on a £100k cap and would have sampled it at
+ * ±£100,000 had CEE framed it at £200k — the same decision, a different answer.
+ * The option levels ARE in those same normalised units, so 0.15 × max|level| is
+ * 0.15 × (the largest raw level) / frame: its RAW spread (±£3,000 on journey C)
+ * does not move with the frame. DEFAULT_STD_FLOOR (0.1 = a tenth of the frame)
+ * is deliberately NOT applied to it, for the same reason.
+ * The HOLD for a lever no option sets is AIQ's to confirm (T7b); a positive std
+ * is required because ISL rejects a normal with std 0, and MIN_USER_STD is the
+ * same hold CEE's STATED_LEVEL_STD already uses for a stated level.
  *
  * Non-finite, zero, and negative `observed_state.std` are treated as missing
  * and fall through to default synthesis.
@@ -1028,12 +1063,17 @@ export function toISLOption(option: OptionV3): ISLOptionV3 {
  * immediately below: a stated value always wins, whatever the category.
  *
  * @param nodes Graph nodes
+ * @param options The options EXACTLY AS THEY TRAVEL TO ISL (post-normalisation,
+ *   the same units as `observed_state.value`) — the only source of a scale for a
+ *   zero-valued factor (priority 4). Omitted ⇒ no option levels ⇒ held.
  * @returns Parameter uncertainties for ISL
  */
 export function buildParameterUncertaintiesV3(
-  nodes: EngineNodeV3[]
+  nodes: EngineNodeV3[],
+  options: readonly OptionV3[] = [],
 ): ISLRobustnessRequestV3['parameter_uncertainties'] {
   const uncertainties: NonNullable<ISLRobustnessRequestV3['parameter_uncertainties']> = [];
+  const maxOptionLevel = maxAbsOptionLevelByFactor(options);
 
   for (const node of nodes) {
     if (node.kind === 'factor' && node.observed_state?.value !== undefined && Number.isFinite(node.observed_state.value)) {
@@ -1048,16 +1088,17 @@ export function buildParameterUncertaintiesV3(
         // not apply — small user values must reach ISL as-is.
         std = userStd;
       } else {
-        // Priorities 2–4: synthesised defaults, with DEFAULT_STD_FLOOR applied.
+        // Priorities 2–3: synthesised defaults, with DEFAULT_STD_FLOOR applied.
         const isBinary = isBinaryFactor(node);
         if (isBinary) {
-          std = BINARY_DEFAULT_STD;
+          std = Math.max(DEFAULT_STD_FLOOR, BINARY_DEFAULT_STD);
         } else if (value !== 0) {
-          std = Math.abs(value) * VALUE_BASED_STD_FRACTION;
+          std = Math.max(DEFAULT_STD_FLOOR, Math.abs(value) * VALUE_BASED_STD_FRACTION);
         } else {
-          std = FALLBACK_STD;
+          // Priority 4 (T7b): scaled by the option levels, never by the frame —
+          // and so NOT floored by DEFAULT_STD_FLOOR, itself a frame fraction.
+          std = Math.max(MIN_USER_STD, VALUE_BASED_STD_FRACTION * (maxOptionLevel.get(node.id) ?? 0));
         }
-        std = Math.max(DEFAULT_STD_FLOOR, std);
       }
 
       // Slice 6: no `mean` — ISL samples Normal(observed_state.value, std) and
@@ -1301,7 +1342,7 @@ export function toISLRobustnessRequest(
     goal_node_id: goalNodeId,
     n_samples: nSamples,
     analysis_types: ['comparison', 'sensitivity', 'robustness'],
-    parameter_uncertainties: prebuiltParameterUncertainties ?? buildParameterUncertaintiesV3(graph.nodes),
+    parameter_uncertainties: prebuiltParameterUncertainties ?? buildParameterUncertaintiesV3(graph.nodes, options),
     include_e_values: true,
     include_voi: true,
     // ROADMAP 2.228-F3: ask ISL for closed-form per-factor flip thresholds.

@@ -305,7 +305,7 @@ describe('Translator: buildParameterUncertaintiesV3', () => {
     expect(huge.std).toBe(2.0); // capped
   });
 
-  it('handles zero-valued factors (std = 0.5, floored at 0.1)', () => {
+  it('handles zero-valued factors (no option level → held at MIN_USER_STD, never FALLBACK 0.5)', () => {
     const nodes: EngineNodeV3[] = [
       {
         id: 'zero_factor',
@@ -317,9 +317,11 @@ describe('Translator: buildParameterUncertaintiesV3', () => {
 
     const pus = buildParameterUncertaintiesV3(nodes)!;
     const pu = pus.find((p) => p.node_id === 'zero_factor')!;
-    expect(pu.std).toBe(0.5);
-    // Slice 6: value 0 still produces an entry; its width comes from the
-    // zero-value fallback. `mean` is not sent (undeclared by ISL).
+    // T7b (AIQ #72 5867008723): a zero estimate's spread never comes from the
+    // frame. With no option level there is no scale, so it is held (1e-4).
+    // Option-scaled widths: tests/default-spread-frame-invariant*.test.ts.
+    expect(pu.std).toBe(1e-4);
+    // Slice 6: value 0 still produces an entry. `mean` is not sent (undeclared by ISL).
     expect(pu).not.toHaveProperty('mean');
   });
 

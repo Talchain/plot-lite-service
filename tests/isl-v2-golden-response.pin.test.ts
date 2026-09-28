@@ -97,6 +97,14 @@
  * ⚠ The `60e3ac213554be4f` values in the 2.160 paragraph above are HISTORY and
  * are deliberately left alone — they record what was true at that regeneration.
  * A bulk find-and-replace across this header would falsify the record.
+ *
+ * REGENERATED again for T7b (2026-09-28, AIQ #72 5867008723) — a zero-valued
+ * factor with no std no longer gets FALLBACK_STD 0.5 (half its frame) on the ISL
+ * wire: it gets 0.15 × the largest level an option sets it to, or is held at
+ * 1e-4 when no option sets it. `response_hash` canonicalises the EFFECTIVE ISL
+ * REQUEST, so it moves 0745a6e63dc5d0d0 → 199841ad8e0da1ed (all four echoes),
+ * `brief_id` follows, and `_meta.response_content_hash` follows. EXACTLY 6 golden
+ * lines; nothing else moved (see the T7b row of the content-hash history below).
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
@@ -360,8 +368,8 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     // surface, so slice S1's additive `driver_order` legitimately changes it —
     // and leaving a stale value here would have read as "S1 changed something
     // it should not have" rather than "S1 added a field, deliberately".
-    expect(rawBody.response_hash).toBe('0745a6e63dc5d0d0');
-    expect(rawBody._meta.response_hash).toBe('0745a6e63dc5d0d0');
+    expect(rawBody.response_hash).toBe('199841ad8e0da1ed');
+    expect(rawBody._meta.response_hash).toBe('199841ad8e0da1ed');
   });
 
   // FAMILY-4 SLICE S1 (2026-07-27): explicit pin of the ONLY response-content
@@ -412,7 +420,7 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     // ⭐ ADDITIVITY, pinned by value: `response_hash` canonicalises the
     // REQUEST, so an added response field must NOT move it. If this ever
     // flips, an "additive" slice has changed the UI freshness token.
-    expect(rawBody.response_hash).toBe('0745a6e63dc5d0d0');
+    expect(rawBody.response_hash).toBe('199841ad8e0da1ed');
     // `response_content_hash` hashes the public semantic surface and therefore
     // SHOULD move when that surface changes. Re-pinned each time so the next
     // content change is also forced to be deliberate:
@@ -595,6 +603,26 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //          in this fixture directory are byte-unchanged (sha256 verified
     //          before and after regeneration); and `response_hash` is UNMOVED
     //          (the REQUEST did not change).)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:a37066d3dad670d9');
+    //  T7b    rch_v2:4dbb60ced31269cf (A ZERO ESTIMATE'S SPREAD NEVER COMES
+    //  2026-                            FROM THE FRAME — AIQ #72 5867008723.
+    //  09-28                            Like 2.1024 the REQUEST moved, so
+    //                                   `response_hash` MOVES with it
+    //                                   (0745a6e63dc5d0d0 → 199841ad8e0da1ed,
+    //                                   echoed in all four places) and
+    //                                   `brief_id` follows. The effective ISL
+    //                                   request's parameter_uncertainties
+    //                                   changed for this fixture's three
+    //                                   zero-valued factors, none with a std:
+    //                                   fac_dev_headcount 0.5 → 0.15 and
+    //                                   fac_tech_lead 0.5 → 0.15 (0.15 × their
+    //                                   largest option level, 1) and
+    //                                   fac_hiring_cost 0.5 → 1e-4 (no option
+    //                                   sets it: held). The golden diff is
+    //                                   EXACTLY 6 lines — response_hash ×4,
+    //                                   brief_id, this hash. No option row,
+    //                                   probability, factor entry or ordering
+    //                                   moved: the ISL response is replayed
+    //                                   from the capture.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:4dbb60ced31269cf');
   });
 });

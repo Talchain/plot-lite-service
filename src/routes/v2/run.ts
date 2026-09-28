@@ -6907,7 +6907,26 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Recorded here rather than silently left as a stale exactness claim;
         // the settling experiment is to instrument the two counts and drive a
         // single-constraint-per-node refusal.
-        const factorParameterUncertainties = buildParameterUncertaintiesV3(filteredGraph.nodes) ?? [];
+        //
+        // T7b (AIQ #72 5867008723): a zero-valued factor's default spread is
+        // 0.15 × the largest level an option sets it to, read in the units ISL
+        // receives — so the builder is handed the options AS THEY WILL TRAVEL.
+        // With the gate closed those are `normalizedOptions` verbatim (Phase 4a
+        // keeps them); with it open, Phase 4a replaces them with exactly this
+        // call's output (same function, same inputs: nothing between here and
+        // Phase 4a reassigns `normalizedOptions` or mutates the nodes). Reading
+        // the RAW levels instead would put the spread in the wrong units.
+        const optionsAsSentToISL = interventionNormalisationGateOpen
+          ? normaliseOptionsForISL(
+              normalizedOptions,
+              filteredGraph.nodes,
+              body.goal_node_id,
+              undefined,
+              scaleFrameByNodeId,
+              rangeOptionSet,
+            ).options
+          : normalizedOptions;
+        const factorParameterUncertainties = buildParameterUncertaintiesV3(filteredGraph.nodes, optionsAsSentToISL) ?? [];
         const factorPuNodeIds = new Set(factorParameterUncertainties.map((pu) => pu.node_id));
         // One id→node map shared by the plan-time constraint-PU selection and the
         // build-time injection (both classify the same constrained nodes against
