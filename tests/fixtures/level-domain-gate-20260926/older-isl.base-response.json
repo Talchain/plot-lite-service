@@ -603,10 +603,7 @@
       "Monthly logo churn",
       "Annual delivery cost"
     ],
-    "what_would_change": [
-      "Monthly logo churn",
-      "Annual delivery cost"
-    ],
+    "what_would_change": [],
     "robustness": "not_assessed",
     "warnings": [
       {
