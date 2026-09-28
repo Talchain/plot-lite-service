@@ -1053,6 +1053,19 @@ export interface ISLDownside {
  *
  * Full response schema when all analysis_types are requested.
  */
+/**
+ * R3-5 — one factor node's structural influence on the goal, normalised over EVERY factor node
+ * (ISL `src/models/structural_influence.py`). Exact-or-null: when ISL's walk truncated, every row has
+ * no score and no rank (ISL discloses STRUCTURAL_INFLUENCE_TRUNCATED).
+ */
+export interface ISLStructuralInfluenceEntry {
+  node_id: string;
+  /** 0-1, normalised over every factor node */
+  influence_score?: number | null;
+  /** 1 = highest, over every factor node */
+  influence_rank?: number | null;
+}
+
 export interface ISLRobustnessAnalyzeV2Response {
   /** Request ID echo */
   request_id?: string;
@@ -1119,6 +1132,15 @@ export interface ISLRobustnessAnalyzeV2Response {
    * /v2/run response via `getIslIdentityEvaluations`.
    */
   identity_evaluations?: IdentityEvaluationV3[];
+
+  /**
+   * R3-5 (ISL `StructuralInfluence`, DL #72 5872746926): structural influence over EVERY factor node —
+   * one cohort, one normalisation, an evaluated identity walked at its own partials (ISL #195).
+   * `factor_sensitivity` scores only the factors with a parameter uncertainty; this list also scores a
+   * factor with no observed value. TOP-LEVEL; PRESENT only when ISL evaluated an identity. Read by
+   * `getIslStructuralInfluence`; adopted by `adoptIslStructuralInfluence`.
+   */
+  structural_influence?: ISLStructuralInfluenceEntry[];
 
   /** Overall robustness assessment (when 'robustness' in analysis_types)
    *

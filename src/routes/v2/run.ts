@@ -108,7 +108,7 @@ import {
 import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js';
 import type { RobustnessDataForCee } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue } from '../../integrations/isl/types/isl-types.js';
-import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures, getIslIdentityEvaluations } from '../../integrations/isl/v2-envelope.js';
+import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures, getIslIdentityEvaluations, getIslStructuralInfluence } from '../../integrations/isl/v2-envelope.js';
 import { V2_RUN_ALLOWED_KEYS, islEnrichmentPassthrough } from './run-contract-keys.js';
 import { assessIslWireGeneration, logIslWireGenerationUnverified } from '../../integrations/isl/wire-generation.js';
 import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
@@ -156,7 +156,7 @@ import type { ReviewStatus } from '../../cee/validation/m1-review-constants.js';
 import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m1-review-constants.js';
 import { getDownstreamCallsForLog, getDownstreamCalls, adoptResolvedRequestId } from '../../util/downstream-tracker.js';
 import { computeResponseContentHash } from '../../util/response-content-hash.js';
-import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfidenceIntoGraphFactors } from '../../lib/factor-influence.js';
+import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfidenceIntoGraphFactors, adoptIslStructuralInfluence } from '../../lib/factor-influence.js';
 import { interventionTargetIdsFromOptions, isOptionControlledLever, factorIdOf, hasFactorIdConflict } from '../../lib/intervention-override.js';
 import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied, logAutoNoiseFlagMissingFromIsl } from '../../lib/auto-noise.js';
 import { sanitiseIslVoi, computeEvpiPercentagePoints, deriveEvidenceHint } from '../../lib/evpi-emission.js';
@@ -8639,6 +8639,22 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             filteredGraph.edges,
             structuralLeverIds,
           );
+          // R3-5 (DL #72 5872746926): under an evaluated identity the published influence is ISL's
+          // every-factor structural influence — the walk above ignores the identity. Same array back,
+          // untouched, when no identity was evaluated.
+          factorSensitivity = adoptIslStructuralInfluence(
+            factorSensitivity,
+            getIslStructuralInfluence(islResult),
+            getIslIdentityEvaluations(islResult),
+          );
+          if (factorSensitivity[0]?.influence_basis === 'graph_walk') {
+            req.log.warn({
+              event: 'influence_identity_basis_graph_walk',
+              request_id: requestId,
+              structural_influence_rows: getIslStructuralInfluence(islResult)?.length ?? null,
+              factor_rows: factorSensitivity.length,
+            });
+          }
           factorSensitivitySource = 'graph+isl_merge';
         } else {
           // ISL-only fallback: still apply unified confidence recomputation.

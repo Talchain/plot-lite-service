@@ -35,12 +35,14 @@ import type {
   EngineNodeV3,
   FactorSensitivityResultV3,
   FactorStabilityEntry,
+  IdentityEvaluationV3,
   ConfidenceSource,
   ConfidenceInputQuality,
   ConfidenceProvenance,
   ConfidenceFormulaVersion,
 } from '../types/engine-v3.js';
 import { ATTRIBUTION_STABILITY_BAND_SCORES } from '../review-pass/evidence-priority.js';
+import type { ISLStructuralInfluenceEntry } from '../integrations/isl/types/isl-types.js';
 import { isInterventionOverride, isOptionControlledLever, factorIdOf, hasFactorIdConflict } from './intervention-override.js';
 
 /**
@@ -1051,7 +1053,9 @@ export function mergeIslConfidenceIntoGraphFactors(
       // re-derive lever status from graph topology; the two authorities are
       // the request-side union and ISL's stamp. `influence_score` (graph
       // structural importance) and `source` ('graph', a legacy/object
-      // provenance label) are deliberately left unchanged. Field-level
+      // provenance label) are deliberately left unchanged HERE; under an
+      // evaluated identity `adoptIslStructuralInfluence` (R3-5) replaces
+      // `influence_score` with ISL's every-factor structural influence. Field-level
       // rationale on LEVER_SUPPRESSION_FIELDS; constants, so re-applying to an
       // ISL-stamped entry is a byte-identical no-op (idempotence).
       ...((isInterventionOverride(islMatch) || structuralLever) && LEVER_SUPPRESSION_FIELDS),
@@ -1130,6 +1134,57 @@ export function mergeIslConfidenceIntoGraphFactors(
   }
 
   return merged;
+}
+
+/**
+ * R3-5, PLoT half (AIQ #72 5872273026 · 5872728325; DL ruling 5872746926) — when ISL EVALUATED an
+ * accounting identity, every row's `influence_score` is ISL's structural influence, not PLoT's walk.
+ *
+ * PLoT's walk (`computeFactorInfluence`: products of edge strengths) knows nothing of an identity, so
+ * under MRR = price × subscribers it published the same influence with and without one. ISL walks an
+ * evaluated identity at its own partials (#195) and, for exactly this, scores EVERY factor node in one
+ * cohort (`structural_influence`) — `factor_sensitivity` scores only the factors with an uncertainty.
+ *
+ * - No evaluated identity: returns `factors` itself, the SAME array, untouched (byte-identical).
+ * - ISL's list covers EVERY row with a finite score: each row carries ISL's `influence_score`, bound by
+ *   factor_id, `influence_rank` re-derived over the rows (1 = highest; ties keep row order), and
+ *   `influence_basis: 'isl_structural'`.
+ * - Otherwise (list absent — an ISL build before it —, partial, or withheld on truncation): the walk's
+ *   numbers stay and every row says `influence_basis: 'graph_walk'`. Bases are never mixed: a UI shows
+ *   producer influence only when EVERY factor carries one (DGAI `useResultsSectionData.ts:2958`).
+ *
+ * Nothing else moves: array order, `importance_rank`, `elasticity`, `sensitivity_score`,
+ * `value_of_information`, `zero_reason`, `source`. Never mutates its input.
+ */
+export function adoptIslStructuralInfluence(
+  factors: FactorSensitivityResultV3[],
+  structuralInfluence: ReadonlyArray<ISLStructuralInfluenceEntry> | undefined,
+  identityEvaluations: ReadonlyArray<Pick<IdentityEvaluationV3, 'evaluated'>> | undefined,
+): FactorSensitivityResultV3[] {
+  if (!identityEvaluations?.some((e) => e?.evaluated === true)) return factors;
+
+  const islScore = new Map<string, number>();
+  for (const row of structuralInfluence ?? []) {
+    const score = row?.influence_score;
+    if (typeof row?.node_id === 'string' && typeof score === 'number' && Number.isFinite(score) && score >= 0 && score <= 1) {
+      islScore.set(row.node_id, score);
+    }
+  }
+  const complete = factors.length > 0 && factors.every((f) => islScore.has(f.factor_id));
+  if (!complete) {
+    return factors.map((f) => ({ ...f, influence_basis: 'graph_walk' as const }));
+  }
+
+  const adopted = factors.map((f) => ({
+    ...f,
+    influence_score: islScore.get(f.factor_id) as number,
+    influence_basis: 'isl_structural' as const,
+  }));
+  adopted
+    .map((f, index) => ({ f, index }))
+    .sort((a, b) => (b.f.influence_score - a.f.influence_score) || (a.index - b.index))
+    .forEach(({ f }, i) => { f.influence_rank = i + 1; });
+  return adopted;
 }
 
 const VALID_ATTRIBUTION_STABILITY = new Set(['high', 'moderate', 'low', 'negligible']);

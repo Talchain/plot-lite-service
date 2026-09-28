@@ -2694,6 +2694,19 @@ export interface FactorSensitivityResultV3 {
    * `src/contracts/isl-to-ui.contract.ts`.
    */
   importance_basis?: 'graph_structural' | 'isl_uncertainty';
+  /**
+   * R3-5 (DL #72 5872746926) — which authority produced THIS row's `influence_score` /
+   * `influence_rank`, stamped ONLY when ISL evaluated an accounting identity (absent otherwise, so a
+   * response without one is byte-identical):
+   *
+   * - `'isl_structural'` — ISL's structural influence over EVERY factor node (one cohort, one
+   *   normalisation, the identity walked at its own partials). Adopted only when it covers every row.
+   * - `'graph_walk'` — PLoT's own path walk, which does NOT account for the identity: ISL's list was
+   *   absent, partial or withheld (truncated), and bases are never mixed. The disclosure.
+   *
+   * See `adoptIslStructuralInfluence` in `src/lib/factor-influence.ts`.
+   */
+  influence_basis?: 'isl_structural' | 'graph_walk';
   /** Human-readable interpretation from ISL */
   interpretation?: string;
   /**

@@ -6507,6 +6507,19 @@ components:
                   ordering is published. Emitted on every entry; exists because
                   the two quantities share ISL's field NAMES and are otherwise
                   indistinguishable to a consumer.
+              influence_basis:
+                type: string
+                enum: [isl_structural, graph_walk]
+                description: >-
+                  R3-5. Which authority produced THIS row's `influence_score` /
+                  `influence_rank`, stamped ONLY when ISL evaluated an accounting
+                  identity (absent otherwise). `isl_structural` = ISL's
+                  structural influence over EVERY factor node (one cohort, one
+                  normalisation, the identity walked at its own partials),
+                  adopted only when it covers every row. `graph_walk` = PLoT's
+                  own path walk, which does NOT account for the identity,
+                  because ISL's list was absent, partial or withheld; bases are
+                  never mixed.
               importance_score:
                 type: number
                 minimum: 0
