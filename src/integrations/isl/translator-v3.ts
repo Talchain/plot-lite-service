@@ -253,12 +253,8 @@ function hasFiniteLevel(observed: unknown): boolean {
 /** An inferred identity PLoT did not forward to ISL, and why (`_meta.identities_not_forwarded`). */
 export interface IdentityNotForwarded {
   node_id: string;
-  reason:
-    | 'inferred_identity_frame_unresolved'
-    | 'inferred_identity_frame_missing'
-    | 'inferred_identity_operand_missing'
-    | 'inferred_identity_zero_level'
-    | 'inferred_identity_inconsistent';
+  /** `inferred_<ISL withheld_reason>` for an identity ISL withheld (any of its reasons, today's four and any new one). */
+  reason: 'inferred_identity_frame_unresolved' | `inferred_identity_${string}`;
   /** The identity's own nodes that had no frame — the node, a factor or an addend (empty when ISL withheld it). */
   frameless_node_ids: string[];
   /** `inferred_identity_inconsistent` only: ISL's own reconciliation, verbatim from its critique. */
@@ -266,15 +262,11 @@ export interface IdentityNotForwarded {
 }
 
 /**
- * How PLoT names an INFERRED identity it withdraws, for each reason ISL withholds one (ISL `IdentityWithheldReason`,
- * 14f1a3a `src/models/identity_evaluation.py`: exactly these four). A reason outside this table is not withdrawn.
+ * ISL's typed withheld reason (`IdentityWithheldReason`: `identity_frame_missing`, `_operand_missing`, `_zero_level`,
+ * `_inconsistent` at 14f1a3a; `identity_scale_out_of_range` from ISL #199). PLoT matches the SHAPE, not a list
+ * (AIQ #72 5869104258): a new ISL reason must never turn an identity the user did not state into a refused Run.
  */
-const INFERRED_WITHDRAWAL_REASON: Readonly<Record<string, IdentityNotForwarded['reason']>> = {
-  identity_frame_missing: 'inferred_identity_frame_missing',
-  identity_operand_missing: 'inferred_identity_operand_missing',
-  identity_zero_level: 'inferred_identity_zero_level',
-  identity_inconsistent: 'inferred_identity_inconsistent',
-};
+const ISL_WITHHELD_REASON = /^identity_[a-z0-9]+(?:_[a-z0-9]+)*$/;
 
 /**
  * ⛔ Variant (c) (DL #72 5864468829, HIGH), widened by R3-A1 (AIQ RESULT + RULING #72 5867263914, HIGH): an INFERRED
@@ -290,11 +282,11 @@ const INFERRED_WITHDRAWAL_REASON: Readonly<Record<string, IdentityNotForwarded['
  * (`identity_zero_level`) still refused the whole Run, because only `identity_inconsistent` was withdrawn.
  *
  * ISL stays the ONE judge: PLoT re-derives nothing. It reads ISL's 422 and acts only when EVERY blocker is an
- * `IDENTITY_NOT_EVALUATED` critique whose typed identity names one of ISL's withheld reasons on a node PLoT forwarded
- * as INFERRED. Then those declarations (and the frames only they needed) are removed, the node stays linear as before
+ * `IDENTITY_NOT_EVALUATED` critique whose typed identity carries ANY ISL withheld reason (matched by shape, never a
+ * list: AIQ #72 5869104258, ISL #199's `identity_scale_out_of_range`) on a node PLoT forwarded as INFERRED. Then those declarations (and the frames only they needed) are removed, the node stays linear as before
  * #383, and each is said with its reason (`inferred_<ISL reason>`; an inconsistent one with ISL's own figures).
- * Anything else — a STATED identity (the user's own figures: AIQ's rule stands), a reason outside ISL's enum, or any
- * other blocker — returns `null`: ISL's refusal stands. Mutates `islNodes` only when it returns a non-empty list.
+ * Anything else — a STATED identity (the user's own figures: AIQ's rule stands), a critique with no typed reason, or
+ * any other blocker — returns `null`: ISL's refusal stands. Mutates `islNodes` only when it returns a non-empty list.
  */
 export function withdrawInferredUnevaluatedIdentities(
   islNodes: ISLNodeV3[],
@@ -308,8 +300,8 @@ export function withdrawInferredUnevaluatedIdentities(
     const identity = (c.identity ?? null) as Record<string, unknown> | null;
     const nodeId = identity?.node_id;
     const withheldReason = identity?.withheld_reason;
-    const reason = typeof withheldReason === 'string' && Object.hasOwn(INFERRED_WITHDRAWAL_REASON, withheldReason)
-      ? INFERRED_WITHDRAWAL_REASON[withheldReason]
+    const reason: IdentityNotForwarded['reason'] | undefined = typeof withheldReason === 'string' && ISL_WITHHELD_REASON.test(withheldReason)
+      ? `inferred_${withheldReason}` as IdentityNotForwarded['reason']
       : undefined;
     if (c.code !== 'IDENTITY_NOT_EVALUATED' || identity === null || reason === undefined || typeof nodeId !== 'string') return null;
     const declared = byId.get(nodeId)?.nonlinear_identity;

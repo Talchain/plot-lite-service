@@ -950,13 +950,39 @@ describe('R3-A1 — an INFERRED identity ISL cannot evaluate for ANY reason is w
       .toEqual([{ node_id: 'mrr', reason: 'inferred_identity_frame_missing', frameless_node_ids: [] }]);
   });
 
-  it('CONTRAST: a withheld_reason outside ISL\'s enum keeps the refusal — PLoT names every withdrawal it makes', async () => {
+  // AIQ #72 5869104258 (merge-order condition on ISL #199): ANY ISL withheld reason withdraws an INFERRED identity —
+  // matched by shape, not a list — so a reason ISL adds later can never refuse a Run over an identity nobody stated.
+  for (const reason of ['identity_scale_out_of_range', 'identity_unknown_future_reason']) {
+    it(`⭐ RED (AIQ 5869104258): an inferred identity ISL withholds as "${reason}" is withdrawn and named, 2 calls, 200`, async () => {
+      const row = served(A1OF);
+      islSeq = [servedReject(row, islCritiquesOf(row).map((c) => withReason(c, reason)))];
+      const res = await post(row.request);
+      expect(res.status).toBe(200);
+      expect(islBodies).toHaveLength(2);
+      expect((await res.json())._meta?.identities_not_forwarded)
+        .toEqual([{ node_id: 'mrr', reason: `inferred_${reason}`, frameless_node_ids: [] }]);
+    });
+  }
+
+  it('CONTROL: the same new reason on a STATED identity keeps ISL\'s refusal — 1 call, 422', async () => {
     const row = served(A1OF);
-    islSeq = [servedReject(row, islCritiquesOf(row).map((c) => withReason(c, 'identity_unknown_future_reason')))];
-    const res = await post(row.request);
+    const request = structuredClone(row.request);
+    request.graph.nodes.find((n: any) => n.id === 'mrr').nonlinear_identity.stated_in_brief = true;
+    islSeq = [servedReject(row, islCritiquesOf(row).map((c) => withReason(c, 'identity_scale_out_of_range')))];
+    const res = await post(request);
     expect(res.status).toBe(422);
     expect(islBodies).toHaveLength(1);
   });
+
+  for (const bad of [undefined, '', 'Identity Scale Out Of Range', 'scale_out_of_range']) {
+    it(`CONTRAST: a critique with no ISL-typed reason (${JSON.stringify(bad)}) keeps the refusal — 1 call, 422`, async () => {
+      const row = served(A1OF);
+      islSeq = [servedReject(row, islCritiquesOf(row).map((c) => withReason(c, bad as string)))];
+      const res = await post(row.request);
+      expect(res.status).toBe(422);
+      expect(islBodies).toHaveLength(1);
+    });
+  }
 
   /** A1of plus a SECOND identity, on `pro_paying_subscribers` (monthly_new × monthly_churn — every participant framed). */
   const twoIdentities = (secondStated: boolean): any => {
