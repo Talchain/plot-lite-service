@@ -24,6 +24,8 @@ let islBodies: any[] = [];
  * a 422 carries ISL's structured critiques). `null` = the plain computed body (every earlier row).
  */
 let islNext: null | { extra?: Record<string, unknown>; error?: Record<string, unknown> } = null;
+/** Per-call answers, consumed first (variant (c): a 422, then the answer to the ONE retry); then `islNext`. */
+let islSeq: Array<{ extra?: Record<string, unknown>; error?: Record<string, unknown> }> = [];
 
 function echoConstraintAnalysis(goalConstraints: any[] | undefined) {
   if (!goalConstraints || goalConstraints.length === 0) return undefined;
@@ -89,9 +91,11 @@ const mockISLService = {
   },
   async computeCounterfactual(): Promise<never> { throw new Error('not called'); },
   async callAnalysisEndpoint<T>(_endpoint: string, body: any): Promise<{ data: T | null; error: unknown }> {
-    islBodies.push(body);
-    if (islNext?.error) {
-      return { data: null, error: islNext.error, latency_ms: 5, isl_echoed_request_id: null } as any;
+    // A copy: PLoT may withdraw a declaration from the same request object before asking again (variant (c)).
+    islBodies.push(structuredClone(body));
+    const next = islSeq.length > 0 ? islSeq.shift()! : islNext;
+    if (next?.error) {
+      return { data: null, error: next.error, latency_ms: 5, isl_echoed_request_id: null } as any;
     }
     return {
       data: {
@@ -99,7 +103,7 @@ const mockISLService = {
         edges: [], factors: [], value_of_information: [],
         overall_robustness: 'robust', robustness_score: 0.8,
         fragile_edges: [], robust_edges: [],
-        ...(islNext?.extra ?? {}),
+        ...(next?.extra ?? {}),
       } as T,
       error: null,
     };
@@ -590,5 +594,78 @@ describe('R3 rung (a) route — ISL\'s identity findings reach the /v2/run respo
     expect('identity' in byId['crit-plain']).toBe(false);
     expect(byId['crit-malformed']).toBeDefined();
     expect('identity' in byId['crit-malformed']).toBe(false);
+  });
+});
+
+// ⛔ VARIANT (c) (DL #72 5864468829, HIGH): since #383, journey C's final Run was refused in 3 of 6 served runs — ISL
+// withheld Olumi's INFERRED "MRR = price × subscribers" as `identity_inconsistent` (Olumi's own subscriber estimate
+// against the user's stated MRR) and, by its R3 rule, blocked the Run. PLoT now withdraws such an identity and asks ISL
+// once more; ISL stays the one judge, and every other refusal stands.
+describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the Run asked again, once', () => {
+  let app: FastifyInstance;
+  let baseUrl: string;
+  const INFERRED = { ...PRODUCT, stated_in_brief: false };
+  const reject = (...critiques: unknown[]) => ({ error: { code: 'ISL_REJECTED', message: 'Validation failed', retryable: false, status: 422, critiques } });
+  const inconsistent = islCritique('crit-inconsistent', { identity: CRITIQUE_IDENTITY });
+
+  async function post(payload: any) {
+    islBodies = [];
+    return fetch(`${baseUrl}/v2/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  }
+  beforeAll(async () => {
+    process.env.RATE_LIMIT_ENABLED = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
+    app = await createServer();
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const addr = app.server.address();
+    baseUrl = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
+  }, 60_000);
+  afterAll(async () => { await app?.close(); });
+  afterEach(() => { islNext = null; islSeq = []; });
+
+  it('⭐ RED: inferred + ISL 422 identity_inconsistent → withdrawn, asked ONCE more, the Run computes, and it is said with ISL\'s figures', async () => {
+    islSeq = [reject(inconsistent)];
+    const res = await post(paulRequest(INFERRED));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.analysis_status).not.toBe('blocked');
+    expect(islBodies).toHaveLength(2);
+    expect(occurrences(islBodies[0])).toBe(1);
+    expect(occurrences(islBodies[1])).toBe(0);
+    expect(islBodies[1].graph.nodes.filter((n: any) => n.execution_frame).map((n: any) => n.id)).toEqual([]);
+    const { node_id, participants: _p, withheld_reason: _w, operation: _o, ...figures } = CRITIQUE_IDENTITY;
+    expect(body._meta?.identities_not_forwarded).toEqual([
+      { node_id, reason: 'inferred_identity_inconsistent', frameless_node_ids: [], reconciliation: figures },
+    ]);
+  });
+
+  it('CONTRAST: a STATED identity ISL finds inconsistent keeps ISL\'s refusal — one call, 422 (the user\'s own figures conflict)', async () => {
+    islSeq = [reject(inconsistent)];
+    const res = await post(paulRequest(PRODUCT));
+    expect(res.status).toBe(422);
+    expect(islBodies).toHaveLength(1);
+  });
+
+  it('CONTRAST: an inferred identity withheld for ANOTHER reason keeps the refusal — one call, 422', async () => {
+    islSeq = [reject(islCritique('crit-operand', { identity: { ...CRITIQUE_IDENTITY, withheld_reason: 'identity_operand_missing' } }))];
+    const res = await post(paulRequest(INFERRED));
+    expect(res.status).toBe(422);
+    expect(islBodies).toHaveLength(1);
+  });
+
+  it('CONTRAST: any OTHER blocker beside it keeps the refusal — one call, 422', async () => {
+    islSeq = [reject(inconsistent, { id: 'crit-other', code: 'GRAPH_INVALID', severity: 'blocker', message: 'x', affected_node_ids: [] })];
+    const res = await post(paulRequest(INFERRED));
+    expect(res.status).toBe(422);
+    expect(islBodies).toHaveLength(1);
+  });
+
+  it('ONCE: when the retry is refused too, that refusal is returned — never a third call', async () => {
+    const other = islCritique('crit-after', { code: 'GRAPH_INVALID', identity: undefined });
+    islSeq = [reject(inconsistent), reject(other)];
+    const res = await post(paulRequest(INFERRED));
+    expect(res.status).toBe(422);
+    expect(islBodies).toHaveLength(2);
+    expect(((await res.json()).critiques as any[]).map((c) => c.id)).toContain('crit-after');
   });
 });
