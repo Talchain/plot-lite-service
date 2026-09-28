@@ -116,7 +116,7 @@ function generateKeyQualifier(
   // thresholds it — but the qualifier no longer needs the raw value now that it
   // publishes no figure. See the `recommendationStability` doc in ./types.ts.
   const topDriver = keyDrivers[0];
-  const topGap = evidenceGaps[0];
+  const measuredGap = evidenceGaps.find((g) => evidenceAdviceMayName(inputs, g.factor_id));
 
   switch (readiness) {
     case 'ready':
@@ -142,9 +142,9 @@ function generateKeyQualifier(
       return 'However, the outcome is within model uncertainty, so the ranking could shift with new information.';
 
     case 'needs_evidence':
-      // AIQ 5866850180: name a gap only when its EVPPI was MEASURED above resolution.
-      if (topGap && evidenceAdviceMayName(inputs, topGap.factor_id)) {
-        return `Key uncertainty: ${topGap.factor_label} has high impact but low evidence quality.`;
+      // AIQ 5866850180: name a gap only when its EVPPI was MEASURED above resolution (the first measured one).
+      if (measuredGap) {
+        return `Key uncertainty: ${measuredGap.factor_label} has high impact but low evidence quality.`;
       }
       return 'Significant evidence gaps remain.';
 
@@ -180,9 +180,9 @@ function generateActionImplication(
 
     case 'needs_evidence':
       // AIQ 5866850180: "Gather evidence on X before deciding" only when X's EVPPI was MEASURED above resolution.
-      if (evidenceGaps.length > 0 && evidenceAdviceMayName(_inputs, evidenceGaps[0].factor_id)) {
-        const topGap = evidenceGaps[0];
-        return `Gather evidence on ${topGap.factor_label} before deciding.`;
+      {
+        const measuredGap = evidenceGaps.find((g) => evidenceAdviceMayName(_inputs, g.factor_id));
+        if (measuredGap) return `Gather evidence on ${measuredGap.factor_label} before deciding.`;
       }
       return 'Gather additional evidence before deciding.';
 

@@ -59,15 +59,28 @@ export function generateNextActions(
   }
 
   // Priority 2: Evidence gaps
-  // AIQ 5866850180: "Gather evidence on X" names X only when X's EVPPI was MEASURED above resolution.
-  if (readiness === 'needs_evidence' && evidenceGaps.length > 0 && actions.length < 3 && evidenceAdviceMayName(inputs, context.topGap.factor_id)) {
+  // AIQ 5866850180: "Gather evidence on X" names X only when X's EVPPI was MEASURED above resolution — the
+  // first measured gap, as the story headline does. With none measured the action names no factor, and says
+  // why, instead of falling through to the "Unable to generate specific guidance" apology.
+  const namedGap = evidenceGaps.find((g) => evidenceAdviceMayName(inputs, g.factor_id));
+  if (readiness === 'needs_evidence' && actions.length < 3 && namedGap !== undefined) {
     actions.push({
       priority: 2,
-      action: `Gather evidence on ${context.topGap.factor_label}`,
-      rationale: `This factor has high impact (${context.topGap.influence_display}) but low confidence (${context.topGap.confidence_display})`,
+      action: `Gather evidence on ${namedGap.factor_label}`,
+      rationale: `This factor has high impact (${namedGap.influence_display}) but low confidence (${namedGap.confidence_display})`,
       target_type: 'factor',
-      target_id: context.topGap.factor_id,
-      target_label: context.topGap.factor_label,
+      target_id: namedGap.factor_id,
+      target_label: namedGap.factor_label,
+    });
+  } else if (readiness === 'needs_evidence' && actions.length < 3 && evidenceGaps.length > 0) {
+    const leadingLabel = context.winner?.label ?? 'the leading option';
+    actions.push({
+      priority: 2,
+      action: `Review the key assumptions before acting on ${leadingLabel}`,
+      rationale: 'No measured evidence says learning any one factor would change which option leads',
+      target_type: 'option',
+      target_id: context.winner?.id,
+      target_label: leadingLabel,
     });
   }
 

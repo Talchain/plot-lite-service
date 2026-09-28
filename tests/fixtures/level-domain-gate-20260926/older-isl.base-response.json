@@ -313,7 +313,7 @@
         "confidence_defaulted": false,
         "influence": 1,
         "influence_display": "100%",
-        "suggestion": "Gather data on \"Monthly logo churn\" to reduce uncertainty",
+        "suggestion": "Confidence in \"Monthly logo churn\" is low; no measured evidence says learning it would change which option leads.",
         "notes": [],
         "value": 0.04,
         "raw_value": 4,
@@ -330,7 +330,7 @@
         "confidence_defaulted": false,
         "influence": 0.7142857142857143,
         "influence_display": "71%",
-        "suggestion": "Gather data on \"Annual delivery cost\" to reduce uncertainty",
+        "suggestion": "Confidence in \"Annual delivery cost\" is low; no measured evidence says learning it would change which option leads.",
         "notes": [],
         "value": 0.4,
         "raw_value": 200000,
@@ -354,11 +354,10 @@
     "next_actions": [
       {
         "priority": 2,
-        "action": "Gather evidence on Monthly logo churn",
-        "rationale": "This factor has high impact (100%) but low confidence (50%)",
-        "target_type": "factor",
-        "target_id": "fac_churn",
-        "target_label": "Monthly logo churn"
+        "action": "Review the key assumptions before acting on the leading option",
+        "rationale": "No measured evidence says learning any one factor would change which option leads",
+        "target_type": "option",
+        "target_label": "the leading option"
       }
     ],
     "readiness": "needs_evidence",
@@ -499,10 +498,10 @@
       }
     ],
     "executive_summary": {
-      "summary": "The decision is unclear based on current evidence. Key uncertainty: Monthly logo churn has high impact but low evidence quality. Gather evidence on Monthly logo churn before deciding.",
+      "summary": "The decision is unclear based on current evidence. Significant evidence gaps remain. Gather additional evidence before deciding.",
       "decision_statement": "The decision is unclear based on current evidence.",
-      "key_qualifier": "Key uncertainty: Monthly logo churn has high impact but low evidence quality.",
-      "action_implication": "Gather evidence on Monthly logo churn before deciding."
+      "key_qualifier": "Significant evidence gaps remain.",
+      "action_implication": "Gather additional evidence before deciding."
     },
     "readiness_tone": "caution",
     "readiness_reasons": [
@@ -566,7 +565,7 @@
     "version": "1",
     "graph_hash": "d2a54d2c7419859d",
     "seed": null,
-    "headline": "The decision is unclear based on current evidence. Key uncertainty: Monthly logo churn has high impact but low evidence quality. Gather evidence on Monthly logo churn before deciding.",
+    "headline": "The decision is unclear based on current evidence. Significant evidence gaps remain. Gather additional evidence before deciding.",
     "options": [
       {
         "option_id": "opt_raise_ai",
