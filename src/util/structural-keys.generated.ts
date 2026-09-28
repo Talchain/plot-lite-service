@@ -483,6 +483,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "stability_thresholds",
   "starts_tried",
   "state_space",
+  "stated",
   "stated_at",
   "status",
   "status_reason",
@@ -557,6 +558,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "winner_label",
   "winner_probability",
   "with_margin",
+  "withheld_options",
   "without_margin",
   "zero_reason",
 ]);

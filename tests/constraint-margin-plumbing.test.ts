@@ -57,6 +57,12 @@
  *   opt_under     £38,000  prob_satisfied 1.0  no margin fields
  *   opt_just_over £52,000  prob_satisfied 0.0  margin 0.03333 (≈£2,000 over)
  *   opt_far_over  £82,000  prob_satisfied 0.0  margin 0.16667 (≈£10,000 over)
+ *
+ * ⚠ A3 ROUND 2 (AIQ olumi-programme-docs#70 5855192170): £82,000 on a £60,000
+ * cap CLAMPS, and a clamped level is now WITHHELD before ISL (never analysed as
+ * the stated one). The shared OPTIONS therefore place opt_far_over AT the cap
+ * (£60,000 — `raw === 1`, not a clamp); the mocked ISL margins are unchanged.
+ * The £82,000 shape is kept, re-pinned, in "Finding D" below.
  */
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
@@ -181,7 +187,7 @@ const GRAPH = {
 const OPTIONS = [
   { id: 'opt_under', label: 'Under budget', interventions: { fac_cost: 38000 } },
   { id: 'opt_just_over', label: 'Just over budget', interventions: { fac_cost: 52000 } },
-  { id: 'opt_far_over', label: 'Far over budget', interventions: { fac_cost: 82000 } },
+  { id: 'opt_far_over', label: 'Far over budget', interventions: { fac_cost: 60000 } },
 ];
 
 const CONSTRAINT_ID = 'c_cost_cap';
@@ -376,21 +382,26 @@ describe('B4/L2 constraint eligibility gate + graded breach margins', () => {
       });
     }
 
-    it('marks a CLAMPED breach magnitude as a lower bound (Finding D)', async () => {
-      // opt_far_over intervenes 82000 against a cap of 60000, so its
-      // normalised value saturates at 1.0 and the reported £10,000 understates
-      // the true £32,000 breach. The magnitude must be flagged, not stated.
-      // opt_just_over (52000 < 60000) does NOT clamp, so its £2,000 is exact.
+    it('Finding D, RE-PINNED (A3 round 2): a CLAMPED breach is never published at all — the £82,000 option is WITHHELD', async () => {
+      // Was: opt_far_over at £82,000 against the £60,000 cap saturated at 1.0,
+      // its £10,000 understated the true £32,000 breach, and the margin was
+      // flagged `lower_bound`. A clamped level is now never analysed as the
+      // stated one (AIQ #70 5855192170), so no margin — and no precision claim
+      // — exists for it; opt_just_over (52000 < 60000) is still exact.
       setLiveProbeShape();
       mockWinProbabilityByOption = { opt_under: 0.5, opt_just_over: 0.3, opt_far_over: 0.2 };
+      const options = OPTIONS.map((o) =>
+        o.id === 'opt_far_over' ? { ...o, interventions: { fac_cost: 82000 } } : o,
+      );
 
-      const body = await runAnalysis(baseUrl, { ...BASE_PAYLOAD, goal_constraints: GOAL_CONSTRAINTS });
+      const body = await runAnalysis(baseUrl, { ...BASE_PAYLOAD, options, goal_constraints: GOAL_CONSTRAINTS });
 
+      expect((body.option_comparison ?? []).map((o: any) => o.option_id)).not.toContain('opt_far_over');
+      expect(body._meta?.withheld_options).toEqual([
+        { option_id: 'opt_far_over', reason: 'intervention_clamped', factor_id: 'fac_cost', stated: 82000, applied: 60000 },
+      ]);
       const justOver = optionEntry(body, 'opt_just_over').constraint_margins[0];
-      const farOver = optionEntry(body, 'opt_far_over').constraint_margins[0];
-
       expect(justOver.margin_precision).toBe('exact');
-      expect(farOver.margin_precision).toBe('lower_bound');
     });
   });
 
@@ -552,99 +563,59 @@ describe('B4/L2 constraint eligibility gate + graded breach margins', () => {
       };
     }
 
-    it('RED (mandated): a [0,1]-range factor clamped by a raw intervention of 2 must NOT read exact on <=', async () => {
-      // Constraint value 0.5 is already in [0,1] → constraint normalisation
-      // never runs → constraintNormRanges is undefined. The intervention 2
-      // clamps HIGH against the factor's [0,1] range (recorded diagnostic),
-      // and high-clamp is operator-compatible with '<=' → 'lower_bound'.
-      const options = [
-        { id: 'opt_in_range', label: 'In range', interventions: { fac_share: 0.4 } },
-        { id: 'opt_clamped', label: 'Clamped', interventions: { fac_share: 2 } },
-      ];
-      mockConstraintAnalysisByOption = {
-        opt_in_range: islRow('fac_share', '<=', 0.5, 0.0, 0.05, 0.5),
-        opt_clamped: islRow('fac_share', '<=', 0.5, 0.0, 0.5, 0.1),
-      };
-      mockWinProbabilityByOption = { opt_in_range: 0.6, opt_clamped: 0.4 };
+    // ⚠ RE-PINNED (A3 round 2, AIQ olumi-programme-docs#70 5855192170). These
+    // three rows sent an option whose level CLAMPS against fac_share's [0,1]
+    // (2 high, −1 low) and pinned the precision label its margin then carried
+    // ('lower_bound' / omitted). A clamped level is now WITHHELD before ISL, so
+    // the strongest form of "a clamped margin is never labelled exact" holds on
+    // the route: the clamped option publishes no margin at all. A second
+    // in-range option keeps two to compare (fewer blocks the run).
+    // `deriveMarginPrecision`'s own truth table stays pinned at its unit tests.
+    for (const [operator, clampedValue, cid] of [
+      ['<=', 2, 'c_share'],
+      ['>=', 2, 'c_share_floor'],
+      ['>=', -1, 'c_share_floor'],
+    ] as const) {
+      it(`a level clamped ${clampedValue > 1 ? 'HIGH' : 'LOW'} (${clampedValue}) on '${operator}' is WITHHELD — no margin, no precision claim; the in-range option is exact`, async () => {
+        const options = [
+          { id: 'opt_in_range', label: 'In range', interventions: { fac_share: 0.4 } },
+          { id: 'opt_in_range_2', label: 'In range 2', interventions: { fac_share: 0.6 } },
+          { id: 'opt_clamped', label: 'Clamped', interventions: { fac_share: clampedValue } },
+        ];
+        mockConstraintAnalysisByOption = {
+          opt_in_range: islRow('fac_share', operator, 0.5, 0.0, 0.05, 0.5),
+          opt_in_range_2: islRow('fac_share', operator, 0.5, 0.0, 0.1, 0.5),
+          opt_clamped: islRow('fac_share', operator, 0.5, 0.0, 0.5, 0.1),
+        };
+        mockWinProbabilityByOption = { opt_in_range: 0.4, opt_in_range_2: 0.3, opt_clamped: 0.3 };
 
-      const body = await runAnalysis(baseUrl, {
-        graph: F1_GRAPH,
-        options,
-        goal_node_id: 'goal',
-        seed: '42',
-        goal_constraints: [{ constraint_id: 'c_share', node_id: 'fac_share', operator: '<=', value: 0.5, label: 'Share cap' }],
+        const body = await runAnalysis(baseUrl, {
+          graph: F1_GRAPH,
+          options,
+          goal_node_id: 'goal',
+          seed: '42',
+          goal_constraints: [{ constraint_id: cid, node_id: 'fac_share', operator, value: 0.5, label: 'Share limit' }],
+        });
+
+        expect((body.option_comparison ?? []).map((o: any) => o.option_id)).not.toContain('opt_clamped');
+        expect(body._meta?.withheld_options).toEqual([
+          { option_id: 'opt_clamped', reason: 'intervention_clamped', factor_id: 'fac_share', stated: clampedValue, applied: clampedValue > 1 ? 1 : 0 },
+        ]);
+        const inRange = optionEntry(body, 'opt_in_range').constraint_margins?.find((m: any) => m.constraint_id === cid);
+        expect(inRange).toBeDefined();
+        expect(inRange.margin_precision).toBe('exact');
       });
-
-      const clamped = optionEntry(body, 'opt_clamped').constraint_margins?.find((m: any) => m.constraint_id === 'c_share');
-      const inRange = optionEntry(body, 'opt_in_range').constraint_margins?.find((m: any) => m.constraint_id === 'c_share');
-      expect(clamped).toBeDefined();
-      expect(inRange).toBeDefined();
-
-      // The margin itself still flows (range width 1, no denormalisation needed).
-      expect(clamped.failure_margin_median).toBeCloseTo(0.5, 5);
-      // THE FINDING: this read 'exact' on unmodified code.
-      expect(clamped.margin_precision).toBe('lower_bound');
-      // Positive control: the un-clamped option (has a diagnostic, not clamped) IS exact.
-      expect(inRange.margin_precision).toBe('exact');
-    });
-
-    it('OMITS margin_precision when the clamp direction is operator-INCOMPATIBLE (high clamp + >=)', async () => {
-      const options = [
-        { id: 'opt_in_range', label: 'In range', interventions: { fac_share: 0.4 } },
-        { id: 'opt_clamped', label: 'Clamped', interventions: { fac_share: 2 } },
-      ];
-      mockConstraintAnalysisByOption = {
-        opt_in_range: islRow('fac_share', '>=', 0.5, 0.0, 0.05),
-        opt_clamped: islRow('fac_share', '>=', 0.5, 0.0, 0.2),
-      };
-      mockWinProbabilityByOption = { opt_in_range: 0.6, opt_clamped: 0.4 };
-
-      const body = await runAnalysis(baseUrl, {
-        graph: F1_GRAPH,
-        options,
-        goal_node_id: 'goal',
-        seed: '42',
-        goal_constraints: [{ constraint_id: 'c_share_floor', node_id: 'fac_share', operator: '>=', value: 0.5, label: 'Share floor' }],
-      });
-
-      const clamped = optionEntry(body, 'opt_clamped').constraint_margins?.find((m: any) => m.constraint_id === 'c_share_floor');
-      expect(clamped).toBeDefined();
-      // Margin still carried — but a high-clamp says nothing directional about
-      // a '>=' breach, so precision must be OMITTED, not guessed.
-      expect(clamped.failure_margin_median).toBeCloseTo(0.2, 5);
-      expect(clamped).not.toHaveProperty('margin_precision');
-    });
-
-    it('marks a LOW clamp on a >= constraint as lower_bound (operator-compatible)', async () => {
-      const options = [
-        { id: 'opt_in_range', label: 'In range', interventions: { fac_share: 0.4 } },
-        { id: 'opt_clamped_low', label: 'Clamped low', interventions: { fac_share: -1 } },
-      ];
-      mockConstraintAnalysisByOption = {
-        opt_in_range: islRow('fac_share', '>=', 0.5, 0.0, 0.05),
-        opt_clamped_low: islRow('fac_share', '>=', 0.5, 0.0, 0.5),
-      };
-      mockWinProbabilityByOption = { opt_in_range: 0.6, opt_clamped_low: 0.4 };
-
-      const body = await runAnalysis(baseUrl, {
-        graph: F1_GRAPH,
-        options,
-        goal_node_id: 'goal',
-        seed: '42',
-        goal_constraints: [{ constraint_id: 'c_share_floor', node_id: 'fac_share', operator: '>=', value: 0.5, label: 'Share floor' }],
-      });
-
-      const clampedLow = optionEntry(body, 'opt_clamped_low').constraint_margins?.find((m: any) => m.constraint_id === 'c_share_floor');
-      expect(clampedLow).toBeDefined();
-      expect(clampedLow.margin_precision).toBe('lower_bound');
-    });
+    }
 
     it('OMITS margin_precision when the constraint targets a NON-INTERVENED node (no diagnostic → unknown)', async () => {
       // Options intervene only on fac_share; the constraint targets fac_other.
       // No option carries a normalisation diagnostic for fac_other, so clamp
       // state is UNKNOWN — 'exact' would be a fabricated certainty.
+      // A3 round 2: opt_a's level sits inside fac_share's [0,1] (was 2, which
+      // clamps and is now withheld). The row's point — no diagnostic for the
+      // constrained fac_other — does not depend on it.
       const options = [
-        { id: 'opt_a', label: 'A', interventions: { fac_share: 2 } },
+        { id: 'opt_a', label: 'A', interventions: { fac_share: 0.9 } },
         { id: 'opt_b', label: 'B', interventions: { fac_share: 0.4 } },
       ];
       mockConstraintAnalysisByOption = {

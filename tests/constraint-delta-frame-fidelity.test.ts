@@ -50,6 +50,7 @@ import { describe, it, expect } from 'vitest';
 import {
   normaliseGoalConstraints,
   constraintsNeedNormalisation,
+  THRESHOLD_CLAMPED,
 } from '../src/lib/intervention-normaliser.js';
 import { toISLRobustnessRequest } from '../src/integrations/isl/translator-v3.js';
 import type { EngineNodeV3, GoalConstraint } from '../src/types/engine-v3.js';
@@ -360,29 +361,29 @@ describe('2.878 — a delta normalisation does NOT alter is forwarded, frame int
 // 4. The clamp is UNCHANGED for the purpose it was built for
 // -----------------------------------------------------------------------------
 
-describe('2.878 — a LEVEL still clamps and still delivers (the clamp is a domain guard, not a bug)', () => {
-  it('PIN: a level below the range floor is clamped to 0 and FORWARDED, exactly as before', () => {
+describe('2.878 + A3 round 2 — a LEVEL that would clamp is REFUSED (threshold_clamped); an unattested one still clamps and delivers', () => {
+  // ⚠ RE-PINNED (A3 round 2, AIQ olumi-programme-docs#70 5855192170 rule 3:
+  // "a clamped threshold is refused, never scored"). These two rows used to pin
+  // "a level below the floor / above the ceiling is clamped and FORWARDED" —
+  // the engine was then asked about the EDGE of the scale (P = 0 or 1 by
+  // arithmetic) and the number was published as the limit's P(meet). The
+  // clamp itself is still computed (the refusal record carries what it would
+  // have sent); the LEVEL limit is refused instead of forwarded.
+  it('RE-PIN: a level below the range floor would clamp to 0 — REFUSED threshold_clamped, not forwarded', () => {
     const c = REDUCTION_CONSTRAINT({
       constraint_id: 'gc-level-below-floor',
       value_frame: 'level',
     });
     const out = normaliseGoalConstraints([c], NODES);
 
-    expect(out.refused).toHaveLength(0);
-
-    const forwarded = out.constraints.find((x) => x.constraint_id === 'gc-level-below-floor');
-    expect(forwarded).toBeDefined();
-    expect(forwarded!.value).toBe(0);
-    expect(forwarded!.original_value).toBe(-0.15);
-    expect(forwarded!.value_frame).toBe('level');
-
-    // And the clamp signal downstream depends on is still recorded.
-    const diag = out.diagnostics.find((d) => d.constraint_id === 'gc-level-below-floor');
-    expect(diag!.clamped).toBe(true);
-    expect(diag!.normalised_value).toBe(0);
+    expect(out.refused.map((r) => [r.constraint_id, r.reason, r.stated_value, r.would_have_sent])).toEqual([
+      ['gc-level-below-floor', THRESHOLD_CLAMPED, -0.15, 0],
+    ]);
+    expect(out.constraints.find((x) => x.constraint_id === 'gc-level-below-floor')).toBeUndefined();
+    expect(out.diagnostics.find((d) => d.constraint_id === 'gc-level-below-floor')).toBeUndefined();
   });
 
-  it('PIN: a level above the range ceiling is clamped to 1 and FORWARDED', () => {
+  it('RE-PIN: a level above the range ceiling would clamp to 1 — REFUSED threshold_clamped, not forwarded', () => {
     const c = REDUCTION_CONSTRAINT({
       constraint_id: 'gc-level-above-ceiling',
       operator: '>=',
@@ -391,11 +392,10 @@ describe('2.878 — a LEVEL still clamps and still delivers (the clamp is a doma
     });
     const out = normaliseGoalConstraints([c], NODES);
 
-    expect(out.refused).toHaveLength(0);
-    const forwarded = out.constraints.find((x) => x.constraint_id === 'gc-level-above-ceiling');
-    expect(forwarded!.value).toBe(1);
-    const diag = out.diagnostics.find((d) => d.constraint_id === 'gc-level-above-ceiling');
-    expect(diag!.clamped).toBe(true);
+    expect(out.refused.map((r) => [r.constraint_id, r.reason, r.stated_value, r.would_have_sent])).toEqual([
+      ['gc-level-above-ceiling', THRESHOLD_CLAMPED, 500, 1],
+    ]);
+    expect(out.constraints.find((x) => x.constraint_id === 'gc-level-above-ceiling')).toBeUndefined();
   });
 
   it('PIN: an UNATTESTED constraint is untouched by this guard — PLoT never infers a frame', () => {

@@ -130,6 +130,14 @@ const OPTIONS_SPREAD = [
   { id: 'opt_a', label: 'A', interventions: { cost: 25000 } },
   { id: 'opt_b', label: 'B', interventions: { cost: 45000 } },
 ];
+// Interventions 25000 / 35000 — both INSIDE a node-declared [0,40000] (rows h–j).
+// A3 round 2: those rows used 25000/45000, and 45000 was CLAMPED to 40000 (opt_b
+// analysed at the cap, not as stated). A clamped level is now withheld (AIQ #70
+// 5855192170), so the positive controls use levels the declaration contains.
+const OPTIONS_IN_CAP = [
+  { id: 'opt_a', label: 'A', interventions: { cost: 25000 } },
+  { id: 'opt_b', label: 'B', interventions: { cost: 35000 } },
+];
 // Interventions in [0,1] → Phase 4a SKIPPED → cost carries an IDENTITY scale.
 const OPTIONS_UNIT = [
   { id: 'opt_a', label: 'A', interventions: { cost: 0.3 } },
@@ -338,7 +346,7 @@ describe('A3 constraint trust marker · scale_provenance + constraints_decision_
   // no-op proof); reverting the extension keeps them green.
 
   // (h) POSITIVE CONTROL — node-level explicit_cap. observed_state.cap=40000 ⇒ the
-  //     INTERVENTIONS (25000/45000) normalise against [0,40000] (source
+  //     INTERVENTIONS (25000/35000) normalise against [0,40000] (source
   //     explicit_cap), so interventionScale == the node's declared cap. Equal ⇒
   //     range_unified TRUE, decision_grade TRUE. An explicit_cap is NOT a
   //     divergence — it DEFINES the samples' scale.
@@ -349,7 +357,7 @@ describe('A3 constraint trust marker · scale_provenance + constraints_decision_
     };
     const body = await run({
       graph: { nodes: [NODES[0], COST_CAP_NODE], edges: [EDGES[0]] },
-      options: OPTIONS_SPREAD, // interventions 25000/45000
+      options: OPTIONS_IN_CAP, // interventions 25000/35000 (inside the cap)
       goal_node_id: 'goal', seed: '42',
       goal_constraints: [{ constraint_id: 'c_cap', node_id: 'cost', operator: '<=', value: 30000 }],
     });
@@ -373,7 +381,7 @@ describe('A3 constraint trust marker · scale_provenance + constraints_decision_
     };
     const body = await run({
       graph: { nodes: [NODES[0], COST_RANGE_NODE], edges: [EDGES[0]] },
-      options: OPTIONS_SPREAD, // interventions 25000/45000
+      options: OPTIONS_IN_CAP, // interventions 25000/35000 (inside the range)
       goal_node_id: 'goal', seed: '42',
       goal_constraints: [{ constraint_id: 'c_ss', node_id: 'cost', operator: '<=', value: 30000 }],
     });
@@ -402,7 +410,7 @@ describe('A3 constraint trust marker · scale_provenance + constraints_decision_
     };
     const body = await run({
       graph: { nodes: [NODES[0], COST_BOTH_NODE], edges: [EDGES[0]] },
-      options: OPTIONS_SPREAD, // interventions 25000/45000
+      options: OPTIONS_IN_CAP, // interventions 25000/35000 (inside the cap)
       goal_node_id: 'goal', seed: '42',
       goal_constraints: [{ constraint_id: 'c_both', node_id: 'cost', operator: '<=', value: 30000 }],
     });

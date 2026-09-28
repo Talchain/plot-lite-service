@@ -332,22 +332,29 @@ describe('a LEVEL limit on a non-root target that SOME options set (N1) — scor
     expect(warned[0].message).toContain('Monthly churn');
   });
 
-  it("FRAME GUARD: Phase 4a CLAMPS the pinned level (1.4 on churn's [0,1] scale) — WITHHELD", async () => {
+  it("FRAME GUARD: Phase 4a would CLAMP the pinned level (1.4 on churn's [0,1] scale) — the OPTION is withheld (A3 round 2)", async () => {
+    // ⚠ RE-PINNED (A3 round 2, AIQ olumi-programme-docs#70 5855192170): this
+    // row used to pin "reached ISL at 1.0, not the 1.4 the option states" with
+    // the limit withheld. A clamped level is now never analysed as the stated
+    // one: the win-back option is WITHHELD before ISL (no share, mean gap or
+    // rank), with a typed `intervention_clamped` record and the clamp repair
+    // kept as the evidence.
     const { body, isl } = await run(
       graph({ value: 0.5, baseline: 0.5 }),
       [{ ...GC_CHURN, value: 60, unit: '%' }],
       optionsOnePins([0.49, 0.59, 0.49], 1.4),
     );
 
-    // Reached ISL at 1.0, not the 1.4 the option states.
-    expect(sentOption(isl, 'opt_winback')?.interventions?.fac_churn).toBe(1);
+    expect(sentOption(isl, 'opt_winback'), 'the clamped option never reaches ISL').toBeUndefined();
+    expect((isl?.options ?? []).map((o: any) => o.id)).toEqual(['opt_hold', 'opt_raise']);
+    expect(body._meta?.withheld_options).toEqual([
+      { option_id: 'opt_winback', reason: 'intervention_clamped', factor_id: 'fac_churn', stated: 1.4, applied: 1 },
+    ]);
     expect(sentConstraint(isl, 'gc_churn')?.value).toBe(0.6);
 
     const opts = byOption(body);
-    expect(opts.opt_winback.constraint_probabilities).toBeUndefined();
-    const warned = warnings(body, 'CONSTRAINT_TARGET_UNRELIABLE');
-    expect(warned).toHaveLength(1);
-    expect(warned[0].message).toContain('Monthly churn');
+    expect(opts.opt_winback).toBeUndefined();
+    expect(Object.keys(opts).sort()).toEqual(['opt_hold', 'opt_raise']);
   });
 
   // =========================================================================

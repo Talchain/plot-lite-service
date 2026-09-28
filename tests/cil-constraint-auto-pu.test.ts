@@ -145,7 +145,8 @@ const GRAPH = {
 };
 
 const OPTIONS = [
-  { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': 1.5 } },
+  // A3 round 2: a level that would clamp is withheld (AIQ #70 5855192170), so every stated level sits inside its factor's range (factor-a at 0.6: [0,1.2]).
+  { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': 1.1 } },
   { id: 'opt2', label: 'Option 2', interventions: { 'factor-b': 0.2 } },
 ];
 

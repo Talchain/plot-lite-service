@@ -48,15 +48,17 @@ describe('/v2/run Contract Smoke Tests', () => {
     {
       id: 'opt1',
       label: 'Option 1',
+      // A3 round 2: a level that would clamp is withheld (AIQ #70 5855192170); these factors
+      // carry no level, so each stated level sits inside the default [0,1] (was 1.5 / 2.0 / 3.0).
       interventions: {
-        'factor-a': { value: 1.5, source: 'user_specified' },
+        'factor-a': { value: 0.9, source: 'user_specified' },
       },
     },
     {
       id: 'opt2',
       label: 'Option 2',
       interventions: {
-        'factor-b': { value: 2.0, source: 'user_specified' },
+        'factor-b': { value: 0.8, source: 'user_specified' },
       },
     },
   ];
@@ -96,8 +98,8 @@ describe('/v2/run Contract Smoke Tests', () => {
         body: JSON.stringify({
           graph: VALID_GRAPH,
           options: [
-            { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } } },
-            { id: 'opt2', label: 'Option 2', interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } } },
+            { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': { value: 0.9, source: 'user_specified' } } },
+            { id: 'opt2', label: 'Option 2', interventions: { 'factor-b': { value: 0.8, source: 'user_specified' } } },
           ],
           goal_node_id: 'goal',
           seed: '42',
@@ -111,8 +113,8 @@ describe('/v2/run Contract Smoke Tests', () => {
         body: JSON.stringify({
           graph: VALID_GRAPH,
           options: [
-            { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': { value: 3.0, source: 'user_specified' } } },
-            { id: 'opt2', label: 'Option 2', interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } } },
+            { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': { value: 0.7, source: 'user_specified' } } },
+            { id: 'opt2', label: 'Option 2', interventions: { 'factor-b': { value: 0.8, source: 'user_specified' } } },
           ],
           goal_node_id: 'goal',
           seed: '42',
@@ -137,8 +139,8 @@ describe('/v2/run Contract Smoke Tests', () => {
         body: JSON.stringify({
           graph: VALID_GRAPH,
           options: [
-            { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } } },
-            { id: 'opt2', label: 'Option 2', interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } } },
+            { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': { value: 0.9, source: 'user_specified' } } },
+            { id: 'opt2', label: 'Option 2', interventions: { 'factor-b': { value: 0.8, source: 'user_specified' } } },
           ],
           goal_node_id: 'goal',
           seed: '42',
@@ -152,8 +154,8 @@ describe('/v2/run Contract Smoke Tests', () => {
         body: JSON.stringify({
           graph: VALID_GRAPH,
           options: [
-            { id: 'opt2', label: 'Option 2', interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } } },
-            { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } } },
+            { id: 'opt2', label: 'Option 2', interventions: { 'factor-b': { value: 0.8, source: 'user_specified' } } },
+            { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': { value: 0.9, source: 'user_specified' } } },
           ],
           goal_node_id: 'goal',
           seed: '42',
@@ -178,8 +180,8 @@ describe('/v2/run Contract Smoke Tests', () => {
         body: JSON.stringify({
           graph: VALID_GRAPH,
           options: [
-            { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } } },
-            { id: 'opt2', label: 'Option 2', interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } } },
+            { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': { value: 0.9, source: 'user_specified' } } },
+            { id: 'opt2', label: 'Option 2', interventions: { 'factor-b': { value: 0.8, source: 'user_specified' } } },
           ],
           goal_node_id: 'goal',
           seed: '42',
@@ -200,8 +202,8 @@ describe('/v2/run Contract Smoke Tests', () => {
             edges: VALID_GRAPH.edges,
           },
           options: [
-            { id: 'opt1', label: 'DIFFERENT OPT LABEL 1', interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } } },
-            { id: 'opt2', label: 'DIFFERENT OPT LABEL 2', interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } } },
+            { id: 'opt1', label: 'DIFFERENT OPT LABEL 1', interventions: { 'factor-a': { value: 0.9, source: 'user_specified' } } },
+            { id: 'opt2', label: 'DIFFERENT OPT LABEL 2', interventions: { 'factor-b': { value: 0.8, source: 'user_specified' } } },
           ],
           goal_node_id: 'goal',
           seed: '42',
@@ -689,7 +691,7 @@ describe('/v2/run Contract Smoke Tests', () => {
           id: 'opt2',
           label: 'Option 2',
           interventions: {
-            'observable-factor': { value: 2.0, source: 'user_specified' },
+            'observable-factor': { value: 0.8, source: 'user_specified' },
           },
         },
       ];
@@ -735,12 +737,12 @@ describe('/v2/run Contract Smoke Tests', () => {
         {
           id: 'opt1',
           label: 'Option 1',
-          interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } },
+          interventions: { 'factor-a': { value: 0.9, source: 'user_specified' } },
         },
         {
           id: 'opt2',
           label: 'Option 2',
-          interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } },
+          interventions: { 'factor-b': { value: 0.8, source: 'user_specified' } },
         },
       ];
 
