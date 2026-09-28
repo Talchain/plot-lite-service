@@ -29,3 +29,8 @@ carries `level_domain`, so they move by design. The row asserts they move.
 `["Monthly logo churn", "Annual delivery cost"]` → `[]`. This older-ISL capture carries no fragile edge, no found flip
 and no resolved `factor_evppi`, so nothing was MEASURED to change the leader. No other field moved (the CONTROL test's
 full-body equality is the proof).
+
+**R5-2 (2026-09-28, R&C, R5 handed by MG #72 5871363476):** `older-isl.base-response.json` was HAND-EDITED, not re-recorded. DOMINANT_FACTOR now names a factor only when ISL MEASURED its EVPPI above resolution (#389's gate). This scenario's ISL response resolves no EVPPI for `fac_churn`, so two entries leave:
+- `"One factor dominates. What would change if Monthly logo churn had less influence?"` from `m1_coaching.model_critiques`;
+- the same entry from `decision_brief.warnings`.
+The diff is exactly those two entries (+1/−16 lines). No option row, probability, label, id or ordering moved.

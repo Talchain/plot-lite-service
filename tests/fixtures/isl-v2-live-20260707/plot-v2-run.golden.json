@@ -738,17 +738,7 @@
         "evpi_method": "heuristic"
       }
     ],
-    "model_critiques": [
-      {
-        "type": "DOMINANT_FACTOR",
-        "severity": "warn",
-        "challenge_question": "One factor dominates. What would change if Hiring and Salary Cost had less influence?",
-        "suggested_action": "Consider whether Hiring and Salary Cost's importance is evidence-based or assumed",
-        "targets": [
-          "fac_hiring_cost"
-        ]
-      }
-    ],
+    "model_critiques": [],
     "next_actions": [
       {
         "priority": 3,
@@ -1266,11 +1256,6 @@
     "robustness": "fragile",
     "warnings": [
       {
-        "code": "DOMINANT_FACTOR",
-        "message": "One factor dominates. What would change if Hiring and Salary Cost had less influence?",
-        "severity": "warning"
-      },
-      {
         "code": "M2_UNAVAILABLE",
         "message": "Decision review was unavailable; brief uses deterministic coaching fallback",
         "severity": "warning"
@@ -1617,7 +1602,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:6aa9ab3f0b3ce5be"
+    "response_content_hash": "rch_v2:ebe781eb3d19d244"
   },
   "meta": {
     "seed_used": "2034401427",

@@ -658,6 +658,13 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //  ured    ZERO_FACTOR_HELD_EXACT warning and response_hash d6c17020b98202ca
     //  2026-   (T7b) plus the two measured-only suggestion strings (#389). Only
     //  09-28   this hash is new; it is the pin's own computed value.)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:6aa9ab3f0b3ce5be');
+    //  R5-2   rch_v2:ebe781eb3d19d244 (R&C, R5 handed by MG 5871363476; #389's
+    //  2026-  measured-only gate extended to DOMINANT_FACTOR: it names a factor
+    //  09-28  only when ISL MEASURED its EVPPI above resolution. This capture
+    //         carries no factor_evppi, so "One factor dominates … Hiring and
+    //         Salary Cost" is not said. UPDATE_GOLDEN diff is EXACTLY the
+    //         DOMINANT_FACTOR entry leaving m1_coaching.model_critiques and
+    //         decision_brief.warnings, plus this hash; `response_hash` UNMOVED.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:ebe781eb3d19d244');
   });
 });
