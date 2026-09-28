@@ -4,7 +4,8 @@
  * Generates one-line summaries per option explaining result + confidence.
  */
 
-import type { CoachingInputs, HeadlineType, StoryHeadlines, FragileEdgeContext } from './types.js';
+import { evidenceAdviceMayName, type CoachingInputs, type HeadlineType, type StoryHeadlines, type FragileEdgeContext } from './types.js';
+import { NEAR_TIE_THRESHOLD } from '../trust/result-coherence.js';
 import { getThresholds } from './thresholds.js';
 // A1b: intervention-controlled levers are not tunable evidence/VoI gaps.
 import { filterInterventionOverrides } from './sensitivity-filter.js';
@@ -112,6 +113,7 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
   // Select headline type
   const headlineType = selectHeadlineType(
     winProbDelta,
+    winner.winProbability,
     stability,
     topGapVoI,
     topFragileSwitchProb,
@@ -149,7 +151,9 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
       break;
     case 'needs_evidence': {
       // Find factor with highest VoI (impact × uncertainty)
+      // AIQ 5866850180: "gather data on X" names X only when X's EVPPI was MEASURED above resolution.
       const topGap = tunable
+        .filter((f) => evidenceAdviceMayName(inputs, f.node_id))
         .map((f) => ({
           label: f.label,
           voi: Math.abs(f.elasticity ?? f.influence_score ?? 0) * (1 - (f.confidence ?? 0.5)),
@@ -176,8 +180,20 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
   return headlines;
 }
 
+/**
+ * ⛔ "HIGHLY UNCERTAIN" ONLY WHEN THE RESULT IS (AI Quality ruling olumi-programme-docs #72 5866850180; MG as
+ * PLoT owner). Served journey A: "£59 currently leads, but the outcome is highly uncertain" on 4/6 Runs with
+ * the leader at 0.849 and decision EVPI 5.2e-6 — the swing-risk heuristics below (impact × (1 − confidence),
+ * a fragile edge's switch probability) fired on a settled result. They may still pick `high_uncertainty`,
+ * but only when the leader's win share is below HIGH_UNCERTAINTY_MAX_LEADER_SHARE or the top two are a near
+ * tie (`NEAR_TIE_THRESHOLD`, the same gap `near_tie` publishes); otherwise the Run is read by the rules
+ * that follow.
+ */
+export const HIGH_UNCERTAINTY_MAX_LEADER_SHARE = 0.6;
+
 function selectHeadlineType(
   winProbDelta: number,
+  leaderShare: number,
   stability: number | undefined,
   topGapVoI: number,
   topFragileSwitchProb: number,
@@ -189,8 +205,9 @@ function selectHeadlineType(
     return 'needs_evidence';
   }
 
-  // 2. High swing risk → high_uncertainty (check FIRST)
-  if (topGapVoI > thresholds.headline_high_uncertainty_voi || topFragileSwitchProb > thresholds.headline_high_uncertainty_fragile) {
+  // 2. High swing risk → high_uncertainty (check FIRST) — only on a result that IS uncertain (AIQ 5866850180).
+  const resultUncertain = leaderShare < HIGH_UNCERTAINTY_MAX_LEADER_SHARE || winProbDelta < NEAR_TIE_THRESHOLD;
+  if (resultUncertain && (topGapVoI > thresholds.headline_high_uncertainty_voi || topFragileSwitchProb > thresholds.headline_high_uncertainty_fragile)) {
     return 'high_uncertainty';
   }
 
@@ -291,6 +308,7 @@ export function detectHeadlineType(inputs: CoachingInputs): HeadlineType {
 
   return selectHeadlineType(
     winProbDelta,
+    winner.winProbability,
     stability,
     topGapVoI,
     topFragileSwitchProb,

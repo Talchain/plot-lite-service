@@ -112,7 +112,7 @@ export function generateM1Coaching(
     const headlineType = inputs.options.length > 0 ? detectHeadlineType(inputs) : 'needs_evidence';
 
     // Compute readiness (must be available before tone computation)
-    let readiness = computeReadiness(headlineType, modelCritiques, evidenceGaps, thresholds);
+    let readiness = computeReadiness(headlineType, modelCritiques, evidenceGaps, thresholds, inputs);
 
     // Post-readiness gate: Joint constraint probability (Task 1)
     // Producer honesty (item A): skipped when constraint targets are

@@ -645,6 +645,19 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //         inference_warnings entry, ZERO_FACTOR_HELD_EXACT naming "Hiring
     //         and Salary Cost". HAND-EDITED, not re-recorded: those 7 fields,
     //         nothing else; the ISL response is replayed from the capture.)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:d3f2e8a99d8185d9');
+    //  meas-   rch_v2:751d55b61a61c153 (AIQ 5866850180 / DL on PLoT #389,
+    //  ured-   2026-09-28: "gather data on X" only for an X whose EVPPI ISL
+    //  only    MEASURED above resolution; this capture carries no
+    //  2026-   factor_evppi, so no factor is named. HAND-EDITED, not
+    //  09-28   re-recorded: the golden diff is EXACTLY two
+    //          `m1_coaching.evidence_gaps[].suggestion` strings plus this
+    //          hash. No option row, probability, label, factor id, ordering
+    //          or key moved, and `response_hash` is UNMOVED.)
+    //  T7b 4b rch_v2:6aa9ab3f0b3ce5be (MERGE of the two entries above, T7b 4b onto
+    //  + meas- staging after #389: BOTH hand-edits hold at once — the
+    //  ured    ZERO_FACTOR_HELD_EXACT warning and response_hash d6c17020b98202ca
+    //  2026-   (T7b) plus the two measured-only suggestion strings (#389). Only
+    //  09-28   this hash is new; it is the pin's own computed value.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:6aa9ab3f0b3ce5be');
   });
 });

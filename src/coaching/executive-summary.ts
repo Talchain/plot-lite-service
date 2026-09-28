@@ -9,7 +9,7 @@
  * when robustness / fragility / evidence signals all support it.
  */
 
-import type { CoachingInputs, Readiness, HeadlineType } from './types.js';
+import { evidenceAdviceMayName, type CoachingInputs, type Readiness, type HeadlineType } from './types.js';
 import type { KeyDriver } from './key-drivers.js';
 import type { EvidenceGap } from './types.js';
 import { deriveReadinessTone, type ReadinessTone, type ReadinessToneResult } from './readiness-tone.js';
@@ -116,7 +116,7 @@ function generateKeyQualifier(
   // thresholds it — but the qualifier no longer needs the raw value now that it
   // publishes no figure. See the `recommendationStability` doc in ./types.ts.
   const topDriver = keyDrivers[0];
-  const topGap = evidenceGaps[0];
+  const measuredGap = evidenceGaps.find((g) => evidenceAdviceMayName(inputs, g.factor_id));
 
   switch (readiness) {
     case 'ready':
@@ -142,8 +142,9 @@ function generateKeyQualifier(
       return 'However, the outcome is within model uncertainty, so the ranking could shift with new information.';
 
     case 'needs_evidence':
-      if (topGap) {
-        return `Key uncertainty: ${topGap.factor_label} has high impact but low evidence quality.`;
+      // AIQ 5866850180: name a gap only when its EVPPI was MEASURED above resolution (the first measured one).
+      if (measuredGap) {
+        return `Key uncertainty: ${measuredGap.factor_label} has high impact but low evidence quality.`;
       }
       return 'Significant evidence gaps remain.';
 
@@ -178,9 +179,10 @@ function generateActionImplication(
       return 'Define tie-breaker criteria or gather additional evidence.';
 
     case 'needs_evidence':
-      if (evidenceGaps.length > 0) {
-        const topGap = evidenceGaps[0];
-        return `Gather evidence on ${topGap.factor_label} before deciding.`;
+      // AIQ 5866850180: "Gather evidence on X before deciding" only when X's EVPPI was MEASURED above resolution.
+      {
+        const measuredGap = evidenceGaps.find((g) => evidenceAdviceMayName(_inputs, g.factor_id));
+        if (measuredGap) return `Gather evidence on ${measuredGap.factor_label} before deciding.`;
       }
       return 'Gather additional evidence before deciding.';
 

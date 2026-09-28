@@ -35,7 +35,7 @@ function briefInput(factor_sensitivity: any[]): BriefAssemblyInput {
       { option_id: 'opt1', label: 'A', win_probability: 0.6 },
       { option_id: 'opt2', label: 'B', win_probability: 0.4 },
     ],
-    // fragile_edges empty → what_would_change uses the factor_sensitivity fallback
+    // fragile_edges empty → what_would_change names only a measured flip or EVPPI (AIQ 5867389636)
     robustness: { level: 'moderate', fragile_edges: [], robust_edges: [] } as any,
     meta: { seed_used: '1' },
     factor_sensitivity,
@@ -56,10 +56,23 @@ describe('A1b — decision_brief excludes intervention_override levers', () => {
     expect(labels).toContain(NONLEVER);
   });
 
-  it('what_would_change fallback: lever excluded, non-lever present', () => {
-    const brief = assembleBrief(briefInput(factors))!;
+  // AIQ #72 5867389636: the |elasticity| fallback is gone — what_would_change names only a MEASURED
+  // change (a found flip, an EVPPI above resolution). The A1b lever rule still holds for both sources.
+  it('what_would_change: a found flip / resolved EVPPI on the lever names nothing; on the non-lever names it', () => {
+    const brief = assembleBrief({
+      ...briefInput(factors),
+      flip_thresholds: [
+        { factor_id: 'fac_leadership_capacity', factor_label: LEVER, current_value: 1, flip_value: 2, flip_reason: 'found' },
+        { factor_id: 'fac_time_pressure', factor_label: NONLEVER, current_value: 1, flip_value: 2, flip_reason: 'found' },
+      ] as any,
+      factor_evppi: [{ factor_id: 'fac_leadership_capacity', evppi: 5, status: 'resolved' }] as any,
+    } as BriefAssemblyInput)!;
     expect(brief.what_would_change).not.toContain(LEVER);
-    expect(brief.what_would_change).toContain(NONLEVER);
+    expect(brief.what_would_change).toEqual([NONLEVER]);
+  });
+
+  it('what_would_change: structural drivers alone (nothing measured) name nothing', () => {
+    expect(assembleBrief(briefInput(factors))!.what_would_change).toEqual([]);
   });
 });
 
@@ -115,7 +128,9 @@ describe('A1b — headlines do not name levers as VoI/evidence gaps (existence c
       normFactor({ node_id: 'fac_leadership_capacity', label: LEVER, elasticity: 1, confidence: 0.1, influence_score: 1, zero_reason: 'intervention_override' }),
       normFactor({ node_id: 'fac_time_pressure', label: NONLEVER, elasticity: 0.4, confidence: 0.2, influence_score: 0.4, direction: 'negative' }),
     ];
-    const headlines = generateHeadlines(coachingInputs(factors));
+    // Both MEASURED above resolution (AIQ 5866850180 / DL #389), so only the lever filter keeps the lever out.
+    const measured = { resolvedEvppiFactorIds: new Set(['fac_leadership_capacity', 'fac_time_pressure']) };
+    const headlines = generateHeadlines(coachingInputs(factors, measured));
     const allText = Object.values(headlines).join(' || ');
     expect(allText).not.toContain(LEVER);
     expect(allText).toContain(NONLEVER);
