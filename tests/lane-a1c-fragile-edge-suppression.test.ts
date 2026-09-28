@@ -92,15 +92,24 @@ describe('A1c — decision_brief.what_would_change', () => {
     const brief = assembleBrief(briefInput([rawEdge('fac_other', 'Other', LEVER, LEVER_LABEL)], LEVER_FACTORS))!;
     expect(brief.what_would_change.some((s) => s.includes(`→ ${LEVER_LABEL}`))).toBe(true);
   });
-  it('FALLBACK PROOF: all fragile edges lever-sourced → factor-path fallback fires (names non-lever factor, not empty, not lever)', () => {
+  // AIQ #72 5867389636: the |elasticity| factor fallback is gone — after the lever-sourced edge is dropped, only a
+  // MEASURED change (a found flip / an EVPPI above resolution) may name a factor; the lever never.
+  it('all fragile edges lever-sourced, nothing measured → [] (no structural fallback, never the lever)', () => {
     const brief = assembleBrief(briefInput(
       [rawEdge(LEVER, LEVER_LABEL, 'out_delivery', 'On-Time Delivery')],  // only lever-sourced edge
       LEVER_FACTORS,
     ))!;
-    // PRIMARY (fragile) path yields nothing → FACTOR fallback path used → non-lever factor label present.
-    expect(brief.what_would_change).toContain(NONLEVER_LABEL);
-    expect(brief.what_would_change.some((s) => s.includes(LEVER_LABEL))).toBe(false);
-    expect(brief.what_would_change.every((s) => !s.includes('→'))).toBe(true); // factor labels, not edge "X → Y" strings
+    expect(brief.what_would_change).toEqual([]);
+  });
+  it('all fragile edges lever-sourced, a found flip on the non-lever → names the non-lever factor (not the lever, not an edge)', () => {
+    const brief = assembleBrief({
+      ...briefInput([rawEdge(LEVER, LEVER_LABEL, 'out_delivery', 'On-Time Delivery')], LEVER_FACTORS),
+      flip_thresholds: [
+        { factor_id: LEVER, factor_label: LEVER_LABEL, current_value: 1, flip_value: 2, flip_reason: 'found' },
+        { factor_id: NONLEVER, factor_label: NONLEVER_LABEL, current_value: 1, flip_value: 2, flip_reason: 'found' },
+      ] as any,
+    } as BriefAssemblyInput)!;
+    expect(brief.what_would_change).toEqual([NONLEVER_LABEL]);
   });
 });
 
