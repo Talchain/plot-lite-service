@@ -38,9 +38,9 @@
  * - CASCADE_REMOVE_EDGE: Edge removed because connected node was deleted
  *
  * ### Forbidden-edge rerouting
- * - REROUTE_OUTCOME_CHAIN: outcome→outcome or outcome→risk edge rerouted via shared factor parent
- * - REROUTE_RISK_TO_OUTCOME: risk→outcome edge rerouted via shared factor parent
- * - UNRESOLVABLE_FORBIDDEN_EDGE: Forbidden edge could not be rerouted (no factor parents found); left for LLM repair
+ * - REROUTE_OUTCOME_CHAIN / REROUTE_RISK_TO_OUTCOME / UNRESOLVABLE_FORBIDDEN_EDGE: RETIRED, no writer.
+ *   These links are legal and forwarded as drawn (R10, AI Quality #72 5872082179). The codes stay
+ *   declared so a consumer that still names them compiles; nothing emits them.
  *
  * ### Constraint transforms (F.6 Data Responsibility)
  * - STRIP_RAW_CONSTRAINT_FIELDS: Non-canonical CEE fields stripped before ISL

@@ -665,8 +665,10 @@ function buildBandedHeadline(
 
   if (gap < NEAR_TIE_THRESHOLD) {
     band = 'very_close';
-    // provisional_doctrine_v0
-    text = `${leader.label} leads, but the top options are very close.`;
+    // provisional_doctrine_v0 — R13 (AI Quality #72 5872071858): inside the near-tie band the gap
+    // is within Monte Carlo noise, so no leader is named. It used to read "X leads, but the top
+    // options are very close". The band and the leader/runner-up ids stay as data.
+    text = `Too close to call: ${leader.label} and ${runnerUp.label}.`;
   } else if (gap >= CLEARLY_AHEAD_GAP_THRESHOLD && robust) {
     band = 'clearly_ahead';
     // provisional_doctrine_v0 — strongest claim requires decisive gap AND robustness

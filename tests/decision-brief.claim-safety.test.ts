@@ -55,11 +55,36 @@ describe('headline_banded — band matrix', () => {
     const brief = assembleBrief(makeInput({ topWin: 0.52, secondWin: 0.48 }))!;
     expect(brief.headline_banded).toBeDefined();
     expect(brief.headline_banded!.band).toBe('very_close');
-    expect(brief.headline_banded!.text).toContain('very close');
     expect(brief.headline_banded!.text).not.toContain('clearly ahead');
     expect(brief.headline_banded!.text).not.toContain('slightly ahead');
     expect(brief.headline_banded!.win_probability_gap).toBeCloseTo(0.04, 10);
     expect(brief.headline_banded!.doctrine).toBe('provisional_doctrine_v0');
+  });
+
+  // R13 (AI Quality #72 5872071858, measured on eh4: gap 0.0175, near_tie.is_tie true, and the
+  // headline read "Continue as now leads, but the top options are very close"). Within the
+  // near-tie band the gap is inside Monte Carlo noise, so naming a leader claims what the run did
+  // not establish. The headline names BOTH options as too close to call, and never "X leads".
+  it('R13: gap < 0.10 → "Too close to call: X and Y", never "X leads"', () => {
+    const brief = assembleBrief(makeInput({ topWin: 0.52, secondWin: 0.48 }))!;
+    const h = brief.headline_banded!;
+    expect(h.text).toBe('Too close to call: Keep price and Raise price.');
+    expect(h.text).not.toMatch(/\bleads?\b|\bahead\b|\bwins?\b|\bbest\b/i);
+  });
+
+  it('R13: the near-tie headline names the top two by identity, whichever order they arrive in', () => {
+    const brief = assembleBrief(makeInput({ topWin: 0.47, secondWin: 0.53 }))!;
+    const h = brief.headline_banded!;
+    expect(h.band).toBe('very_close');
+    expect(h.text).toContain(h.leader_label);
+    expect(h.text).toContain(h.runner_up_label);
+    expect(h.text).not.toMatch(/\bleads?\b/i);
+  });
+
+  it('R13 contrast: a gap of 0.10 or more still names the leader ("slightly ahead")', () => {
+    const brief = assembleBrief(makeInput({ topWin: 0.56, secondWin: 0.44 }))!;
+    expect(brief.headline_banded!.band).toBe('slightly_ahead');
+    expect(brief.headline_banded!.text).toMatch(/is slightly ahead\.$/);
   });
 
   it('0.10 <= gap < 0.25 → slightly_ahead regardless of robustness', () => {
