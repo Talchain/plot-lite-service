@@ -369,6 +369,8 @@ describe('held-zero wording — "no uncertainty" only where no option reaches th
     `Olumi holds "${label}" at ${zero} with no uncertainty; give a range if it can vary.`;
   const START_HELD = (label: string, zero: string) =>
     `Olumi holds the starting level of "${label}" at ${zero} exactly; the options still move it.`;
+  const STILL_VARIES = (label: string, zero: string, parents: string) =>
+    `Olumi holds the starting level of "${label}" at ${zero} exactly; it still varies with ${parents}.`;
   const messagesByLabel = (nodes: EngineNodeV3[], options: OptionV3[], edges: EngineEdgeV3[]) =>
     Object.fromEntries(zeroFactorHeldWarnings(zeroFactorsHeldExact(nodes, options, edges)).map((w) => [w.node_label, w.message]));
 
@@ -399,19 +401,27 @@ describe('held-zero wording — "no uncertainty" only where no option reaches th
     });
   });
 
-  it('ONLY OPTIONS COUNT: a zero below an uncertain root no option reaches keeps "no uncertainty"; the SAME node reads "starting level" once one option sets that root', () => {
+  it('⭐ RED (AIQ #72 5872285581): a zero below an uncertain root no option reaches is NOT "no uncertainty" — it still varies with its parent; the SAME node reads "the options still move it" once one option sets that root', () => {
     const nodes = [factor('market_size', 0.6), factor('demand', 0), factor('zero_only', 0), factor('price', 0.3), factor('goal', 0.5)];
     const edges = [edge('market_size', 'demand'), edge('demand', 'goal'), edge('price', 'goal'), edge('zero_only', 'goal')];
     // `zero_only`: the options set it ONLY to 0 and nothing set feeds it — 0 in every option, so "no uncertainty" is true.
     const untouched = [option('a', { price: 0.4, zero_only: 0 }), option('b', { price: 0.2 })];
     expect(messagesByLabel(nodes, untouched, edges)).toEqual({
-      demand: NO_UNCERTAINTY('demand', '0'),
+      demand: STILL_VARIES('demand', '0', '"market_size"'),
       zero_only: NO_UNCERTAINTY('zero_only', '0'),
     });
     const setsTheRoot = [option('a', { price: 0.4, market_size: 0.9, zero_only: 0 }), option('b', { price: 0.2 })];
     expect(messagesByLabel(nodes, setsTheRoot, edges)).toEqual({
       demand: START_HELD('demand', '0'),
       zero_only: NO_UNCERTAINTY('zero_only', '0'),
+    });
+  });
+
+  it('two uncertain parents, no option → it still varies with both, named as a person lists them', () => {
+    const nodes = [factor('market_size', 0.6), factor('season', 0.4), factor('demand', 0), factor('price', 0.3), factor('goal', 0.5)];
+    const edges = [edge('season', 'demand'), edge('market_size', 'demand'), edge('demand', 'goal'), edge('price', 'goal')];
+    expect(messagesByLabel(nodes, [option('a', { price: 0.4 }), option('b', { price: 0.2 })], edges)).toEqual({
+      demand: STILL_VARIES('demand', '0', '"market_size" and "season"'),
     });
   });
 

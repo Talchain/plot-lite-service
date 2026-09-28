@@ -1227,6 +1227,11 @@ export interface ZeroFactorHeldExact {
    * it has "no uncertainty". False ⇒ nothing any option sets feeds it, and that sentence is the true one.
    */
   moved_by_options: boolean;
+  /**
+   * The factor's direct parents that carry an effect (the same DAG filter), by label — AIQ #72 5872285581: only a node
+   * with NO parents has "no uncertainty"; any node with parents varies, through the options or an uncertain ancestor.
+   */
+  parent_labels: string[];
 }
 
 /**
@@ -1254,6 +1259,9 @@ export function zeroFactorsHeldExact(
   const pinned = pinnedLeverIds(nodes, options);
   const optionSetIds = [...new Set(options.flatMap((o) => Object.keys(o.interventions ?? {})))];
   const adjacency = buildAdjacencyList([...edges]);
+  const labelOf = new Map(nodes.map((n) => [n.id, typeof n.label === 'string' && n.label !== '' ? n.label : n.id]));
+  const parentsOf = (id: string): string[] =>
+    [...new Set([...adjacency].filter(([, tos]) => tos.includes(id)).map(([from]) => labelOf.get(from) ?? from))].sort();
   const held: ZeroFactorHeldExact[] = [];
   for (const node of nodes) {
     const value = node.observed_state?.value;
@@ -1267,9 +1275,16 @@ export function zeroFactorsHeldExact(
       label: typeof node.label === 'string' && node.label !== '' ? node.label : node.id,
       ...(unit !== undefined && { unit }),
       moved_by_options: movedByOptions,
+      parent_labels: parentsOf(node.id),
     });
   }
   return held;
+}
+
+/** Quoted labels as a person lists them: "A", "A" and "B", "A", "B" and "C". */
+function sayLabels(labels: readonly string[]): string {
+  const q = labels.map((l) => `"${l}"`);
+  return q.length <= 1 ? (q[0] ?? '') : `${q.slice(0, -1).join(', ')} and ${q[q.length - 1]}`;
 }
 
 /** "£0" for a money unit, "0%" for a percent, "0 <unit>" otherwise, "0" with none — the held level as figures are said. */
@@ -1293,9 +1308,13 @@ export function formatHeldZero(unit: string | undefined): string {
 export function zeroFactorHeldWarnings(held: readonly ZeroFactorHeldExact[]): InferenceWarning[] {
   return held.map((h) => ({
     code: INFERENCE_WARNING_CODES.ZERO_FACTOR_HELD_EXACT,
+    // AIQ #72 5872285581: "no uncertainty" is true ONLY for a node with no parents; a reached node is moved by the options;
+    // an unreached node with parents still varies with them.
     message: h.moved_by_options
       ? `Olumi holds the starting level of "${h.label}" at ${formatHeldZero(h.unit)} exactly; the options still move it.`
-      : `Olumi holds "${h.label}" at ${formatHeldZero(h.unit)} with no uncertainty; give a range if it can vary.`,
+      : h.parent_labels.length > 0
+        ? `Olumi holds the starting level of "${h.label}" at ${formatHeldZero(h.unit)} exactly; it still varies with ${sayLabels(h.parent_labels)}.`
+        : `Olumi holds "${h.label}" at ${formatHeldZero(h.unit)} with no uncertainty; give a range if it can vary.`,
     severity: 'info' as const,
     node_label: h.label,
   }));
