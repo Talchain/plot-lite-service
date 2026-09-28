@@ -155,6 +155,12 @@ export type BriefAssemblyInput = Pick<RunResponseV3, 'analysis_status' | 'critiq
    * → caveat byte-identical to its pre-2.1247 shape.
    */
   flip_thresholds?: RunResponseV3['flip_thresholds'];
+  /**
+   * AIQ 5867389636 (additive, optional): ISL's per-factor EVPPI rows, the SAME array the response
+   * publishes at `factor_evppi` (verbatim passthrough) — `what_would_change` names a factor whose row
+   * is `status: 'resolved'`. Absent → no factor is named from it (absent is never zero).
+   */
+  factor_evppi?: RunResponseV3['factor_evppi'];
   response_hash?: string;
   meta: {
     seed_used: string;
@@ -473,37 +479,59 @@ function buildKeyAssumptions(input: BriefAssemblyInput): string[] {
     .slice(0, MAX_KEY_ASSUMPTIONS);
 }
 
+/**
+ * ⭐ ONLY WHAT WAS MEASURED TO CHANGE THE LEADER (AI Quality ruling olumi-programme-docs #72 5867389636;
+ * MG as PLoT owner, DL re-route 5867659507). Served P1: £59 won 100% of draws, decision EVPI = 0, every
+ * EVPPI below resolution, the one flip `no_effect_within_bounds` — and "What could change" still named
+ * "Existing customers grandfathered (+2 more)", because a Run with no fragile edge fell back to the
+ * top-|elasticity| STRUCTURAL drivers (14/14 banked robust Runs; in 10 nothing measurably changes the leader).
+ *
+ * In this order, each factor once: (1) fragile edges, as before; (2) factors with a FOUND flip threshold
+ * (`flip_reason === 'found'`, a finite `flip_value`); (3) factors whose EVPPI is above resolution
+ * (`status === 'resolved'`, the same test as CEE's `select-factor-evppi.ts`; ISL's status is the authority,
+ * so a tighter ISL gate — R3-B 5867716263 — flows through unchanged). Nothing measured → `[]`: the UI then
+ * omits the group and the Agent says CEE's `NO_SINGLE_ASSUMPTION`. Structural drivers stay in `top_drivers`,
+ * never relabelled. The A1b/A1c lever rule holds for every source: an option-pinned lever is never named.
+ */
 function buildWhatWouldChange(input: BriefAssemblyInput): string[] {
   // A1c: lever-id set from zero_reason (BriefAssemblyInput carries no interventionTargetIds).
   const leverIds = interventionOverrideFactorIds(input.factor_sensitivity ?? []);
-  // Primary: fragile edges — A1c excludes edges SOURCED from an option-pinned lever
-  // ("lever → X" here would imply the user can tune the pinned lever). Non-lever
-  // fragile edges are kept; if none remain, fall through to the (A1b-filtered) factor path.
+  const out: string[] = [];
+  const named = new Set<string>();
+  // (1) Fragile edges — A1c excludes edges SOURCED from an option-pinned lever ("lever → X" here would
+  // imply the user can tune the pinned lever). Non-lever fragile edges are kept.
   const fragileEdges = filterLeverSourcedFragileEdges(input.robustness?.fragile_edges ?? [], leverIds, (e) => e.from_id);
-  if (fragileEdges.length > 0) {
-    return fragileEdges
-      .map(e => {
-        const from = e.from_label?.trim() || e.from_id;
-        const to = e.to_label?.trim() || e.to_id;
-        return `${from} → ${to}`;
-      })
-      .filter(s => s.length > 0)
-      .slice(0, MAX_WHAT_WOULD_CHANGE);
+  for (const e of fragileEdges) {
+    const from = e.from_label?.trim() || e.from_id;
+    const to = e.to_label?.trim() || e.to_id;
+    const s = `${from} → ${to}`;
+    if (s.length === 0 || out.includes(s)) continue;
+    out.push(s);
+    if (e.from_id) named.add(e.from_id);
   }
-
-  // Fallback: factor_sensitivity labels (top drivers by |elasticity|)
-  // A1b: exclude intervention-controlled levers from this |elasticity|-ranked fallback.
-  const factors = filterInterventionOverrides(input.factor_sensitivity ?? []);
-  if (factors.length > 0) {
-    return factors
-      .filter(f => f.elasticity !== undefined && f.elasticity !== null)
-      .sort((a, b) => Math.abs(b.elasticity!) - Math.abs(a.elasticity!))
-      .map(f => f.factor_label?.trim() || f.factor_id)
-      .filter((label): label is string => !!label)
-      .slice(0, MAX_WHAT_WOULD_CHANGE);
+  const labelOf = new Map<string, string>();
+  for (const f of input.factor_sensitivity ?? []) {
+    const label = f.factor_label?.trim();
+    if (f.factor_id && label) labelOf.set(f.factor_id, label);
   }
-
-  return [];
+  const addFactor = (id: string | undefined, label: string | undefined): void => {
+    if (!id || leverIds.has(id) || named.has(id)) return;
+    const shown = label?.trim() || labelOf.get(id);
+    if (!shown || out.includes(shown)) return;
+    named.add(id);
+    out.push(shown);
+  };
+  // (2) Factors with a FOUND flip threshold.
+  for (const t of input.flip_thresholds ?? []) {
+    if (t.flip_reason === 'found' && typeof t.flip_value === 'number' && Number.isFinite(t.flip_value)) {
+      addFactor(t.factor_id, t.factor_label);
+    }
+  }
+  // (3) Factors whose EVPPI is above resolution, in the producer's order (EVPPI descending).
+  for (const row of input.factor_evppi ?? []) {
+    if (row?.status === 'resolved') addFactor(row.factor_id, labelOf.get(row.factor_id));
+  }
+  return out.slice(0, MAX_WHAT_WOULD_CHANGE);
 }
 
 function buildWarnings(input: BriefAssemblyInput, isPartial: boolean): BriefWarning[] {

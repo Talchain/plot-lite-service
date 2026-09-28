@@ -4366,6 +4366,9 @@ function buildResponse(
     // one variable, so the brief's robustness_caveat and the evidence it
     // cites can never come from two different runs.
     flip_thresholds: flipThresholds,
+    // AIQ 5867389636: the SAME factor_evppi rows the response passes through at top level, so
+    // "What could change" names only a factor ISL measured above resolution.
+    factor_evppi: Array.isArray(islResult?.factor_evppi) ? (islResult.factor_evppi as RunResponseV3['factor_evppi']) : undefined,
     response_hash: responseHash,
     // Track S: depth-aware brief lineage (config_version + lineage.n_samples).
     meta: { seed_used: meta.seedUsed, n_samples: meta.nSamples },

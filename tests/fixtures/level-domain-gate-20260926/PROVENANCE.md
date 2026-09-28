@@ -24,3 +24,8 @@ first run after the commit showed it moving and nothing else with it.
 Everything except the three hashes that canonicalise the ISL **request**
 (`response_hash`, `graph_hash`, `response_content_hash`): the request now
 carries `level_domain`, so they move by design. The row asserts they move.
+
+**Hand-edited 28 Sep 2026 (PLoT #388, AIQ #72 5867389636, not re-recorded):** `decision_brief.what_would_change`
+`["Monthly logo churn", "Annual delivery cost"]` → `[]`. This older-ISL capture carries no fragile edge, no found flip
+and no resolved `factor_evppi`, so nothing was MEASURED to change the leader. No other field moved (the CONTROL test's
+full-body equality is the proof).

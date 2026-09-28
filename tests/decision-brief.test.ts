@@ -690,7 +690,8 @@ describe('assembleBrief — what_would_change', () => {
     expect(result?.what_would_change[0]).toBe('node_a → node_b');
   });
 
-  it('falls back to factor_sensitivity labels when no fragile edges', () => {
+  // AIQ #72 5867389636: no |elasticity| fallback — structural drivers are not "what could change".
+  it('names nothing from factor_sensitivity alone when no fragile edges (nothing measured)', () => {
     const result = assembleBrief({
       analysis_status: 'computed',
       critiques: [],
@@ -702,7 +703,8 @@ describe('assembleBrief — what_would_change', () => {
       ] as any[],
       meta: { seed_used: '1' },
     });
-    expect(result?.what_would_change).toEqual(['Market Size', 'Competition']);
+    expect(result?.what_would_change).toEqual([]);
+    expect(result?.top_drivers.map((d) => d.factor_label)).toEqual(['Market Size', 'Competition']);
   });
 
   it('returns empty when no fragile edges and no factor_sensitivity', () => {

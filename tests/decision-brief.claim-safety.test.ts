@@ -280,12 +280,19 @@ describe('claim-safety wording invariants', () => {
   });
 
   it('CLAIM SAFETY: pinned levers stay out of top_drivers and what_would_change with the new surfaces active', () => {
-    const brief = assembleBrief(makeInput({
-      factor_sensitivity: [
-        { factor_id: 'lever', factor_label: 'Price', elasticity: 0.9, zero_reason: 'intervention_override' },
-        { factor_id: 'f1', factor_label: 'Market Size', elasticity: 0.5 },
-      ],
-    }))!;
+    const brief = assembleBrief({
+      ...makeInput({
+        factor_sensitivity: [
+          { factor_id: 'lever', factor_label: 'Price', elasticity: 0.9, zero_reason: 'intervention_override' },
+          { factor_id: 'f1', factor_label: 'Market Size', elasticity: 0.5 },
+        ],
+      }),
+      // AIQ #72 5867389636: what_would_change names only a MEASURED change, so both carry a found flip.
+      flip_thresholds: [
+        { factor_id: 'lever', factor_label: 'Price', current_value: 1, flip_value: 2, flip_reason: 'found' },
+        { factor_id: 'f1', factor_label: 'Market Size', current_value: 1, flip_value: 2, flip_reason: 'found' },
+      ] as any,
+    })!;
     expect(brief.top_drivers.map((d) => d.factor_label)).toEqual(['Market Size']);
     expect(brief.what_would_change).toEqual(['Market Size']);
   });
