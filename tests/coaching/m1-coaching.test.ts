@@ -343,6 +343,8 @@ describe('B3: Model Critiques', () => {
       ],
       fragileEdges: [],
       robustness: {},
+      // R5-2: DOMINANT_FACTOR names only a factor whose EVPPI ISL MEASURED (#389's gate).
+      resolvedEvppiFactorIds: new Set(['f1']),
     };
 
     const critiques = generateCritiques(inputs);
@@ -1325,6 +1327,8 @@ describe('Task 4: Severity Triage', () => {
       ],
       fragileEdges: [],
       robustness: {},
+      // R5-2: DOMINANT_FACTOR names only a factor whose EVPPI ISL MEASURED (#389's gate).
+      resolvedEvppiFactorIds: new Set(['f1']),
     };
 
     const critiques = generateCritiques(inputs);

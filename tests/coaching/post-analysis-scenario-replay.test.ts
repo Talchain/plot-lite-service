@@ -248,7 +248,10 @@ describe('Scenario C — Staging-derived near-tie (PR #174 + driver direction pr
   it('executive summary uses cautious near-tie wording; no banned phrases', () => {
     const summary = generateExecutiveSummary(nearTieInputs, 'close_call', 'close_call', nearTieKeyDrivers, nearTieGaps);
     expectNoBannedPhrasing(summary.summary);
-    expect(summary.summary).toContain('Hire One Tech Lead edges ahead');
+    // R13 (AIQ #72 5872888088): a 0.0005 gap is a near tie, so no leader is named. This row pinned
+    // "Hire One Tech Lead edges ahead" by 0 points, which is the defect.
+    expect(summary.summary).toContain('Too close to call: Hire One Tech Lead and Hire Two Developers.');
+    expect(summary.summary).not.toMatch(/edges ahead|\bleads?\b/);
     // Was `toContain('recommendation stability')`, which pinned a leak: the
     // summary carried the WITHHELD figure ("the 59% recommendation stability
     // indicates…"). The quantity is not published as a field, so it may not be
@@ -339,7 +342,8 @@ describe('Scenario C — Staging-derived near-tie (PR #174 + driver direction pr
     expect(brief!.headline.toLowerCase()).not.toContain('robust and ready');
     expect(brief!.headline.toLowerCase()).not.toContain('ready to proceed');
     // Headline must include cautious near-tie wording sourced from the
-    // PR #174-gated executive_summary.
-    expect(brief!.headline).toContain('edges ahead');
+    // PR #174-gated executive_summary. R13: on this 0.0005 gap that wording names no leader.
+    expect(brief!.headline).toContain('Too close to call');
+    expect(brief!.headline).not.toContain('edges ahead');
   });
 });

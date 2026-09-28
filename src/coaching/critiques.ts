@@ -4,7 +4,7 @@
  * Surfaces structural issues that may affect decision quality.
  */
 
-import type { CoachingInputs, Critique } from './types.js';
+import { evidenceAdviceMayName, type CoachingInputs, type Critique } from './types.js';
 import { getThresholds } from './thresholds.js';
 import { isInterventionOverride, filterInterventionOverrides } from './sensitivity-filter.js';
 
@@ -58,6 +58,11 @@ function checkDominantFactor(inputs: CoachingInputs, thresholds: ReturnType<type
   );
 
   if (!dominant) return null;
+  // ⭐ R5-2 (#388's engine-fact gate, AIQ 5866850180; R&C builds R5, MG 5871363476). The share above is in the
+  // model's normalised units, so it moves with a node's scale frame: AIQ's contract run F doubled one frame and this
+  // critique appeared with nothing the user said changed (#72 5868664986). Name the factor only when ISL MEASURED its
+  // weight on the decision (`factor_evppi` resolved), which is computed on win outcomes and does not move with a frame.
+  if (!evidenceAdviceMayName(inputs, dominant.node_id)) return null;
 
   return {
     type: 'DOMINANT_FACTOR',

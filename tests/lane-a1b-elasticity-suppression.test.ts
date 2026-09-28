@@ -243,7 +243,8 @@ describe('A1b — checkDominantFactor excludes intervention_override levers', ()
       normFactor({ node_id: 'fac_time_pressure', label: NONLEVER, elasticity: 10, importance_rank: 1, influence_score: 1, direction: 'negative' }),
       normFactor({ node_id: 'fac_team_size', label: 'Existing Team Size', elasticity: 0.1, importance_rank: 2, influence_score: 0.1, direction: 'positive' }),
     ];
-    const dom = dominantCritique(coachingInputs(factors));
+    // R5-2: DOMINANT_FACTOR names a factor only when ISL MEASURED its EVPPI (#389's gate), so the dominant one is measured here.
+    const dom = dominantCritique({ ...coachingInputs(factors), resolvedEvppiFactorIds: new Set(['fac_time_pressure']) });
     expect(dom, 'DOMINANT_FACTOR fires for a real non-lever dominance').toBeDefined();
     expect(dom!.targets).toContain('fac_time_pressure');
   });

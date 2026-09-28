@@ -519,105 +519,105 @@
         "action": "clamped",
         "from_value": 0.01,
         "to_value": 0.05,
-        "reason": "Value exceeded valid range [0.05, 0.4]"
+        "reason": "Value below minimum 0.05"
       },
       {
         "field": "edge.strength.std",
         "action": "clamped",
         "from_value": 0.01,
         "to_value": 0.05,
-        "reason": "Value exceeded valid range [0.05, 0.4]"
+        "reason": "Value below minimum 0.05"
       },
       {
         "field": "edge.strength.std",
         "action": "clamped",
         "from_value": 0.01,
         "to_value": 0.05,
-        "reason": "Value exceeded valid range [0.05, 0.4]"
+        "reason": "Value below minimum 0.05"
       },
       {
         "field": "edge.strength.std",
         "action": "clamped",
         "from_value": 0.01,
         "to_value": 0.05,
-        "reason": "Value exceeded valid range [0.05, 0.4]"
+        "reason": "Value below minimum 0.05"
       },
       {
         "field": "edge.strength.std",
         "action": "clamped",
         "from_value": 0.01,
         "to_value": 0.05,
-        "reason": "Value exceeded valid range [0.05, 0.4]"
+        "reason": "Value below minimum 0.05"
       },
       {
         "field": "edge.strength.std",
         "action": "clamped",
         "from_value": 0.01,
         "to_value": 0.05,
-        "reason": "Value exceeded valid range [0.05, 0.4]"
+        "reason": "Value below minimum 0.05"
       },
       {
         "field": "edge.strength.std",
         "action": "clamped",
         "from_value": 0.01,
         "to_value": 0.05,
-        "reason": "Value exceeded valid range [0.05, 0.4]"
+        "reason": "Value below minimum 0.05"
       },
       {
         "field": "edge.strength.std",
         "action": "clamped",
         "from_value": 0.01,
         "to_value": 0.05,
-        "reason": "Value exceeded valid range [0.05, 0.4]"
+        "reason": "Value below minimum 0.05"
       },
       {
         "field": "edge.strength.std",
         "action": "clamped",
         "from_value": 0.01,
         "to_value": 0.05,
-        "reason": "Value exceeded valid range [0.05, 0.4]"
+        "reason": "Value below minimum 0.05"
       },
       {
         "field": "edge.strength.std",
         "action": "clamped",
         "from_value": 0.01,
         "to_value": 0.05,
-        "reason": "Value exceeded valid range [0.05, 0.4]"
+        "reason": "Value below minimum 0.05"
       },
       {
         "field": "edge.strength.std",
         "action": "clamped",
         "from_value": 0.01,
         "to_value": 0.05,
-        "reason": "Value exceeded valid range [0.05, 0.4]"
+        "reason": "Value below minimum 0.05"
       },
       {
         "field": "edge.strength.std",
         "action": "clamped",
         "from_value": 0.01,
         "to_value": 0.05,
-        "reason": "Value exceeded valid range [0.05, 0.4]"
+        "reason": "Value below minimum 0.05"
       },
       {
         "field": "edge.strength.std",
         "action": "clamped",
         "from_value": 0.01,
         "to_value": 0.05,
-        "reason": "Value exceeded valid range [0.05, 0.4]"
+        "reason": "Value below minimum 0.05"
       },
       {
         "field": "edge.strength.std",
         "action": "clamped",
         "from_value": 0.01,
         "to_value": 0.05,
-        "reason": "Value exceeded valid range [0.05, 0.4]"
+        "reason": "Value below minimum 0.05"
       },
       {
         "field": "edge.strength.std",
         "action": "clamped",
         "from_value": 0.01,
         "to_value": 0.05,
-        "reason": "Value exceeded valid range [0.05, 0.4]"
+        "reason": "Value below minimum 0.05"
       }
     ],
     "request_id": "d495f0e9-bf4f-4add-ab6b-8878450ab92e",

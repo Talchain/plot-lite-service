@@ -21,7 +21,7 @@
  * - CLAMP_STRENGTH_MEAN: `strength.mean` outside [-1,1], clamped
  * - DEFAULT_STRENGTH_STD: Missing `strength.std` derived from mean+belief
  * - INVALID_STRENGTH_STD: Non-numeric `strength.std` replaced with derived value
- * - CLAMP_STRENGTH_STD: `strength.std` outside [floor, 0.4], clamped
+ * - CLAMP_STRENGTH_STD: `strength.std` below its floor, raised to the floor (no ceiling: AIQ #72 5869431686 §2)
  * - FLOOR_STRENGTH_STD: `strength.std` below ISL minimum, floored
  * - DERIVE_STD_FROM_BELIEF_STRENGTH: `strength.std` derived from `belief_strength`
  * - INFER_EFFECT_DIRECTION: Effect direction inferred from source node kind

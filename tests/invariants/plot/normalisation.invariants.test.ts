@@ -22,7 +22,7 @@ import type { EngineGraphV3 } from '../../../src/types/engine-v3.js';
 const DEFAULT_EXISTS_PROBABILITY = 0.8;
 const MIN_STD = 0.0011;
 const STD_RANGE_MIN = 0.05;
-const STD_RANGE_MAX = 0.4;
+// No STD_RANGE_MAX: PLoT does not ceiling an edge's std (AIQ ruling, olumi-programme-docs#72 5869431686 §2).
 
 // -----------------------------------------------------------------------------
 // INV-NORM-01: exists_probability bounded [0, 1]
@@ -125,17 +125,22 @@ describe('INV-NORM-02: strength.mean bounded [-1, 1]', () => {
 });
 
 // -----------------------------------------------------------------------------
-// INV-NORM-03: strength.std bounded [MIN_STD, STD_RANGE_MAX]
+// INV-NORM-03: strength.std floored, never ceilinged
+// RE-PINNED to the SPEC (AIQ olumi-programme-docs#72 5869431686 §2): the 0.4 ceiling is removed — it cut CEE's own
+// std 0.5 at |mean| 1 by 20% (served A price twin: pro_plan_price::mrr 0.5 → 0.4). ISL needs only std > 0.001; the
+// floors (causal D12, structural 0.01, ISL 0.0011) are unchanged. Was: 'clamps strength.std above 0.4 to 0.4'.
 // -----------------------------------------------------------------------------
-describe('INV-NORM-03: strength.std bounded [0.001, 0.4]', () => {
-  it('clamps strength.std above 0.4 to 0.4', () => {
+describe('INV-NORM-03: strength.std floored at MIN_STD or above, with no ceiling', () => {
+  it('keeps a strength.std above 0.4 as stated, with no CLAMP_STRENGTH_STD repair', () => {
+    const warnings: any[] = [];
     const edge = normaliseEdge(
       { from: 'A', to: 'B', strength: { mean: 0.5, std: 0.8 } },
       0,
       new Map(),
-      []
+      warnings
     );
-    expect(edge.strength.std).toBe(STD_RANGE_MAX);
+    expect(edge.strength.std).toBe(0.8);
+    expect(warnings.filter(w => w.code === REPAIR_CODES.CLAMP_STRENGTH_STD)).toEqual([]);
   });
 
   it('clamps causal edge strength.std below 0.05 to 0.05', () => {
@@ -450,10 +455,12 @@ describe('INV-NORM-08: Repair records contain correct structure', () => {
     });
   });
 
+  // RE-PINNED (AIQ olumi-programme-docs#72 5869431686 §2): with no ceiling, the only std clamp is the floor, so the
+  // record is pinned on a floor clamp. Was {0.5, 0.8} → 0.4, 'Value exceeded valid range [0.05, 0.4]'.
   it('clamped strength.std has correct from/to values', () => {
     const warnings: any[] = [];
     normaliseEdge(
-      { from: 'A', to: 'B', strength: { mean: 0.5, std: 0.8 } },
+      { from: 'A', to: 'B', strength: { mean: 0.5, std: 0.01 } },
       0,
       new Map(),
       warnings
@@ -467,9 +474,9 @@ describe('INV-NORM-08: Repair records contain correct structure', () => {
     expect(repairWarning.repair).toEqual({
       field: 'edge.strength.std',
       action: 'clamped',
-      from_value: 0.8,
-      to_value: 0.4,
-      reason: 'Value exceeded valid range [0.05, 0.4]',
+      from_value: 0.01,
+      to_value: 0.05,
+      reason: 'Value below minimum 0.05',
     });
   });
 

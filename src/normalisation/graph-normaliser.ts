@@ -94,7 +94,9 @@ const DEFAULT_WEIGHT = 0.5;
 const MIN_STD = 0.0011;          // ISL minimum (technical requirement): the smallest floor ISL accepts
 const STD_RANGE_MIN = 0.05;      // Causal edge floor (epistemic uncertainty)
 const STRUCTURAL_STD_MIN = 0.01; // Structural edge floor (definitional edges)
-const STD_RANGE_MAX = 0.4;
+// NO std CEILING (AIQ ruling, olumi-programme-docs#72 5869431686 §2). A 0.4 ceiling here cut CEE's own std 0.5 at
+// |mean| 1 (6 distinct served edges, e.g. churn -> subscribers -1 +/- 0.5) by 20%, so the answer looked more certain than
+// the model believes. ISL needs only std > 0.001; the floors above stay.
 
 // -----------------------------------------------------------------------------
 // Utility Functions
@@ -908,7 +910,8 @@ export function normaliseEdge(
     const effectiveMinStd = isStructural
       ? STRUCTURAL_STD_MIN
       : Math.min(STD_RANGE_MIN, Math.max(MIN_STD, Math.abs(mean) / 2));
-    const clampedStd = clamp(std, effectiveMinStd, STD_RANGE_MAX);
+    // Floor only: a stated spread above the floor reaches ISL as stated (no ceiling, AIQ 5869431686 §2).
+    const clampedStd = Math.max(std, effectiveMinStd);
     if (clampedStd !== std) {
       pushRepairWarning(
         REPAIR_CODES.CLAMP_STRENGTH_STD,
@@ -918,7 +921,7 @@ export function normaliseEdge(
           action: 'clamped',
           from_value: std,
           to_value: clampedStd,
-          reason: `Value exceeded valid range [${effectiveMinStd}, ${STD_RANGE_MAX}]`,
+          reason: `Value below minimum ${effectiveMinStd}`,
         }
       );
     }

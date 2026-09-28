@@ -568,7 +568,9 @@ describe('Preflight Validation', () => {
   });
 
   describe('SCALE_MISMATCH_WARNING', () => {
-    it('emits warning when intervention values span wide range (ratio > 100)', () => {
+    // R5-3 (R&C, MG #72 5871363476): RETIRED. The normaliser reads each intervention on its own factor's range, so
+    // a cross-factor ratio is never an engine fact (tests/r5-3-scale-mismatch-retired.test.ts).
+    it('R5-3: a 180,000× cross-factor span raises NO scale-mismatch warning (retired)', () => {
       const optionsWithMixedScales = [
         {
           id: 'opt1',
@@ -588,16 +590,8 @@ describe('Preflight Validation', () => {
 
       const result = runPreflightValidation(validGraph, optionsWithMixedScales, 'goal', defaultStats);
 
-      // Should pass (warning doesn't block)
       expect(result.passed).toBe(true);
-      // Should have scale mismatch warning
-      expect(result.warnings.some(w => w.code === 'SCALE_MISMATCH_WARNING')).toBe(true);
-
-      const warning = result.warnings.find(w => w.code === 'SCALE_MISMATCH_WARNING');
-      expect(warning?.severity).toBe('warning');
-      expect(warning?.blocks_analysis).toBe(false);
-      expect(warning?.message).toContain('180,000');  // Ratio should be ~180,000
-      expect(warning?.suggestion).toBeDefined();
+      expect(result.warnings.some(w => w.code === 'SCALE_MISMATCH_WARNING')).toBe(false);
     });
 
     it('does NOT emit warning when ratio is small (< 100)', () => {
@@ -670,64 +664,7 @@ describe('Preflight Validation', () => {
       expect(result.warnings.some(w => w.code === 'SCALE_MISMATCH_WARNING')).toBe(false);
     });
 
-    it('handles nested intervention format', () => {
-      const optionsNested: OptionV3[] = [
-        {
-          id: 'opt1',
-          label: 'Option 1',
-          interventions: {
-            'factor-a': { value: 1, source: 'user_specified' },
-          },
-        },
-        {
-          id: 'opt2',
-          label: 'Option 2',
-          interventions: {
-            'factor-b': { value: 500, source: 'user_specified' },  // 500x ratio > 100
-          },
-        },
-      ];
 
-      const result = runPreflightValidation(validGraph, optionsNested, 'goal', defaultStats);
-
-      expect(result.warnings.some(w => w.code === 'SCALE_MISMATCH_WARNING')).toBe(true);
-    });
-
-    it('uses absolute values for ratio calculation (handles negatives)', () => {
-      const optionsWithNegatives = [
-        {
-          id: 'opt1',
-          label: 'Option 1',
-          interventions: {
-            'factor-a': -1,
-          },
-        },
-        {
-          id: 'opt2',
-          label: 'Option 2',
-          interventions: {
-            'factor-b': 200,  // |200| / |-1| = 200 > 100
-          },
-        },
-      ] as OptionV3[];
-
-      const result = runPreflightValidation(validGraph, optionsWithNegatives, 'goal', defaultStats);
-
-      expect(result.warnings.some(w => w.code === 'SCALE_MISMATCH_WARNING')).toBe(true);
-    });
-
-    it('emits only ONE warning per request (not per option)', () => {
-      const optionsMultiple = [
-        { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': 1 } },
-        { id: 'opt2', label: 'Option 2', interventions: { 'factor-a': 1000 } },
-        { id: 'opt3', label: 'Option 3', interventions: { 'factor-b': 100000 } },
-      ] as OptionV3[];
-
-      const result = runPreflightValidation(validGraph, optionsMultiple, 'goal', defaultStats);
-
-      const scaleWarnings = result.warnings.filter(w => w.code === 'SCALE_MISMATCH_WARNING');
-      expect(scaleWarnings).toHaveLength(1);  // Only one warning, not multiple
-    });
   });
 
   describe('Full validation pass', () => {
