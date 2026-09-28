@@ -34,6 +34,7 @@ import type {
   ISLEdgeSensitivityV2,
   ISLRangeFitDisclosure,
   ISLRobustnessAnalyzeV2Response,
+  ISLStructuralInfluenceEntry,
 } from './types/isl-types.js';
 import type { IdentityEvaluationV3 } from '../../types/engine-v3.js';
 
@@ -131,6 +132,21 @@ export function getIslIdentityEvaluations(
 ): IdentityEvaluationV3[] | undefined {
   const evaluations = islResult?.identity_evaluations;
   if (Array.isArray(evaluations)) return evaluations;
+  return undefined;
+}
+
+/**
+ * Read ISL's every-factor structural influence (R3-5, ISL `StructuralInfluence`, DL #72 5872746926).
+ *
+ * TOP-LEVEL on the V2 envelope, PRESENT only when ISL evaluated an identity. Returned VERBATIM;
+ * `adoptIslStructuralInfluence` decides whether it is complete enough to publish. `undefined` when ISL
+ * omitted the key (no evaluated identity, or an ISL build before the list) or sent a non-array.
+ */
+export function getIslStructuralInfluence(
+  islResult: Partial<ISLRobustnessAnalyzeV2Response> | null | undefined,
+): ISLStructuralInfluenceEntry[] | undefined {
+  const rows = islResult?.structural_influence;
+  if (Array.isArray(rows)) return rows;
   return undefined;
 }
 
