@@ -377,6 +377,12 @@ export interface EngineNodeV3 {
   };
   /** R3 B2: the node is exactly `operation` of `factor_ids` (validated at ingress). */
   nonlinear_identity?: NonlinearIdentity;
+  /**
+   * R1 S3 (@talchain/schemas 0.61.0 `QuantityFrame`): what this node's value measures. `change`
+   * means the value IS a change from today. Absent = `level`. Olumi's reading, stamped by CEE;
+   * PLoT validates it against the contract enum and forwards it, never mints it.
+   */
+  quantity_frame?: 'level' | 'change';
 }
 
 /**

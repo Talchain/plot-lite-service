@@ -37,7 +37,7 @@ import { buildAdjacencyList, checkPathToGoal } from '../../validation/path-to-go
 // 0.32.0 ever adds a third frame, this file widens with it instead of silently
 // rejecting the new token — the hand-maintained-mirror defect class (the
 // dominant one in this estate) cannot arise here by construction.
-import { GoalThresholdFrame, type GoalThresholdFrameType } from '@talchain/schemas';
+import { GoalThresholdFrame, type GoalThresholdFrameType, type QuantityFrameType } from '@talchain/schemas';
 
 /**
  * The frame a `goal_threshold` is stated in, as the shared contract defines it.
@@ -136,6 +136,13 @@ export interface ISLNodeV3 {
      */
     source?: string;
     extractionType?: string;
+    /**
+     * R1 S3 (wire R3 #72 5872798858): WHOSE base this node's `baseline` is — `user` or `olumi`.
+     * DERIVED by PLoT from `source` (`baselineOwnerOf`), never copied from upstream, and attached
+     * ONLY to a `change_rel` target (`attachChangeFrameTargetFacts`), the one place ISL reads it
+     * (a relative change is `scored` on the user's base and `estimate_only` otherwise).
+     */
+    baseline_owner?: BaselineOwner;
   };
   intercept?: number;
   epsilon_std?: number;
@@ -153,6 +160,67 @@ export interface ISLNodeV3 {
    * (`identity_frame_missing`), never infers one.
    */
   execution_frame?: { frame: number; carrier: NodeFrameCarrier };
+  /**
+   * R1 S3 (@talchain/schemas 0.61.0): what the node's value measures, forwarded by presence from
+   * the canonical node. Absent = `level`; so a request no producer typed is byte-identical.
+   */
+  quantity_frame?: QuantityFrameType;
+  /**
+   * R1 S3 (wire R3 #72 5872798858): the RAW bounds this node's normalised values are read on —
+   * `v_n = (v − min)/(max − min)`. Sent ONLY on a `change_rel` target whose limits all resolved
+   * the same real range (`attachChangeFrameTargetFacts`); ISL needs it to turn `r` into a change
+   * on the sample scale. Absent ⇒ ISL refuses the relative change by name; PLoT never guesses
+   * `min = 0`.
+   */
+  raw_range?: { min: number; max: number };
+}
+
+/** R1 S3: whose base a node's `observed_state.baseline` is (R3 #72 5872798858). */
+export type BaselineOwner = 'user' | 'olumi';
+
+/**
+ * R1 S3 — WHOSE base, read from the observed-state `source` (@talchain/schemas
+ * `OBSERVED_STATE_SOURCE_LITERALS`, and the schemas 0.61.0 rule on `change_rel`: "WHOSE base it is
+ * comes from that stamp's `source`"). The user's words or edits → `user`; Olumi's estimate or
+ * repair → `olumi`. Anything else — `user_assumption` (reserved), an unknown literal, absent — is
+ * UNKNOWN and returns undefined: ISL then reads the base as not the user's (`estimate_only`), the
+ * fail-safe direction (R3 5872798858).
+ */
+const USER_BASELINE_SOURCES: ReadonlySet<string> = new Set([
+  'brief_extraction', 'explicit', 'user_override', 'user_confirmed', 'user', 'user_edited',
+  'user_calibration', 'panel_elicited',
+]);
+const OLUMI_BASELINE_SOURCES: ReadonlySet<string> = new Set(['cee_inference', 'inferred', 'cee_repair']);
+export function baselineOwnerOf(source: unknown): BaselineOwner | undefined {
+  if (typeof source !== 'string') return undefined;
+  if (USER_BASELINE_SOURCES.has(source)) return 'user';
+  if (OLUMI_BASELINE_SOURCES.has(source)) return 'olumi';
+  return undefined;
+}
+
+/**
+ * R1 S3 — attach what ISL needs to resolve a `change_rel` target, to THAT target only.
+ *
+ * `targetNodeIds` = every node a `change_rel` goal or limit targets. On each: `raw_range` when
+ * `rawRangeByNodeId` holds one agreed real range for it, and `observed_state.baseline_owner` from
+ * the canonical node's `source`. Every other node is untouched, so a request with no relative
+ * change sends a byte-identical ISL body (the `attachIdentityExecutionFrames` pattern).
+ */
+export function attachChangeFrameTargetFacts(
+  islNodes: ISLNodeV3[],
+  engineNodes: readonly EngineNodeV3[],
+  rawRangeByNodeId: ReadonlyMap<string, { min: number; max: number }>,
+  targetNodeIds: ReadonlySet<string>,
+): void {
+  if (targetNodeIds.size === 0) return;
+  const engineById = new Map(engineNodes.map((node) => [node.id, node]));
+  for (const node of islNodes) {
+    if (!targetNodeIds.has(node.id)) continue;
+    const range = rawRangeByNodeId.get(node.id);
+    if (range !== undefined) node.raw_range = { min: range.min, max: range.max };
+    const owner = baselineOwnerOf(engineById.get(node.id)?.observed_state?.source);
+    if (owner !== undefined && node.observed_state !== undefined) node.observed_state.baseline_owner = owner;
+  }
 }
 
 /**
@@ -731,9 +799,12 @@ export const ISL_DECLARED_OBSERVED_STATE_FIELDS = [
  * — the exact failure this pin exists to prevent, in the quieter direction.
  * Resolves to `never` (and so fails to compile) the moment the two diverge.
  */
+// `baseline_owner` is the one DERIVED member (R1 S3): PLoT computes it from `source` on a
+// `change_rel` target (`attachChangeFrameTargetFacts`) and never projects an upstream copy, so it
+// is excluded from the projection list by name — not by omission.
 type _ObservedStateFieldsAreExhaustive = Exclude<
   DeclaredObservedStateKey,
-  (typeof ISL_DECLARED_OBSERVED_STATE_FIELDS)[number]
+  (typeof ISL_DECLARED_OBSERVED_STATE_FIELDS)[number] | 'baseline_owner'
 > extends never
   ? true
   : never;
@@ -960,6 +1031,7 @@ export function toISLNode(node: EngineNodeV3): ISLNodeV3 {
           },
         }
       : {}),
+    ...(node.quantity_frame !== undefined ? { quantity_frame: node.quantity_frame } : {}),
   };
 }
 
