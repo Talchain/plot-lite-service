@@ -56,14 +56,19 @@ import { isOptionControlledLever } from './intervention-override.js';
  * - `'isl_uncertainty'` — the graph path returned nothing and the ISL fallback
  *   fired, so the rank is ISL's own Monte-Carlo uncertainty-importance ordering,
  *   passed through verbatim.
+ * - `'isl_structural'` — the graph path ran, but EVERY row's influence was
+ *   adopted from ISL's `structural_influence` (`adoptIslStructuralInfluence`:
+ *   the expected NET effect, AIQ #72 5875853496), and the rows were re-ordered by
+ *   it. PLoT's walk did not produce this rank (Codex CR #405 5878707888).
  *
  * In BOTH cases option-controlled levers are ordered last — see
  * `applyLeverAwareImportanceOrder`.
  */
-export type ImportanceBasis = 'graph_structural' | 'isl_uncertainty';
+export type ImportanceBasis = 'graph_structural' | 'isl_uncertainty' | 'isl_structural';
 
 export const IMPORTANCE_BASIS_GRAPH: ImportanceBasis = 'graph_structural';
 export const IMPORTANCE_BASIS_ISL: ImportanceBasis = 'isl_uncertainty';
+export const IMPORTANCE_BASIS_ISL_STRUCTURAL: ImportanceBasis = 'isl_structural';
 
 /** Minimal shape the ordering reads. Matches `FactorSensitivityResultV3`. */
 interface RankableFactor {

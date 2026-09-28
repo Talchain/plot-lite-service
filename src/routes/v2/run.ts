@@ -165,6 +165,7 @@ import {
   applyLeverAwareImportanceOrder,
   IMPORTANCE_BASIS_GRAPH,
   IMPORTANCE_BASIS_ISL,
+  IMPORTANCE_BASIS_ISL_STRUCTURAL,
 } from '../../lib/importance-authority.js';
 import { buildDriverOrder, readIslSuppressedAttributions } from '../../lib/driver-order.js';
 import {
@@ -8642,17 +8643,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             filteredGraph.edges,
             structuralLeverIds,
           );
-          // R3-5 (DL #72 5872746926): under an evaluated identity the published influence is ISL's
-          // every-factor structural influence — the walk above ignores the identity. Same array back,
-          // untouched, when no identity was evaluated.
+          // R3-5 + ONE influence algorithm (AIQ #72 5872951506): the published influence is ISL's
+          // every-factor structural influence on every graph; the walk above stays only as the
+          // disclosed fallback (`graph_walk`) when ISL's list cannot cover every row.
           factorSensitivity = adoptIslStructuralInfluence(
             factorSensitivity,
             getIslStructuralInfluence(islResult),
-            getIslIdentityEvaluations(islResult),
           );
           if (factorSensitivity[0]?.influence_basis === 'graph_walk') {
             req.log.warn({
-              event: 'influence_identity_basis_graph_walk',
+              event: 'influence_basis_graph_walk',
               request_id: requestId,
               structural_influence_rows: getIslStructuralInfluence(islResult)?.length ?? null,
               factor_rows: factorSensitivity.length,
@@ -8706,9 +8706,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // without the basis. 'graph_structural' on the primary path;
           // 'isl_uncertainty' when the graph path returned nothing and ISL's own
           // Monte-Carlo importance order is what is published.
+          // 'isl_structural' when EVERY row was adopted from ISL's structural
+          // influence (the rank follows it; Codex CR #405 5878707888).
           const importanceBasis = factorSensitivitySource === 'isl'
             ? IMPORTANCE_BASIS_ISL
-            : IMPORTANCE_BASIS_GRAPH;
+            : factorSensitivity.length > 0 && factorSensitivity.every((f) => f.influence_basis === 'isl_structural')
+              ? IMPORTANCE_BASIS_ISL_STRUCTURAL
+              : IMPORTANCE_BASIS_GRAPH;
           for (const f of factorSensitivity) {
             f.importance_basis = importanceBasis;
           }
