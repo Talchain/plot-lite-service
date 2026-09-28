@@ -80,6 +80,17 @@ export function rangesEqual(a: NormalisationRange, b: NormalisationRange): boole
 }
 
 /**
+ * True iff `r` is a node's OWN frame as `deriveRange` rung 1.6 mints it:
+ * `[0, frame]` read off the raw node's `scale_frame` or its `{value, raw_value}`
+ * pair (`resolveNodeFrame`). Those two sources are minted at rung 1.6 and
+ * nowhere else, and the frame is the one the node's `observed_state` level is
+ * stated on. Read by `collectInterventionsForwardedAsStated` (DL 5861214582).
+ */
+export function isNodeOwnFrameRange(r: NormalisationRange): boolean {
+  return (r.source === 'scale_frame' || r.source === 'pair_frame') && r.min === 0;
+}
+
+/**
  * Intervention hints from CE (Context Engine).
  * Used to provide additional metadata for normalisation.
  */
@@ -1045,13 +1056,39 @@ export function needsNormalisation(options: OptionV3[]): boolean {
  *   - Phase 4a did not run (no diagnostics: every value was already in [0,1]
  *     and `optionsForISL` IS the stated options); or
  *   - every diagnostic for it has an IDENTITY scale (`isIdentityRange`) and did
- *     not clamp — `(v − 0) / (1 − 0)` is `v` exactly.
+ *     not clamp — `(v − 0) / (1 − 0)` is `v` exactly; or
+ *   - every diagnostic for it is on the node's OWN frame (`isNodeOwnFrameRange`)
+ *     and did not clamp — the stated level, re-expressed on the frame the
+ *     node's baseline is stated on (see below).
  *
  * ⚠ WHY THE SCALE, NOT JUST THE VALUE. A non-identity scale can leave one
  * value numerically unchanged (0 on `[0, k]`) while the THRESHOLD still moves
  * onto that scale (`normaliseGoalConstraints` ladder rung 1: a measured
  * intervention scale wins). The baseline ISL converts the free options against
  * travels verbatim, so "same number" is not "same frame"; the identity scale is.
+ *
+ * ⭐ …OR THE NODE'S OWN FRAME (DL ruling olumi-programme-docs#72 5861214582,
+ * on MG's EXEC measurement 5861189189). A setting `deriveRange` rung 1.6 put
+ * on the node's OWN frame — `[0, frame]` from the raw `scale_frame` or the
+ * `{value, raw_value}` pair (`isNodeOwnFrameRange`) — and did not clamp IS the
+ * stated level, re-expressed in the one frame the node's `observed_state.value`
+ * and `.baseline` are stated on (value = raw ÷ frame). Paul's retention option
+ * sets churn to 2.5 (% per month); rung 1.6 sends 0.025 on `[0,100]`, and his
+ * node's baseline is 0.03 (3 %) on that same frame. ISL's plan (d1cef9a,
+ * `robustness_analyzer_v2.py` `_resolve_constraint_series` /
+ * `status_quo_level` / `_in_model_frame`) needs exactly that: a pinned level
+ * and the baseline on ONE frame. Before this, the identity-only rule marked
+ * churn "not as stated", so the some-pinned level limb stayed shut and the
+ * limit was withheld (`sample_frame_unanchored`).
+ * Any OTHER non-identity range stays "not as stated": `inferred_baseline` /
+ * `inferred_value` (`[0, 2 × a NORMALISED level]` — the FRAME GUARD row in
+ * `constraint-level-some-pinned-anchor.route.test.ts`), `inferred_spread`,
+ * `extracted`, `explicit`, `explicit_cap`, `default`. A clamped setting is
+ * never the stated level, on any frame.
+ * RESIDUAL, shared with the '%' rung and disclosed there: a stored
+ * `scale_frame` that contradicts the node's own pair is OUTRANKED by
+ * `resolveNodeFrame`, not refused — on such a node the pair's baseline and the
+ * scale_frame's setting would not share a frame.
  */
 export function collectInterventionsForwardedAsStated(
   options: ReadonlyArray<{ interventions?: Record<string, unknown> | null }>,
@@ -1059,7 +1096,7 @@ export function collectInterventionsForwardedAsStated(
 ): Set<string> {
   const notAsStated = new Set<string>();
   for (const d of diagnostics) {
-    if (d.clamped || !isIdentityRange(d.range)) notAsStated.add(d.factor_id);
+    if (d.clamped || !(isIdentityRange(d.range) || isNodeOwnFrameRange(d.range))) notAsStated.add(d.factor_id);
   }
   const out = new Set<string>();
   for (const option of options) {
@@ -1317,6 +1354,14 @@ export interface ConstraintNormalisationExtras {
    * BEFORE the ISL-boundary strip (the temporal filter removes `unit`).
    */
   unitsByConstraintId?: Map<string, string>;
+  /**
+   * The unit a constraint carried BEFORE CEE relabelled it, per constraint_id:
+   * the CEE-stamped `provenance_unit_relabelled.pre_normalisation_unit`
+   * (`agent_lane_limit_unit_v1` relabels a `'% per month'` limit to `'%'`),
+   * captured by the route off the raw constraint. Absent ⇒ no stamp. Read ONLY
+   * by the same-period rung in `normaliseGoalConstraints` (DL 5861214582).
+   */
+  relabelledFromUnitByConstraintId?: Map<string, string>;
   /** Raw-node goal-threshold metadata per node_id */
   goalThresholdMetaByNodeId?: Map<string, GoalThresholdNodeMeta>;
   /**
@@ -1851,6 +1896,13 @@ export function constraintsNeedPercentTargetFrame(
  *                            Pinned both ways, by constraint_id and on the
  *                            route's CONSTRAINT_TARGET_UNRELIABLE text:
  *                            `tests/intervention-frame-rung*.test.ts`.
+ *                            ⭐ RE-RULED for ONE case (DL 5861214582): a '%'
+ *                            limit CEE relabelled from the node's OWN unit
+ *                            (the stamp's `pre_normalisation_unit` == the
+ *                            node's unit) whose '%' rung reads the same
+ *                            bounds is read on the '%' rung, so this check
+ *                            never sees it — `sameUnitRelabelReadsOnPercentRung`.
+ *                            A different period or no stamp still reaches it.
  *   inferred_baseline  IN  — bounds from `observed_state.baseline` / `.value`.
  *   inferred_value     IN  — bounds from `observed_state.value`.
  *   explicit           OUT — `state_space.range` carries NO unit field at all
@@ -1893,6 +1945,55 @@ export function resolveScaleUnit(
 ): string | undefined {
   if (!OBSERVED_STATE_SCALE_SOURCES.has(range.source)) return undefined;
   return canonicaliseUnit(targetNode?.observed_state?.unit);
+}
+
+/**
+ * ⭐ THE SAME-PERIOD RELABEL — DL ruling olumi-programme-docs#72 5861214582
+ * (28 Sep 2026), which RE-RULES A3 round 2's "(a) UNIT CHECK KEPT" for this
+ * case only. True when a `'%'` limit on an INTERVENED target must be read on
+ * the '%' rung (`unit_percent`) instead of the intervention scale's own
+ * source, because:
+ *
+ *   1. CEE ATTESTS THE UNIT. The limit carries CEE's relabel stamp and its
+ *      `pre_normalisation_unit` IS the node's own unit, compared by the one
+ *      existing unit comparison (`classifyUnitCompatibility`: trim + case, and
+ *      a shared scale group) and nothing else. "4 % per month" → `'%'` on a
+ *      `'% per month'` node is the same quantity with the period dropped from
+ *      the label. NOTHING IS PARSED OR INFERRED FROM WORDS: a different period
+ *      (`'% per year'`), a spelling the comparison does not reconcile
+ *      (`'percent per month'`, `'percent'`), or NO stamp at all keeps the unit
+ *      check below and stays refused.
+ *   2. THE UNIT CHECK WOULD OTHERWISE REFUSE IT. The intervention scale is read
+ *      off `observed_state` (`resolveScaleUnit`) and its unit mismatches the
+ *      `'%'`. This is exactly Paul's cell and the only cell that moves: every
+ *      shape the unit check does not refuse keeps its range byte-identical.
+ *   3. THE '%' RUNG READS THE SAME BOUNDS. The rung's own reading of the
+ *      target's frame (`resolvePercentTargetFrame` → `percentRangeForValue`)
+ *      equals the intervention scale NUMERICALLY, so the threshold stays on the
+ *      scale the samples occupy (ladder rung 1's invariant) — `[0,100]` for
+ *      Paul's churn on `scale_frame` 100. A refused frame, a fractional `'%'`
+ *      (`[0,1]` ≠ `[0,100]`) or any other disagreement keeps rung 1's range and
+ *      its unit check.
+ *
+ * What the relabel buys, all by the '%' rung's own construction and nothing
+ * new: no unit mismatch (`unit_percent` is not an `observed_state` scale), a
+ * whitelisted decision-grade source, `range_unified` (equal bounds), and
+ * `level_domain` on a level limit (`levelDomainFor`) — the scoring journey A
+ * already gets on the non-intervened path (Canonical's engine-direct J-a:
+ * `unit_percent`, discriminating, decision-grade).
+ */
+function sameUnitRelabelReadsOnPercentRung(
+  constraint: GoalConstraint,
+  unit: string | undefined,
+  relabelledFromUnit: string | undefined,
+  targetNode: EngineNodeV3 | undefined,
+  interventionScale: NormalisationRange,
+  percentFrame: PercentTargetFrame,
+): boolean {
+  if (!isPercentUnit(unit) || percentFrame.verdict === 'refused') return false;
+  if (classifyUnitCompatibility(relabelledFromUnit, targetNode?.observed_state?.unit) !== 'reconciled') return false;
+  if (classifyUnitCompatibility(unit, resolveScaleUnit(interventionScale, targetNode)) !== 'mismatched') return false;
+  return rangesEqual(interventionScale, percentRangeForValue(constraint.value, percentExtentOf(percentFrame)));
 }
 
 /**
@@ -2150,7 +2251,17 @@ export function normaliseGoalConstraints(
       // is an unratified doctrine call (owner: A3 lead). Sameness is the
       // invariant here; the pick is provisional. (F4: this branch is now gated on
       // NON-identity — an identity scale is an assumption, demoted to branch 5.)
-      range = interventionScale;
+      range = sameUnitRelabelReadsOnPercentRung(
+        constraint,
+        unit,
+        extras?.relabelledFromUnitByConstraintId?.get(constraint_id),
+        targetNode,
+        interventionScale,
+        percentFrame,
+      )
+        // DL 5861214582: the SAME bounds, read as the '%' limit's own rung.
+        ? { min: interventionScale.min, max: interventionScale.max, source: 'unit_percent' }
+        : interventionScale;
     } else if (
       !applyChainWithoutScale &&
       !isPercentPointValue(unit, value) &&

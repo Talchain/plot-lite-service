@@ -2366,6 +2366,18 @@ const REFUSAL_CRITIQUE_COPY: Record<ConstraintRefusalReason, string> = {
  *   - explicit         — a node-level `state_space.range` declaration.
  *   - explicit_cap     — a node-level `observed_state.cap` declaration.
  *   - goal_threshold_cap / unit_percent — the constraint's own producer scale.
+ *   - scale_frame      — the node's OWN frame, `[0, the raw node's scale_frame]`
+ *                        (DL ruling olumi-programme-docs#72 5861214582, "(3)").
+ *                        Minted at exactly ONE site, `deriveRange` rung 1.6, for
+ *                        an intervened capless framed factor, and reaching a
+ *                        threshold only through ladder rung 1 (that node's own
+ *                        intervention scale), so it is never a default or
+ *                        inferred range. It is the frame `observed_state.value`
+ *                        is stated on, and — unlike an inferred source — it is
+ *                        in `OBSERVED_STATE_SCALE_SOURCES`, so a limit in a
+ *                        different unit still fails the unit conjunct below.
+ *                        `pair_frame` (the same rung, read off the value/raw pair)
+ *                        was NOT ruled in and stays out, as does `default`.
  *
  * WHY the earlier OR-disjunct was dropped: the frozen derivation graded TRUE on
  * `(range_unified OR producer-declared-source)`. That OR-disjunct was proven
@@ -2404,6 +2416,7 @@ const DECISION_GRADE_SOURCES: ReadonlySet<RangeSource> = new Set<RangeSource>([
   'explicit_cap',
   'goal_threshold_cap',
   'unit_percent',
+  'scale_frame', // the node's own frame (rung 1.6) — DL 5861214582 "(3)"
 ]);
 
 export function buildConstraintScaleProvenance(
@@ -6221,9 +6234,20 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           if (frame !== undefined) goalThresholdFrameByNodeId.set(rawNode.id, frame);
         }
         const constraintUnitsByConstraintId = new Map<string, string>();
+        // DL 5861214582: CEE's relabel stamp — the unit a limit carried BEFORE
+        // CEE relabelled it (`provenance_unit_relabelled.pre_normalisation_unit`).
+        // An untyped passthrough on the raw constraint (the schema types the
+        // item as a bare object), captured here beside the unit for the same
+        // reason; read only by the same-period rung in normaliseGoalConstraints.
+        const constraintRelabelledFromUnitByConstraintId = new Map<string, string>();
         for (const c of constraintCompilation.constraints as RawGoalConstraint[]) {
           if (typeof c.unit === 'string' && c.unit.length > 0) {
             constraintUnitsByConstraintId.set(c.constraint_id, c.unit);
+          }
+          const relabelledFrom = (c as { provenance_unit_relabelled?: { pre_normalisation_unit?: unknown } })
+            .provenance_unit_relabelled?.pre_normalisation_unit;
+          if (typeof relabelledFrom === 'string' && relabelledFrom.length > 0) {
+            constraintRelabelledFromUnitByConstraintId.set(c.constraint_id, relabelledFrom);
           }
         }
 
@@ -7407,6 +7431,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               // behaviour (chain when the gate fired, forward-raw otherwise).
               {
                 unitsByConstraintId: constraintUnitsByConstraintId,
+                relabelledFromUnitByConstraintId: constraintRelabelledFromUnitByConstraintId,
                 goalThresholdMetaByNodeId,
                 scaleFrameByNodeId,
                 interventionScaleByNodeId,

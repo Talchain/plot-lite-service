@@ -292,7 +292,10 @@ function optionIntervenesOn(option: AnchorOptionLike | null | undefined, nodeId:
  * route from the recorded Phase-4a diagnostics —
  * `collectInterventionsForwardedAsStated`) names it: every intervention on it
  * reached ISL at exactly the value stated, on the same verbatim frame as the
- * baseline. Absent set, or target absent from it ⇒ false (FAIL CLOSED).
+ * baseline — or (DL 5861214582) re-expressed, unclamped, on the node's OWN
+ * frame (`deriveRange` rung 1.6: `[0, scale_frame]` or the value/raw pair's
+ * frame), which IS the frame the baseline is stated on. Absent set, or target
+ * absent from it ⇒ false (FAIL CLOSED).
  *
  * What the proof does NOT cover, stated rather than implied: the THRESHOLD's
  * frame against that verbatim frame. That is the reliance the no-pin shape
