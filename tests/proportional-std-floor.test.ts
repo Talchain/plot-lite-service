@@ -39,8 +39,8 @@ describe('PR2: a causal edge\'s std floor is proportional to its own size', () =
     expect(run({ mean: 0.1, std: 0.01 }).std).toBe(0.05);
   });
 
-  it('a zero mean keeps ISL\'s technical minimum (std > 0): 0.001', () => {
-    expect(run({ mean: 0, std: 0 }).std).toBe(0.001);
+  it('a zero mean keeps ISL\'s technical minimum: the smallest std ISL accepts (> 0.001)', () => {
+    expect(run({ mean: 0, std: 0 }).std).toBe(0.0011);
   });
 
   it('structural edges are unchanged: option -> factor still floors to 0.01', () => {

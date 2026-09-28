@@ -20,7 +20,7 @@ import type { EngineGraphV3 } from '../../../src/types/engine-v3.js';
 // Constants (from graph-normaliser.ts)
 // -----------------------------------------------------------------------------
 const DEFAULT_EXISTS_PROBABILITY = 0.8;
-const MIN_STD = 0.001;
+const MIN_STD = 0.0011;
 const STD_RANGE_MIN = 0.05;
 const STD_RANGE_MAX = 0.4;
 
