@@ -178,6 +178,13 @@ export function normaliseCoachingInputs(
   // factor_sensitivity/EVPI egress share ONE union definition (D-U, ROADMAP 2.40).
   const interventionTargetIds = interventionTargetIdsFromOptions(options);
 
+  // AIQ 5866850180: the factors ISL MEASURED above resolution — the only ones evidence advice may name.
+  const resolvedEvppiFactorIds = new Set<string>(
+    (Array.isArray(islResult?.factor_evppi) ? islResult.factor_evppi : [])
+      .filter((r: { factor_id?: unknown; status?: unknown } | null) => r?.status === 'resolved' && typeof r.factor_id === 'string')
+      .map((r: { factor_id: string }) => r.factor_id),
+  );
+
   return {
     factorSensitivity,
     fragileEdges,
@@ -185,6 +192,7 @@ export function normaliseCoachingInputs(
     graph,
     robustness,
     interventionTargetIds,
+    resolvedEvppiFactorIds,
   };
 }
 

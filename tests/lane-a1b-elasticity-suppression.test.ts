@@ -128,7 +128,9 @@ describe('A1b — headlines do not name levers as VoI/evidence gaps (existence c
       normFactor({ node_id: 'fac_leadership_capacity', label: LEVER, elasticity: 1, confidence: 0.1, influence_score: 1, zero_reason: 'intervention_override' }),
       normFactor({ node_id: 'fac_time_pressure', label: NONLEVER, elasticity: 0.4, confidence: 0.2, influence_score: 0.4, direction: 'negative' }),
     ];
-    const headlines = generateHeadlines(coachingInputs(factors));
+    // Both MEASURED above resolution (AIQ 5866850180 / DL #389), so only the lever filter keeps the lever out.
+    const measured = { resolvedEvppiFactorIds: new Set(['fac_leadership_capacity', 'fac_time_pressure']) };
+    const headlines = generateHeadlines(coachingInputs(factors, measured));
     const allText = Object.values(headlines).join(' || ');
     expect(allText).not.toContain(LEVER);
     expect(allText).toContain(NONLEVER);

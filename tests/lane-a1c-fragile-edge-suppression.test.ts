@@ -125,8 +125,9 @@ function nf(id: string, label: string): NormalisedFactorSensitivity {
 function ci(fragile: NormalisedFragileEdge[], over: Partial<CoachingInputs> = {}): CoachingInputs {
   return {
     graph: { nodes: [{ id: 'goal', kind: 'goal', label: 'Goal' }], edges: [] } as any,
-    options: [{ id: 'o1', label: 'A', winProbability: 0.6, outcomeMean: 0.7, outcomeP10: undefined, outcomeP90: undefined },
-              { id: 'o2', label: 'B', winProbability: 0.4, outcomeMean: 0.5, outcomeP10: undefined, outcomeP90: undefined }],
+    // AIQ 5866850180: an uncertain result (leader < 0.6), so the high_uncertainty arms under test may classify at all.
+    options: [{ id: 'o1', label: 'A', winProbability: 0.55, outcomeMean: 0.7, outcomeP10: undefined, outcomeP90: undefined },
+              { id: 'o2', label: 'B', winProbability: 0.45, outcomeMean: 0.5, outcomeP10: undefined, outcomeP90: undefined }],
     factorSensitivity: [nf(NONLEVER, NONLEVER_LABEL)],
     fragileEdges: fragile,
     robustness: { level: 'moderate', recommendationStability: 0.8, isRobust: true },

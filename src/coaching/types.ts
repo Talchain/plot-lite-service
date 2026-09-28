@@ -113,6 +113,22 @@ export interface CoachingInputs {
    * future PR — see follow-up note in the PR description.
    */
   interventionTargetIds?: Set<string>;
+  /**
+   * ⭐ MEASURED EVIDENCE ONLY (AI Quality ruling olumi-programme-docs #72 5866850180; MG as PLoT owner,
+   * DL re-route 5867659507). Factor IDs whose ISL `factor_evppi` row is `status: 'resolved'` — above
+   * its noise floor, the same test as CEE's `select-factor-evppi.ts` (ISL's status is the authority, so
+   * R3-B's tighter gate, AIQ 5867782904, flows through unchanged). "Gather evidence on X" may name X
+   * ONLY when X is here. Always set by `normaliseCoachingInputs` (empty when ISL sent no resolved row);
+   * absent means nothing was measured, so nothing is named (fail closed).
+   */
+  resolvedEvppiFactorIds?: ReadonlySet<string>;
+}
+
+/** Whether "gather evidence on <factor>" may name this factor: its value of information was MEASURED. */
+export function evidenceAdviceMayName(inputs: Pick<CoachingInputs, 'resolvedEvppiFactorIds'> | undefined, factorId: string | undefined): boolean {
+  const measured = inputs?.resolvedEvppiFactorIds;
+  // Fail CLOSED (DL verdict on PLoT #389): no measured set, no named factor. Production always sets it.
+  return measured !== undefined && factorId !== undefined && measured.has(factorId);
 }
 
 // =============================================================================

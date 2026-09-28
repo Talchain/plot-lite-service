@@ -595,6 +595,14 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //          in this fixture directory are byte-unchanged (sha256 verified
     //          before and after regeneration); and `response_hash` is UNMOVED
     //          (the REQUEST did not change).)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:a37066d3dad670d9');
+    //  meas-   rch_v2:751d55b61a61c153 (AIQ 5866850180 / DL on PLoT #389,
+    //  ured-   2026-09-28: "gather data on X" only for an X whose EVPPI ISL
+    //  only    MEASURED above resolution; this capture carries no
+    //  2026-   factor_evppi, so no factor is named. HAND-EDITED, not
+    //  09-28   re-recorded: the golden diff is EXACTLY two
+    //          `m1_coaching.evidence_gaps[].suggestion` strings plus this
+    //          hash. No option row, probability, label, factor id, ordering
+    //          or key moved, and `response_hash` is UNMOVED.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:751d55b61a61c153');
   });
 });

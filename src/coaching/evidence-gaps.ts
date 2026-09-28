@@ -4,7 +4,7 @@
  * Identifies factors where gathering evidence would most impact the decision.
  */
 
-import type { CoachingInputs, EvidenceGap } from './types.js';
+import { evidenceAdviceMayName, type CoachingInputs, type EvidenceGap } from './types.js';
 import { computeNormalisedImpact } from './normalise-inputs.js';
 import { getThresholds } from './thresholds.js';
 import { computeEvpiPercentagePoints } from '../lib/evpi-emission.js';
@@ -82,7 +82,11 @@ export function computeEvidenceGaps(inputs: CoachingInputs): EvidenceGap[] {
       confidence_defaulted: f.confidenceDefaulted,
       influence: f.normalisedImpact,
       influence_display: `${Math.round(f.normalisedImpact * 100)}%`,
-      suggestion: `Gather data on "${f.label}" to reduce uncertainty`,
+      // AIQ 5866850180 / DL #389 verdict: advice to gather data names a factor only when its EVPPI was MEASURED above
+      // resolution; otherwise the row says what is true — low confidence, with no measured decision value.
+      suggestion: evidenceAdviceMayName(inputs, f.node_id)
+        ? `Gather data on "${f.label}" to reduce uncertainty`
+        : `Confidence in "${f.label}" is low; no measured evidence says learning it would change which option leads.`,
       notes: f.confidenceDefaulted ? ['Confidence defaulted to 50% (not provided by ISL)'] : [],
       ...(os?.value !== undefined && { value: os.value }),
       ...(os?.raw_value !== undefined && { raw_value: os.raw_value }),

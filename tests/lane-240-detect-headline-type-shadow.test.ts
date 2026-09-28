@@ -78,11 +78,13 @@ const nonLeverFactor = () => ({
 const makeIslResult = (overrides: {
   fragileFrom?: string;
   factorSensitivity?: any[];
+  /** AIQ #72 5866850180: "highly uncertain" needs an uncertain RESULT (leader < 0.6 or a near tie). */
+  winShares?: readonly [number, number, number];
 }) => ({
   options: [
-    { id: 'opt1', label: 'Option A', win_probability: 0.75, outcome: { mean: 120, p10: 100, p90: 140 } },
-    { id: 'opt2', label: 'Option B', win_probability: 0.15, outcome: { mean: 80, p10: 60, p90: 100 } },
-    { id: 'opt3', label: 'Status Quo', win_probability: 0.10, outcome: { mean: 70, p10: 50, p90: 90 } },
+    { id: 'opt1', label: 'Option A', win_probability: overrides.winShares?.[0] ?? 0.75, outcome: { mean: 120, p10: 100, p90: 140 } },
+    { id: 'opt2', label: 'Option B', win_probability: overrides.winShares?.[1] ?? 0.15, outcome: { mean: 80, p10: 60, p90: 100 } },
+    { id: 'opt3', label: 'Status Quo', win_probability: overrides.winShares?.[2] ?? 0.10, outcome: { mean: 70, p10: 50, p90: 90 } },
   ],
   factor_sensitivity: overrides.factorSensitivity ?? [nonLeverFactor()],
   robustness: {
@@ -103,8 +105,9 @@ const makeIslResult = (overrides: {
 
 describe('2.40 — readiness path uses the canonical lever-aware detectHeadlineType', () => {
   it('RED→GREEN: a genuine NON-lever fragile edge downgrades the readiness path (pre-fix: clear_winner/ready while the story headline said "could swing")', () => {
+    // AIQ 5866850180: an uncertain result (leader 0.55), so the swing-risk arm may classify at all.
     const coaching = generateM1Coaching(
-      makeGraph(), makeOptions(false), makeIslResult({ fragileFrom: NONLEVER })
+      makeGraph(), makeOptions(false), makeIslResult({ fragileFrom: NONLEVER, winShares: [0.55, 0.30, 0.15] })
     );
 
     expect(coaching).toBeDefined();
@@ -116,6 +119,12 @@ describe('2.40 — readiness path uses the canonical lever-aware detectHeadlineT
     // that headline_type/readiness and story_headlines now agree on one payload.
     expect(coaching!.story_headlines['opt1']).toContain('could swing the outcome');
     expect(coaching!.story_headlines['opt1']).toContain(NONLEVER_LABEL);
+  });
+
+  it('AIQ 5866850180: the same non-lever fragile edge on a SETTLED leader (0.75, gap 0.60) is not "highly uncertain"', () => {
+    const coaching = generateM1Coaching(makeGraph(), makeOptions(false), makeIslResult({ fragileFrom: NONLEVER }));
+    expect(coaching!.headline_type).not.toBe('high_uncertainty');
+    expect(coaching!.story_headlines['opt1']).not.toContain('could swing the outcome');
   });
 
   it('reconciliation identity: m1_coaching.headline_type === canonical detectHeadlineType over the same normalised inputs', () => {
