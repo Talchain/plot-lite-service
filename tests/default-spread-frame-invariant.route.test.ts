@@ -14,7 +14,8 @@
  * std = 0.15 × the largest |level| any option sets for it, in the units the
  * std is expressed in on the ISL wire. Journey C: max level 0.2 of £100k →
  * std 0.03 → ±£3,000. A zero factor NO option touches keeps the base
- * FALLBACK_STD path (Verifier FIX_FIRST: no silent 1e-4 hold).
+ * FALLBACK_STD path (Verifier FIX_FIRST); re-ruled by AIQ #72 5869679096: it is HELD at 0 (point_mass) and named in
+ * inference_warnings (ZERO_FACTOR_HELD_EXACT) — no frame-sized spread and no silent hold.
  *
  * THE AMENDED RULE (AIQ #72 5867604513 + 5867934055): ISL's sum identity
  * computes a plan's tally as today + (plan − this draw's status-quo operands),
@@ -77,8 +78,6 @@ const LEVERS = [FEATURES, ADVERTISING] as const;
 const TALLY = 'six_month_decision_spend';
 /** AIQ's rule constant — the same 0.15 a non-zero estimate uses. */
 const FRACTION = 0.15;
-/** PLoT FALLBACK_STD — the base path for a zero factor no option touches. */
-const FALLBACK = 0.5;
 /** The golden fixture whose `fac_hiring_cost` no option touches (Verifier row). */
 const GOLDEN_REQUEST = resolve(__dirname, 'fixtures/isl-v2-live-20260707/isl-v2-request.json');
 
@@ -313,11 +312,11 @@ describe('T7b — a zero estimate on an option-set lever takes its spread from t
     expect(wirePu(unpinned, ADVERTISING)).toStrictEqual({ node_id: ADVERTISING, distribution: 'normal', std: 0.07 });
   });
 
-  it('VERIFIER ROW — golden fac_hiring_cost (value 0, no option touches it) keeps the base path byte-for-byte: normal, std 0.5, never 1e-4', async () => {
+  it('VERIFIER ROW, re-ruled (AIQ #72 5869679096 4b) — golden fac_hiring_cost (value 0, no option touches it) is held at 0: point_mass, never FALLBACK 0.5 of its frame', async () => {
     const body = goldenBody();
     for (const o of body.options) expect(Object.keys(o.interventions)).not.toContain('fac_hiring_cost');
     const isl = await run(body);
-    expect(wirePu(isl, 'fac_hiring_cost')).toStrictEqual({ node_id: 'fac_hiring_cost', distribution: 'normal', std: FALLBACK });
+    expect(wirePu(isl, 'fac_hiring_cost')).toStrictEqual({ node_id: 'fac_hiring_cost', distribution: 'point_mass' });
     // Contrast in the same run: the zero factors the options DO set take 0.15 × max|level| (= 1).
     expect(wirePu(isl, 'fac_dev_headcount')).toStrictEqual({ node_id: 'fac_dev_headcount', distribution: 'normal', std: FRACTION * 1 });
     expect(wirePu(isl, 'fac_tech_lead')).toStrictEqual({ node_id: 'fac_tech_lead', distribution: 'normal', std: FRACTION * 1 });

@@ -10,15 +10,18 @@
 import { describe, it, expect } from 'vitest';
 import {
   buildParameterUncertaintiesV3,
+  exactInputOptionIds,
   pinnedLeverIds,
   toISLRobustnessRequest,
+  zeroFactorHeldWarnings,
+  zeroFactorsHeldExact,
 } from '../src/integrations/isl/translator-v3.js';
+import { withExactInputZeroVarianceWording, ZERO_VARIANCE_EXACT_INPUTS_MESSAGE } from '../src/critique-humaniser.js';
 import {
   MIN_USER_STD,
   VALUE_BASED_STD_FRACTION,
   BINARY_DEFAULT_STD,
   DEFAULT_STD_FLOOR,
-  FALLBACK_STD,
 } from '../src/integrations/isl/parameter-uncertainty-bounds.js';
 import type { EngineNodeV3, OptionV3 } from '../src/types/engine-v3.js';
 
@@ -76,28 +79,32 @@ describe('buildParameterUncertaintiesV3 — a zero estimate never takes its spre
     expect(stdOf(result, 'spend')).toBeLessThan(DEFAULT_STD_FLOOR);
   });
 
-  it('VERIFIER ROW — a zero factor NO option touches keeps the BASE path (FALLBACK_STD 0.5), never a silent 1e-4 hold', () => {
+  // 4b AMENDED (AIQ #72 5869679096, measured on served journey E): FALLBACK_STD was half the FRAME — doubling a frame
+  // moved E's goal sd +30%. A zero nothing gives a scale is HELD at 0 (point_mass) and NAMED (`zeroFactorsHeldExact`).
+  it('VERIFIER ROW, re-ruled — a zero factor NO option touches is held at 0 (point_mass) and named, never FALLBACK_STD', () => {
     // Golden `fac_hiring_cost` shape: value 0, no std, no option intervenes on it.
     // Contrast in the same call: a sibling the options DO set keeps the T7b rule.
     const nodes = [factor('fac_hiring_cost', 0), factor('set', 0)];
     const options = [option('a', { set: 0.1 }), option('status_quo', { set: 0 })];
     const result = buildParameterUncertaintiesV3(nodes, options);
-    expect(puOf(result, 'fac_hiring_cost')).toStrictEqual({ node_id: 'fac_hiring_cost', distribution: 'normal', std: FALLBACK_STD });
-    expect(stdOf(result, 'fac_hiring_cost')).not.toBe(MIN_USER_STD);
+    expect(puOf(result, 'fac_hiring_cost')).toStrictEqual(POINT_MASS('fac_hiring_cost'));
     expect(stdOf(result, 'set')).toBe(VALUE_BASED_STD_FRACTION * 0.1);
+    expect(zeroFactorsHeldExact(nodes, options).map((h) => h.node_id)).toEqual(['fac_hiring_cost']);
   });
 
-  it('a zero factor that cannot be pinned, set by options ONLY to 0 → the base path too (no scale, no silent hold)', () => {
+  it('a zero factor that cannot be pinned, set by options ONLY to 0 → held at 0 too (no scale), and named', () => {
     const nodes = [factor('zero_only', 0), factor('observable_zero', 0, {})];
     (nodes[1] as { category?: string }).category = 'observable';
     const options = [option('a', { zero_only: 0, observable_zero: 0 }), option('b', { zero_only: 0 })];
     const result = buildParameterUncertaintiesV3(nodes, options);
-    expect(stdOf(result, 'zero_only')).toBe(FALLBACK_STD);
-    expect(stdOf(result, 'observable_zero')).toBe(FALLBACK_STD);
+    expect(puOf(result, 'zero_only')).toStrictEqual(POINT_MASS('zero_only'));
+    expect(puOf(result, 'observable_zero')).toStrictEqual(POINT_MASS('observable_zero'));
+    expect(zeroFactorsHeldExact(nodes, options).map((h) => h.node_id)).toEqual(['zero_only', 'observable_zero']);
   });
 
-  it('no options passed at all → the base path, never a hold', () => {
-    expect(stdOf(buildParameterUncertaintiesV3([factor('spend', 0)]), 'spend')).toBe(FALLBACK_STD);
+  it('no options passed at all → held at 0, named — never a frame-sized spread', () => {
+    expect(puOf(buildParameterUncertaintiesV3([factor('spend', 0)]), 'spend')).toStrictEqual(POINT_MASS('spend'));
+    expect(zeroFactorsHeldExact([factor('spend', 0)]).map((h) => h.node_id)).toEqual(['spend']);
   });
 
   it('toISLRobustnessRequest without a prebuilt PU list scales and pins by the options it is sending', () => {
@@ -117,7 +124,7 @@ describe('buildParameterUncertaintiesV3 — a zero estimate never takes its spre
       'req-t7b',
     );
     expect(stdOf(req.parameter_uncertainties, 'spend')).toBe(VALUE_BASED_STD_FRACTION * 0.2);
-    expect(stdOf(req.parameter_uncertainties, 'unset')).toBe(FALLBACK_STD);
+    expect(puOf(req.parameter_uncertainties, 'unset')).toStrictEqual(POINT_MASS('unset'));
     expect(puOf(req.parameter_uncertainties, 'pinned_zero')).toStrictEqual(POINT_MASS('pinned_zero'));
   });
 
@@ -275,3 +282,100 @@ describe('pinnedLeverIds — the amended rule\'s membership, by id', () => {
     expect(pinnedLeverIds(nodes, []).size).toBe(0);
   });
 });
+
+/**
+ * ⛔ 4b AMENDED — a zero nothing gives a scale is held at 0 and SAID (AIQ #72 5869679096). Served journey E
+ * (PLoT ccd602c · ISL a1fa8ae): `engineering_delivery_capacity` (0 FTE) and `annual_salary_spend` (£0) are zero and no
+ * option sets them; FALLBACK_STD sampled salary at ±£500,000 on a £1m frame, and doubling either frame moved the goal
+ * sd 0.344 → 0.445 (+30%). Held exact, the wire no longer depends on the frame, and the user is told.
+ */
+describe('4b amended — held at 0, frame-free, and named', () => {
+  const E = (): EngineNodeV3[] => [
+    { ...factor('engineering_delivery_capacity', 0, { unit: 'FTE' }), label: 'Engineering delivery capacity' } as EngineNodeV3,
+    { ...factor('annual_salary_spend', 0, { unit: 'GBP per year' }), label: 'Annual salary spend' } as EngineNodeV3,
+    lever('hires', 0.2, 'brief_extraction'),
+  ];
+  const E_OPTIONS = [option('seniors', { hires: 0.2 }), option('juniors', { hires: 0.4 })];
+
+  it('⭐ RED (E): both untouched zeros go out as point_mass, whatever the frame (×1 and ×2 byte-identical)', () => {
+    const at = (frame: number) => {
+      const nodes = E().map((n) => (n.id === 'hires' ? n : ({ ...n, scale_frame: frame } as EngineNodeV3)));
+      const r = buildParameterUncertaintiesV3(nodes, E_OPTIONS);
+      return [puOf(r, 'engineering_delivery_capacity'), puOf(r, 'annual_salary_spend')];
+    };
+    expect(at(1_000_000)).toStrictEqual([POINT_MASS('engineering_delivery_capacity'), POINT_MASS('annual_salary_spend')]);
+    expect(at(2_000_000)).toStrictEqual(at(1_000_000));
+  });
+
+  it('⭐ RED (E): the typed warning names BOTH factors, each as the user writes the figure', () => {
+    const held = zeroFactorsHeldExact(E(), E_OPTIONS);
+    expect(held.map((h) => h.node_id)).toEqual(['engineering_delivery_capacity', 'annual_salary_spend']);
+    expect(zeroFactorHeldWarnings(held)).toEqual([
+      { code: 'ZERO_FACTOR_HELD_EXACT', severity: 'info', node_label: 'Engineering delivery capacity',
+        message: 'Olumi holds "Engineering delivery capacity" at 0 FTE with no uncertainty; give a range if it can vary.' },
+      { code: 'ZERO_FACTOR_HELD_EXACT', severity: 'info', node_label: 'Annual salary spend',
+        message: 'Olumi holds "Annual salary spend" at £0 with no uncertainty; give a range if it can vary.' },
+    ]);
+  });
+
+  it('a held zero named in factor_correlations goes out as a normal at MIN_USER_STD (ISL rejects a correlated point_mass) — still named', () => {
+    const r = buildParameterUncertaintiesV3(E(), E_OPTIONS, new Set(['annual_salary_spend']));
+    expect(puOf(r, 'annual_salary_spend')).toStrictEqual({ node_id: 'annual_salary_spend', distribution: 'normal', std: MIN_USER_STD });
+    expect(zeroFactorsHeldExact(E(), E_OPTIONS).map((h) => h.node_id)).toContain('annual_salary_spend');
+  });
+
+  it('CONTROLS — never held: a user std, a binary, an option-set zero (4a), a pinned lever (its own named rule)', () => {
+    const nodes = [
+      factor('user_std', 0, { std: 0.2 }),
+      factor('binary_zero', 0, { unit: 'boolean' }),
+      factor('set_zero', 0),
+      lever('pinned_zero', 0, 'cee_inference'),
+    ];
+    const options = [option('a', { set_zero: 0.1, pinned_zero: 0.2 }), option('sq', { set_zero: 0, pinned_zero: 0 })];
+    const held = zeroFactorsHeldExact(nodes, options).map((h) => h.node_id);
+    expect(held).not.toContain('user_std');
+    expect(held).not.toContain('binary_zero');
+    expect(held).not.toContain('set_zero');
+    expect(held).not.toContain('pinned_zero');
+    const r = buildParameterUncertaintiesV3(nodes, options);
+    expect(stdOf(r, 'set_zero')).toBe(VALUE_BASED_STD_FRACTION * 0.1);
+    expect(stdOf(r, 'user_std')).toBe(0.2);
+    // The held list is the builder's own 4b set: every held id went out exact, and nothing else did under 4b.
+    for (const id of held) expect(puOf(r, id)).toStrictEqual(POINT_MASS(id));
+  });
+});
+
+/** (b) wording (AIQ #72 5869679096): zero variance on an option whose every goal ancestor it sets is exact. */
+describe('exact-input zero variance — the true sentence, only when it is true', () => {
+  // GT1 shape: goal = the spend tally; both levers pinned (today £0, the carry-on option sets £0).
+  const nodes = [lever('features', 0, 'cee_inference'), lever('ads', 0, 'cee_inference'), factor('tally', 0), factor('elsewhere', 0.5)];
+  const edges = [{ from: 'features', to: 'tally' }, { from: 'ads', to: 'tally' }];
+  const options = [
+    option('features_opt', { features: 0.1 }), option('ads_opt', { ads: 0.1 }),
+    option('carry_on', { features: 0, ads: 0 }), option('off_path', { elsewhere: 0.9 }),
+  ];
+  const pus = buildParameterUncertaintiesV3(nodes, options) ?? [];
+
+  it('options that set only exact goal ancestors are named; one that sets nothing on the path is not', () => {
+    expect([...exactInputOptionIds(nodes, edges, 'tally', options, pus)].sort()).toEqual(['ads_opt', 'carry_on', 'features_opt']);
+  });
+
+  it('an option that sets a goal ancestor sent as a NORMAL is not exact-input', () => {
+    const sampled = pus.map((p) => (p.node_id === 'ads' ? { node_id: 'ads', distribution: 'normal', std: 0.1 } : p));
+    expect(exactInputOptionIds(nodes, edges, 'tally', options, sampled).has('ads_opt')).toBe(false);
+  });
+
+  it('the critique text swaps ONLY for DEGENERATE_OPTION_ZERO_VARIANCE whose every named option is exact-input', () => {
+    const exact = exactInputOptionIds(nodes, edges, 'tally', options, pus);
+    const c = (code: string, ids: string[]) => ({ code, user_message: 'orig', affected_option_ids: ids });
+    const out = withExactInputZeroVarianceWording([
+      c('DEGENERATE_OPTION_ZERO_VARIANCE', ['features_opt']),
+      c('DEGENERATE_OPTION_ZERO_VARIANCE', ['off_path']),
+      c('DEGENERATE_OPTION_ZERO_VARIANCE', ['features_opt', 'off_path']),
+      c('HIGH_TIE_RATE', ['features_opt']),
+    ], exact);
+    expect(out.map((x) => x.user_message)).toEqual([ZERO_VARIANCE_EXACT_INPUTS_MESSAGE, 'orig', 'orig', 'orig']);
+    expect(ZERO_VARIANCE_EXACT_INPUTS_MESSAGE).toBe("This option's result has no spread: every figure it depends on is set exactly.");
+  });
+});
+

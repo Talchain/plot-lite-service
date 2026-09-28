@@ -18,11 +18,11 @@ import type {
   FactorCorrelation,
   NonlinearIdentity,
 } from '../../types/engine-v3.js';
+import { INFERENCE_WARNING_CODES, type InferenceWarning } from '../../types/engine-v3.js';
 import {
   DEFAULT_STD_FLOOR,
   BINARY_DEFAULT_STD,
   VALUE_BASED_STD_FRACTION,
-  FALLBACK_STD,
   MIN_USER_STD,
   resolveUserSuppliedStd,
 } from './parameter-uncertainty-bounds.js';
@@ -1196,6 +1196,86 @@ export function correlatedFactorIdsOf(
  *   is sent as normal at MIN_USER_STD, because ISL rejects a correlated point_mass.
  * @returns Parameter uncertainties for ISL
  */
+/** A zero-valued factor PLoT holds at 0 because nothing gives it a scale (priority 4b). */
+export interface ZeroFactorHeldExact {
+  node_id: string;
+  label: string;
+  unit?: string;
+}
+
+/**
+ * The factors `buildParameterUncertaintiesV3` holds at 0 under priority 4b — a finite zero level, not pinned, no
+ * user std, not binary, and no option sets it (AIQ #72 5869679096). The same predicate as the builder, so the
+ * warning names exactly the factors held.
+ */
+export function zeroFactorsHeldExact(nodes: EngineNodeV3[], options: readonly OptionV3[] = []): ZeroFactorHeldExact[] {
+  const maxOptionLevel = maxAbsOptionLevelByFactor(options);
+  const pinned = pinnedLeverIds(nodes, options);
+  const held: ZeroFactorHeldExact[] = [];
+  for (const node of nodes) {
+    const value = node.observed_state?.value;
+    if (node.kind !== 'factor' || value !== 0 || pinned.has(node.id)) continue;
+    if (resolveUserSuppliedStd(node.observed_state?.std) !== null || isBinaryFactor(node)) continue;
+    if ((maxOptionLevel.get(node.id) ?? 0) > 0) continue;
+    const unit = typeof node.observed_state?.unit === 'string' ? node.observed_state.unit : undefined;
+    held.push({ node_id: node.id, label: typeof node.label === 'string' && node.label !== '' ? node.label : node.id, ...(unit !== undefined && { unit }) });
+  }
+  return held;
+}
+
+/** "£0" for a money unit, "0%" for a percent, "0 <unit>" otherwise, "0" with none — the held level as figures are said. */
+export function formatHeldZero(unit: string | undefined): string {
+  const u = unit?.trim() ?? '';
+  if (u === '') return '0';
+  if (/^(?:£|gbp)/i.test(u)) return '£0';
+  if (/^(?:\$|usd)/i.test(u)) return '$0';
+  if (/^(?:€|eur)/i.test(u)) return '€0';
+  if (/^%/.test(u)) return '0%';
+  return `0 ${u}`;
+}
+
+/** One typed `ZERO_FACTOR_HELD_EXACT` warning per held factor, naming it (AIQ #72 5869679096: never a silent hold). */
+export function zeroFactorHeldWarnings(held: readonly ZeroFactorHeldExact[]): InferenceWarning[] {
+  return held.map((h) => ({
+    code: INFERENCE_WARNING_CODES.ZERO_FACTOR_HELD_EXACT,
+    message: `Olumi holds "${h.label}" at ${formatHeldZero(h.unit)} with no uncertainty; give a range if it can vary.`,
+    severity: 'info' as const,
+    node_label: h.label,
+  }));
+}
+
+/**
+ * Options whose every goal ancestor they set is sent EXACT (`point_mass`) — for them ISL's zero-variance critique is
+ * a true statement about exact inputs, not a missing path (AIQ #72 5869679096 (b)). An option that sets no goal
+ * ancestor is never here: its zero variance keeps today's "never reaches the goal" wording.
+ */
+export function exactInputOptionIds(
+  nodes: EngineNodeV3[],
+  edges: ReadonlyArray<{ from: string; to: string }>,
+  goalNodeId: string,
+  options: readonly OptionV3[],
+  uncertainties: ReadonlyArray<{ node_id: string; distribution?: string }>,
+): Set<string> {
+  const exact = new Set(uncertainties.filter((u) => u.distribution === 'point_mass').map((u) => u.node_id));
+  const parents = new Map<string, string[]>();
+  for (const e of edges) parents.set(e.to, [...(parents.get(e.to) ?? []), e.from]);
+  const ancestors = new Set<string>();
+  const stack = [...(parents.get(goalNodeId) ?? [])];
+  while (stack.length > 0) {
+    const id = stack.pop()!;
+    if (ancestors.has(id)) continue;
+    ancestors.add(id);
+    stack.push(...(parents.get(id) ?? []));
+  }
+  const factorIds = new Set(nodes.filter((n) => n.kind === 'factor').map((n) => n.id));
+  const out = new Set<string>();
+  for (const option of options) {
+    const touched = Object.keys(option.interventions ?? {}).filter((id) => factorIds.has(id) && ancestors.has(id));
+    if (touched.length > 0 && touched.every((id) => exact.has(id))) out.add(option.id);
+  }
+  return out;
+}
+
 export function buildParameterUncertaintiesV3(
   nodes: EngineNodeV3[],
   options: readonly OptionV3[] = [],
@@ -1248,9 +1328,15 @@ export function buildParameterUncertaintiesV3(
             // — and so NOT floored by DEFAULT_STD_FLOOR, itself a frame fraction.
             std = Math.max(MIN_USER_STD, VALUE_BASED_STD_FRACTION * maxLevel);
           } else {
-            // Priority 4b: no option scale — the base FALLBACK_STD path,
-            // byte-identical to aac1970. Never a silent MIN_USER_STD hold.
-            std = Math.max(DEFAULT_STD_FLOOR, FALLBACK_STD);
+            // Priority 4b (AIQ #72 5869679096, measured): a zero no option touches has no
+            // scale of its own; FALLBACK_STD would be half its FRAME (journey E: ±£500,000
+            // of salary on a £1m frame; doubling the frame moved the goal sd +30%). It is
+            // HELD at 0 — exact, or MIN_USER_STD where ISL rejects a correlated point_mass —
+            // and never silently: `zeroFactorsHeldExact` names each one to the user.
+            uncertainties.push(correlatedFactorIds.has(node.id)
+              ? { node_id: node.id, distribution: 'normal', std: MIN_USER_STD }
+              : { node_id: node.id, distribution: 'point_mass' });
+            continue;
           }
         }
       }

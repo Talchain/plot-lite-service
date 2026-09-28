@@ -68,7 +68,7 @@ import type {
 import { INFERENCE_WARNING_CODES } from '../../types/engine-v3.js';
 import { sha8 } from '../../util/pii-redact.js';
 import { getBuildId } from '../../util/build-id.js';
-import { addUserMessages } from '../../critique-humaniser.js';
+import { addUserMessages, withExactInputZeroVarianceWording } from '../../critique-humaniser.js';
 import type { GraphForLabels } from '../../critique-humaniser.js';
 import { normalisationWarningToCritique } from '../../lib/normalisation-critiques.js';
 // Seed derivation: when seed omitted, derive deterministically from graph hash
@@ -87,7 +87,7 @@ import { filterTemporalConstraints } from '../../normalisation/constraint-filter
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, InternalMetadata } from '../../types/engine-v3.js';
-import { withdrawInferredInconsistentIdentities, attachIdentityExecutionFrames, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, correlatedFactorIdsOf, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
+import { withdrawInferredInconsistentIdentities, attachIdentityExecutionFrames, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, correlatedFactorIdsOf, zeroFactorsHeldExact, zeroFactorHeldWarnings, exactInputOptionIds, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
@@ -1793,6 +1793,10 @@ interface MetaParams {
   identitiesNotForwarded?: import('../../integrations/isl/translator-v3.js').IdentityNotForwarded[];
   /** Variant (a): frames PLoT derived for frameless inferred intermediate carriers — _meta.identity_derived_frames */
   identityDerivedFrames?: import('../../integrations/isl/translator-v3.js').IdentityDerivedFrame[];
+  /** T7b 4b (AIQ #72 5869679096): zero factors held at 0 with no uncertainty — each named in inference_warnings */
+  zeroFactorsHeldExact?: import('../../integrations/isl/translator-v3.js').ZeroFactorHeldExact[];
+  /** T7b (b): options whose every goal ancestor they set is sent exact — their zero variance is not a missing path */
+  exactInputOptionIds?: ReadonlySet<string>;
   /** Per-factor range derivation source (maps factor_id → derivation tier) */
   rangeDerivationSources?: Record<string, string>;
 }
@@ -4103,6 +4107,9 @@ function buildResponse(
   // tests) can tell wire-gap from absence. SUPPRESSED automatically when the
   // wire carried data (edgeSensitivity non-empty): populated OR marked,
   // never both absent. Factor-level sensitivity is unaffected.
+  // T7b 4b (AIQ #72 5869679096): a zero no option touches is held at 0 with no uncertainty — said, never silent.
+  inferenceWarnings.push(...zeroFactorHeldWarnings(meta.zeroFactorsHeldExact ?? []));
+
   if (analysisStatus === 'computed' && islResult && !hasNonEmptyArray(edgeSensitivity)) {
     inferenceWarnings.push({
       code: INFERENCE_WARNING_CODES.EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE,
@@ -4562,7 +4569,7 @@ function buildResponse(
     isl_analysis_status: islAnalysisStatus,
     isl_status_reason: islStatusReason,
 
-    critiques: addUserMessages(critiquesOut, graph ?? { nodes: [] }, options),
+    critiques: withExactInputZeroVarianceWording(addUserMessages(critiquesOut, graph ?? { nodes: [] }, options), meta.exactInputOptionIds),
     option_comparison: optionComparison,
     edge_sensitivity: edgeSensitivity,
     // Reference-option disclosure (additive, lane PLoT-W4; ISL build
@@ -6355,6 +6362,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const identitiesNotForwarded: import('../../integrations/isl/translator-v3.js').IdentityNotForwarded[] = [];
         // Variant (a): frames PLoT derived for frameless inferred intermediate carriers — `_meta.identity_derived_frames`.
         const identityDerivedFrames: import('../../integrations/isl/translator-v3.js').IdentityDerivedFrame[] = [];
+        let zeroFactorsHeld: import('../../integrations/isl/translator-v3.js').ZeroFactorHeldExact[] = [];
+        let exactInputOptions: ReadonlySet<string> = new Set();
 
         if (filteredConstraintRecords.length > 0) {
           req.log.info({
@@ -6937,6 +6946,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             correlatedFactorIdsOf(body.factor_correlations),
           ) ?? [];
         const factorPuNodeIds = new Set(factorParameterUncertainties.map((pu) => pu.node_id));
+        zeroFactorsHeld = zeroFactorsHeldExact(filteredGraph.nodes, optionsAsSentToISL);
+        exactInputOptions = exactInputOptionIds(filteredGraph.nodes, filteredGraph.edges, body.goal_node_id, optionsAsSentToISL, factorParameterUncertainties);
         // One id→node map shared by the plan-time constraint-PU selection and the
         // build-time injection (both classify the same constrained nodes against
         // the same graph). Built only when there are constraints to classify, so
@@ -9590,6 +9601,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             withheldOptions: withheldOptionRecords,
             identitiesNotForwarded,
             identityDerivedFrames,
+            zeroFactorsHeldExact: zeroFactorsHeld,
+            exactInputOptionIds: exactInputOptions,
             rangeDerivationSources: normalisationContext
               ? Object.fromEntries([...normalisationContext.factors].map(([id, ctx]) => [id, ctx.range.source]))
               : buildDefaultRangeDerivationSources(normalizedOptions),
