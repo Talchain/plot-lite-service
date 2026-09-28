@@ -145,10 +145,10 @@ describe('B1: Story Headlines', () => {
     expect(headlineType).toBe('close_call');
   });
 
-  it('detects "high_uncertainty" when topGapVoI > 0.30', () => {
+  it('detects "high_uncertainty" when topGapVoI > 0.30 on an uncertain result (leader < 0.6, AIQ 5866850180)', () => {
     const inputs: CoachingInputs = {
       graph: createMinimalGraph(),
-      options: createMinimalOptions(),
+      options: createMinimalOptions().map((o, i) => ({ ...o, winProbability: [0.55, 0.3, 0.15][i] ?? o.winProbability })),
       factorSensitivity: [
         { node_id: 'f1', label: 'Cost', importance_rank: 1, confidence: 0.3, elasticity: 0.8, influence_score: 0.8 },
         { node_id: 'f2', label: 'Market Risk', importance_rank: 2, confidence: 0.2, elasticity: 0.7, influence_score: 0.7 },
