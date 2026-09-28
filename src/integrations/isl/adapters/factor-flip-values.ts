@@ -56,6 +56,21 @@ export interface MapFactorFlipValuesContext {
    * correctly does not invent one.
    */
   factorSensitivity?: readonly FactorLabelSource[];
+  /**
+   * R5-4: the option-controlled levers (the structural union of every option's intervention targets, ∪ ISL's
+   * `intervention_override` stamp — the combined D-U predicate `isOptionControlledLever`). A lever gets NO flip row.
+   *
+   * This is ELIGIBILITY, not absence, and it does not weaken ABSENT-NOT-ZERO below. ISL's closed-form phase makes
+   * every root factor eligible and varies its BASE value, and a lever's base is read only by the options that leave
+   * it untouched (an option's do() overrides it). So a lever row answers "if the options that do not set this lever
+   * set it to X anyway", which is not an assumption a user can revise. Served: "0.2516 hires" on a headcount one
+   * option sets. A lever EVERY option sets is structurally invariant by construction, so its "no effect" attests
+   * nothing about the user's assumptions either. ISL leaves non-root nodes out the same way, and PLoT's pre-2.228
+   * probe suppressed levers too. Excluding here, ONCE, means every reader of the one `flip_thresholds` array agrees:
+   * the published rows, `flip_thresholds_status`, the brief's two claims, the display verdict and the M2 prompt input.
+   * Absent → no exclusion (the pre-R5-4 behaviour).
+   */
+  optionLeverIds?: ReadonlySet<string>;
 }
 
 /** Diagnostics for the structured log line — counts only, never values. */
@@ -98,6 +113,8 @@ export interface FactorFlipMappingDiagnostics {
    * same posture as `baseline_winner_disagreement`.
    */
   direction_disagrees_with_delta: number;
+  /** R5-4: rows left out because their factor is an option-controlled lever (see `optionLeverIds`). */
+  excluded_option_lever: number;
 }
 
 export interface MapFactorFlipValuesResult {
@@ -199,6 +216,7 @@ export function mapIslFactorFlipValues(
     direction_derived: 0,
     value_without_direction: 0,
     direction_disagrees_with_delta: 0,
+    excluded_option_lever: 0,
   };
 
   const rows: FlipThresholdInputData[] = [];
@@ -214,6 +232,12 @@ export function mapIslFactorFlipValues(
     // repaired — repairing it would invent the identity the row is about.
     if (!isNonEmptyString(entry.factor_id) || !isFiniteNum(entry.current_value)) {
       diagnostics.rejected_malformed++;
+      continue;
+    }
+
+    // R5-4: a lever is not an assumption, so it is not eligible for a flip row (see `optionLeverIds`).
+    if (ctx.optionLeverIds?.has(entry.factor_id)) {
+      diagnostics.excluded_option_lever++;
       continue;
     }
 
