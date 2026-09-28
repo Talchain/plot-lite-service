@@ -172,9 +172,16 @@ describe('R1 S3 — change_rel is a fraction: forwarded as r, with the node raw 
   });
 
   it('S3-12 CONTROL: a change is never given a level domain', () => {
-    expect(levelDomainFor({ min: 0, max: 100, source: 'unit_percent' }, 'change_abs')).toBeUndefined();
-    expect(levelDomainFor({ min: 0, max: 100, source: 'unit_percent' }, 'change_rel')).toBeUndefined();
-    expect(levelDomainFor({ min: 0, max: 100, source: 'unit_percent' }, 'level')).toEqual({ min: 0, max: 1 });
+    // #394 made the '%' frame a required argument; a change is refused before it is read, on every frame.
+    const legacy = { verdict: 'legacy' } as const;
+    const deferred = { verdict: 'deferred', frame: 20, percent_extent: 20 } as const;
+    for (const frame of [legacy, deferred]) {
+      expect(levelDomainFor({ min: 0, max: 100, source: 'unit_percent' }, 'change_abs', frame)).toBeUndefined();
+      expect(levelDomainFor({ min: 0, max: 100, source: 'unit_percent' }, 'change_rel', frame)).toBeUndefined();
+    }
+    // CONTROL: a level still gets its domain — {0, 1} on a 100-point frame, {0, 100/extent} on a 20-point one (#394).
+    expect(levelDomainFor({ min: 0, max: 100, source: 'unit_percent' }, 'level', legacy)).toEqual({ min: 0, max: 1 });
+    expect(levelDomainFor({ min: 0, max: 100, source: 'unit_percent' }, 'level', deferred)).toEqual({ min: 0, max: 5 });
   });
 });
 
