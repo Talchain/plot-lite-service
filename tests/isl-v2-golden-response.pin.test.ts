@@ -371,8 +371,8 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     // surface, so slice S1's additive `driver_order` legitimately changes it —
     // and leaving a stale value here would have read as "S1 changed something
     // it should not have" rather than "S1 added a field, deliberately".
-    expect(rawBody.response_hash).toBe('5b4bdb8c6382d8ff');
-    expect(rawBody._meta.response_hash).toBe('5b4bdb8c6382d8ff');
+    expect(rawBody.response_hash).toBe('d6c17020b98202ca');
+    expect(rawBody._meta.response_hash).toBe('d6c17020b98202ca');
   });
 
   // FAMILY-4 SLICE S1 (2026-07-27): explicit pin of the ONLY response-content
@@ -423,7 +423,7 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     // ⭐ ADDITIVITY, pinned by value: `response_hash` canonicalises the
     // REQUEST, so an added response field must NOT move it. If this ever
     // flips, an "additive" slice has changed the UI freshness token.
-    expect(rawBody.response_hash).toBe('5b4bdb8c6382d8ff');
+    expect(rawBody.response_hash).toBe('d6c17020b98202ca');
     // `response_content_hash` hashes the public semantic surface and therefore
     // SHOULD move when that surface changes. Re-pinned each time so the next
     // content change is also forced to be deliberate:
@@ -636,6 +636,15 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //                                   response is replayed from the capture;
     //                                   the other four fixture files are
     //                                   byte-unchanged (sha256 before/after).)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:df113ee499843afd');
+    //  T7b    rch_v2:d3f2e8a99d8185d9 (4b AMENDED — AIQ #72 5869679096, measured
+    //  4b     on served journey E: a zero NO option touches is HELD at 0
+    //  2026-  (point_mass) and NAMED, never FALLBACK_STD 0.5 of its frame.
+    //  09-28  The REQUEST moved: fac_hiring_cost normal 0.5 → point_mass, so
+    //         `response_hash` 5b4bdb8c6382d8ff → d6c17020b98202ca (all four
+    //         echoes) and `brief_id` follows. The response gains ONE
+    //         inference_warnings entry, ZERO_FACTOR_HELD_EXACT naming "Hiring
+    //         and Salary Cost". HAND-EDITED, not re-recorded: those 7 fields,
+    //         nothing else; the ISL response is replayed from the capture.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:d3f2e8a99d8185d9');
   });
 });

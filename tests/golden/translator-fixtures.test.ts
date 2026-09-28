@@ -305,7 +305,8 @@ describe('Translator: buildParameterUncertaintiesV3', () => {
     expect(huge.std).toBe(2.0); // capped
   });
 
-  it('handles zero-valued factors (std = 0.5, floored at 0.1)', () => {
+  // T7b 4b amended (AIQ #72 5869679096): a zero no option touches is HELD at 0 (point_mass) and named, never half its frame.
+  it('handles zero-valued factors (no option touches it → held at 0: point_mass, no std, no mean)', () => {
     const nodes: EngineNodeV3[] = [
       {
         id: 'zero_factor',
@@ -317,9 +318,8 @@ describe('Translator: buildParameterUncertaintiesV3', () => {
 
     const pus = buildParameterUncertaintiesV3(nodes)!;
     const pu = pus.find((p) => p.node_id === 'zero_factor')!;
-    expect(pu.std).toBe(0.5);
-    // Slice 6: value 0 still produces an entry; its width comes from the
-    // zero-value fallback. `mean` is not sent (undeclared by ISL).
+    expect(pu).toStrictEqual({ node_id: 'zero_factor', distribution: 'point_mass' });
+    // Slice 6: value 0 still produces an entry. `mean` is not sent (undeclared by ISL).
     expect(pu).not.toHaveProperty('mean');
   });
 

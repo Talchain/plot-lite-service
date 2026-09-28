@@ -360,6 +360,17 @@ describe('exact-input zero variance — the true sentence, only when it is true'
     expect([...exactInputOptionIds(nodes, edges, 'tally', options, pus)].sort()).toEqual(['ads_opt', 'carry_on', 'features_opt']);
   });
 
+  it('an option that sets TWO goal ancestors, one exact and one sampled, is not exact-input (every, not some)', () => {
+    const both = [...options, option('both_opt', { features: 0.1, elsewhere_up: 0.3 })];
+    const n2 = [...nodes, factor('elsewhere_up', 0.4)];
+    const e2 = [...edges, { from: 'elsewhere_up', to: 'tally' }];
+    const p2 = buildParameterUncertaintiesV3(n2, both) ?? [];
+    expect(p2.find((p) => p.node_id === 'elsewhere_up')?.distribution).toBe('normal');
+    const exact = exactInputOptionIds(n2, e2, 'tally', both, p2);
+    expect(exact.has('both_opt')).toBe(false);
+    expect(exact.has('features_opt')).toBe(true);
+  });
+
   it('an option that sets a goal ancestor sent as a NORMAL is not exact-input', () => {
     const sampled = pus.map((p) => (p.node_id === 'ads' ? { node_id: 'ads', distribution: 'normal', std: 0.1 } : p));
     expect(exactInputOptionIds(nodes, edges, 'tally', options, sampled).has('ads_opt')).toBe(false);

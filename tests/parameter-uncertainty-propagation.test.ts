@@ -127,9 +127,9 @@ describe('buildParameterUncertaintiesV3 — user-supplied std propagation', () =
       expect(result[0].std).toBeCloseTo(1.5, 10);
     });
 
-    it('missing std with value = 0 uses FALLBACK_STD = 0.5', () => {
+    it('missing std with value = 0 and no option touching it → held at 0 (point_mass), never FALLBACK_STD (AIQ #72 5869679096)', () => {
       const result = buildParameterUncertaintiesV3([factor('f', 0)])!;
-      expect(result[0].std).toBe(FALLBACK_STD);
+      expect(result[0]).toStrictEqual({ node_id: 'f', distribution: 'point_mass' });
     });
 
     it('std = 0 is treated as missing (falls through to defaults)', () => {
@@ -278,9 +278,20 @@ describe('translator vs preflight parity for std derivation', () => {
     { name: 'negative user std', value: 10, std: -0.1 },
     { name: 'NaN user std', value: 10, std: NaN },
     { name: 'no std, value 10', value: 10 },
-    { name: 'no std, value 0', value: 0 },
     { name: 'no std, value 0.5', value: 0.5 },
   ];
+
+  // ⛔ DELIBERATE DIVERGENCE (T7b 4b amended, AIQ #72 5869679096): on /v2/run a zero with no std that no option
+  // touches is HELD at 0 (point_mass) and named; the legacy `analyseRobustness` preflight builder keeps FALLBACK_STD.
+  it('divergence, by ruling: no std, value 0 → /v2/run holds it (point_mass); legacy preflight keeps FALLBACK_STD', () => {
+    const v3 = buildParameterUncertaintiesV3([{ id: 'f', kind: 'factor', label: 'F', observed_state: { value: 0 } }])!;
+    const preflight = buildParameterUncertainties({
+      nodes: [{ id: 'f', kind: 'factor', label: 'F', observed_state: { value: 0 } }, { id: 'goal', kind: 'goal', label: 'Goal' }],
+      edges: [{ from: 'f', to: 'goal' }],
+    });
+    expect(v3[0]).toStrictEqual({ node_id: 'f', distribution: 'point_mass' });
+    expect(preflight[0].std).toBe(FALLBACK_STD);
+  });
 
   for (const { name, value, std } of cases) {
     it(`parity: ${name}`, () => {
