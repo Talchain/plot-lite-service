@@ -35,6 +35,7 @@ import type {
   ISLRangeFitDisclosure,
   ISLRobustnessAnalyzeV2Response,
 } from './types/isl-types.js';
+import type { IdentityEvaluationV3 } from '../../types/engine-v3.js';
 
 /**
  * Read edge E-values from an ISL response.
@@ -108,6 +109,28 @@ export function getIslRangeFitDisclosures(
 ): ISLRangeFitDisclosure[] | undefined {
   const disclosures = islResult?.range_fit_disclosures;
   if (Array.isArray(disclosures)) return disclosures;
+  return undefined;
+}
+
+/**
+ * Read the per-identity evaluations from an ISL response (R3 slice 1, ISL #187
+ * `ISLResponseV2.identity_evaluations`).
+ *
+ * TOP-LEVEL on the V2 envelope. Returned VERBATIM — the same array ISL sent,
+ * never re-derived, filtered, renamed or re-ordered: whether an identity was
+ * evaluated is ISL's finding, and CEE reads it off `enrichment` to decide
+ * whether a number that rests on the identity may be claimed.
+ *
+ * `undefined` when ISL omitted the key (the graph declared no identity), so a
+ * no-identity response stays byte-identical. A non-array (a malformed or
+ * future ISL build) also degrades to `undefined` rather than being forwarded as
+ * a shape no consumer can read.
+ */
+export function getIslIdentityEvaluations(
+  islResult: Partial<ISLRobustnessAnalyzeV2Response> | null | undefined,
+): IdentityEvaluationV3[] | undefined {
+  const evaluations = islResult?.identity_evaluations;
+  if (Array.isArray(evaluations)) return evaluations;
   return undefined;
 }
 
