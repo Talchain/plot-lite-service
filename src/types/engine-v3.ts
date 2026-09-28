@@ -1154,6 +1154,69 @@ export const INLINE_CRITIQUE_CODES = [
 export type InlineCritiqueCode = (typeof INLINE_CRITIQUE_CODES)[number];
 
 /**
+ * R3 slice 1 — the stated level of a declared identity against the level its own inputs give today,
+ * in USER units (ISL `IdentityReconciliation`, ISL #187 `src/models/identity_evaluation.py`).
+ */
+export interface IdentityReconciliationV3 {
+  /** term(operands) + addends at today's levels */
+  reconstructed: number;
+  /** The node's own stated level today */
+  stated: number;
+  /** |stated − reconstructed| / |stated| (≥ 0) */
+  mismatch_share: number;
+}
+
+/**
+ * R3 slice 1 — ONE declared accounting identity and what ISL did with it (ISL `IdentityEvaluation`,
+ * ISL #187; `extra: forbid` + an evaluated-XOR-withheld validator on ISL's side).
+ *
+ * Only `evaluated: true` licenses a numerical claim that rests on the identity; a declaration read as
+ * if it were used is the R3-4 defect ("declared, not used in the numbers").
+ *
+ * ⚠ PLoT FORWARDS THESE ENTRIES VERBATIM (`getIslIdentityEvaluations`): it does not re-derive,
+ * filter, rename or validate them, so this type mirrors ISL's model and is NO TIGHTER than it. The
+ * optionals are `| null` because ISL's published schema admits null; its V2 route serialises with
+ * `exclude_none`, so on the live wire an unset optional is ABSENT.
+ */
+export interface IdentityEvaluationV3 {
+  node_id: string;
+  operation: 'product' | 'sum';
+  factor_ids: string[];
+  addends?: string[];
+  stated_in_brief: boolean;
+  /** True only when the numbers rest on the identity */
+  evaluated: boolean;
+  /** Withheld only: why the identity was not evaluated */
+  withheld_reason?:
+    | 'identity_frame_missing'
+    | 'identity_operand_missing'
+    | 'identity_zero_level'
+    | 'identity_inconsistent'
+    | null;
+  /** Evaluated only: anchored at the node's stated level, or (no stated level) the level its inputs give */
+  level_source?: 'stated_level' | 'identity_inputs' | null;
+  reconciliation?: IdentityReconciliationV3 | null;
+}
+
+/**
+ * R3 slice 1 — the typed identity an ISL `IDENTITY_NOT_EVALUATED` critique names (R&C 5860893532).
+ *
+ * Carried through `mapISLCritiquesToV2` ONLY when it validates: a plain object with string
+ * `node_id` / `operation` / `withheld_reason` and a string[] `participants`. The numeric optionals
+ * are carried only when each is a finite number. A malformed `identity` is dropped whole — never
+ * forwarded as a shape no consumer can read.
+ */
+export interface CritiqueIdentityV3 {
+  node_id: string;
+  operation: string;
+  participants: string[];
+  withheld_reason: string;
+  reconstructed?: number;
+  stated?: number;
+  mismatch_share?: number;
+}
+
+/**
  * Actionable critique with structured metadata.
  */
 export interface CritiqueV3 {
@@ -1177,6 +1240,11 @@ export interface CritiqueV3 {
   blocks_analysis: boolean;
   /** Suggested remediation action */
   suggestion?: string;
+  /**
+   * R3 slice 1 — the identity an ISL `IDENTITY_NOT_EVALUATED` critique names (validated in
+   * `mapISLCritiquesToV2`). Absent on every other critique: no key at all.
+   */
+  identity?: CritiqueIdentityV3;
   /**
    * ROADMAP 2.645 — PLoT-INTERNAL ROUTING ONLY. NEVER ON THE WIRE.
    *
@@ -1595,6 +1663,17 @@ export interface RunResponseV3 {
    * members until the contract types the row.
    */
   p_win_sensitivity?: unknown;
+
+  /**
+   * R3 slice 1 — each identity the graph DECLARED (`nonlinear_identity`) and whether ISL evaluated it
+   * or withheld it (ISL #187 `ISLResponseV2.identity_evaluations`). VERBATIM passthrough of the ISL
+   * top-level envelope field, read through `getIslIdentityEvaluations`.
+   *
+   * ABSENT when ISL omits it — the graph declared no identity — so a no-identity run is
+   * byte-identical. CEE persists this whole response as `enrichment` and reads
+   * `enrichment.identity_evaluations` to tell "evaluated" from "declared". Not in response_hash.
+   */
+  identity_evaluations?: IdentityEvaluationV3[];
 
   /** Factor sensitivity results (if available) */
   factor_sensitivity?: FactorSensitivityResultV3[];

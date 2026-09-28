@@ -10,13 +10,20 @@
  * edit: `mrr` declares MRR = price × paying subscribers, as C46's `markProductIdentities` would mint it.
  */
 
-import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
 /** Every ISL analysis body, in call order. THE WIRE. */
 let islBodies: any[] = [];
+
+/**
+ * What the mocked ISL /analyze/v2 call answers next (R3 rung a, DL takeover): `extra` top-level
+ * envelope keys merged into the computed body, or a typed `error` (the no-throw contract's shape —
+ * a 422 carries ISL's structured critiques). `null` = the plain computed body (every earlier row).
+ */
+let islNext: null | { extra?: Record<string, unknown>; error?: Record<string, unknown> } = null;
 
 function echoConstraintAnalysis(goalConstraints: any[] | undefined) {
   if (!goalConstraints || goalConstraints.length === 0) return undefined;
@@ -81,14 +88,18 @@ const mockISLService = {
     };
   },
   async computeCounterfactual(): Promise<never> { throw new Error('not called'); },
-  async callAnalysisEndpoint<T>(_endpoint: string, body: any): Promise<{ data: T | null; error: string | null }> {
+  async callAnalysisEndpoint<T>(_endpoint: string, body: any): Promise<{ data: T | null; error: unknown }> {
     islBodies.push(body);
+    if (islNext?.error) {
+      return { data: null, error: islNext.error, latency_ms: 5, isl_echoed_request_id: null } as any;
+    }
     return {
       data: {
         options: optionResults(body.options || [], body.goal_constraints),
         edges: [], factors: [], value_of_information: [],
         overall_robustness: 'robust', robustness_score: 0.8,
         fragile_edges: [], robust_edges: [],
+        ...(islNext?.extra ?? {}),
       } as T,
       error: null,
     };
@@ -265,5 +276,178 @@ describe("R3-3 route — Paul's request: the declaration reaches ISL exactly onc
     expect(res.status).toBe(422);
     expect(islBodies.length).toBe(0);
     expect(await res.text()).toContain('nonlinear_identity.operation');
+  });
+});
+
+// =====================================================================================================
+// DL takeover (CHANGES_REQUIRED on #379 @ 8382ba86): what ISL says back about the identity reaches CEE.
+//
+// (1) ISL #187 returns `identity_evaluations` TOP-LEVEL on its V2 envelope; PLoT forwards it VERBATIM
+//     at the top level of the /v2/run 200 (CEE persists the whole body as `enrichment` and reads
+//     `enrichment.identity_evaluations` — without it CEE cannot tell "evaluated" from "declared").
+// (2) ISL's IDENTITY_NOT_EVALUATED critique carries a typed `identity{}`; `mapISLCritiquesToV2` carries
+//     it when it validates and drops it when malformed. Entry/identity shapes are ISL #187's
+//     (`src/models/identity_evaluation.py`, `robustness_analyzer_v2.identity_blocking_critiques`).
+// =====================================================================================================
+
+/** ISL #187 `IdentityEvaluation` rows as its V2 route serialises them (exclude_none: unset ⇒ absent). */
+const EVALUATIONS = [
+  {
+    node_id: 'mrr',
+    operation: 'product',
+    factor_ids: ['pro_plan_price', 'pro_paying_subscribers'],
+    addends: ['other_mrr_growth'],
+    stated_in_brief: true,
+    evaluated: true,
+    level_source: 'stated_level',
+    reconciliation: { reconstructed: 74250, stated: 75000, mismatch_share: 0.01 },
+  },
+  {
+    node_id: 'ops_cost',
+    operation: 'sum',
+    factor_ids: ['staff_cost', 'tooling_cost'],
+    addends: [],
+    stated_in_brief: false,
+    evaluated: false,
+    withheld_reason: 'identity_frame_missing',
+  },
+];
+
+/** The typed identity R&C 5860893532 asks ISL's IDENTITY_NOT_EVALUATED critique to carry. */
+const CRITIQUE_IDENTITY = {
+  node_id: 'mrr',
+  operation: 'product',
+  participants: ['pro_plan_price', 'pro_paying_subscribers'],
+  withheld_reason: 'identity_inconsistent',
+  reconstructed: 50000,
+  stated: 75000,
+  mismatch_share: 0.3333333333333333,
+};
+
+function islCritique(id: string, extra: Record<string, unknown> = {}) {
+  return {
+    id,
+    code: 'IDENTITY_NOT_EVALUATED',
+    severity: 'blocker',
+    source: 'validation',
+    message: 'mrr is declared as the product of pro_plan_price, pro_paying_subscribers but cannot be computed exactly (identity_inconsistent)',
+    suggestion: 'Correct or supply the figure named, then run again: the identity is then evaluated',
+    affected_node_ids: ['mrr', 'pro_plan_price', 'pro_paying_subscribers'],
+    ...extra,
+  };
+}
+
+describe('R3 rung (a) unit — readCritiqueIdentity validates ISL\'s critique identity{} or drops it', () => {
+  // Imported lazily: a static import of run.ts is hoisted above `mockISLService` and trips the
+  // hoisted vi.mock factory (TDZ). createServer loads run.ts the same lazy way.
+  let readCritiqueIdentity: (raw: unknown) => unknown;
+  beforeAll(async () => {
+    ({ readCritiqueIdentity } = await import('../src/routes/v2/run.js'));
+  });
+
+  it('a valid identity is carried with every field', () => {
+    expect(readCritiqueIdentity(CRITIQUE_IDENTITY)).toEqual(CRITIQUE_IDENTITY);
+  });
+
+  it('the numeric optionals are carried only when each is a finite number (the rest of it survives)', () => {
+    const { reconstructed: _r, stated: _s, mismatch_share: _m, ...required } = CRITIQUE_IDENTITY;
+    expect(readCritiqueIdentity(required)).toEqual(required);
+    expect(
+      readCritiqueIdentity({ ...required, reconstructed: '50000', stated: null, mismatch_share: Number.POSITIVE_INFINITY }),
+    ).toEqual(required);
+    expect(readCritiqueIdentity({ ...required, stated: 0 })).toEqual({ ...required, stated: 0 });
+  });
+
+  it.each([
+    ['absent', undefined],
+    ['null', null],
+    ['a string', 'mrr'],
+    ['an array', [CRITIQUE_IDENTITY]],
+    ['participants not an array', { ...CRITIQUE_IDENTITY, participants: 'pro_plan_price, pro_paying_subscribers' }],
+    ['a non-string participant', { ...CRITIQUE_IDENTITY, participants: ['pro_plan_price', 7] }],
+    ['node_id missing', { ...CRITIQUE_IDENTITY, node_id: undefined }],
+    ['operation not a string', { ...CRITIQUE_IDENTITY, operation: 1 }],
+    ['withheld_reason missing', { ...CRITIQUE_IDENTITY, withheld_reason: undefined }],
+  ])('DROPS an identity that is %s — never forwards it', (_label, raw) => {
+    expect(readCritiqueIdentity(raw)).toBeUndefined();
+  });
+});
+
+describe('R3 rung (a) route — ISL\'s identity findings reach the /v2/run response verbatim', () => {
+  let app: FastifyInstance;
+  let baseUrl: string;
+
+  async function post(payload: any) {
+    islBodies = [];
+    return fetch(`${baseUrl}/v2/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  beforeAll(async () => {
+    process.env.RATE_LIMIT_ENABLED = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
+    app = await createServer();
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const addr = app.server.address();
+    baseUrl = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
+  }, 60_000);
+
+  afterAll(async () => { await app?.close(); });
+  afterEach(() => { islNext = null; });
+
+  it('(1) a 200 whose ISL response carries identity_evaluations has the SAME array at the top level (deep-equal)', async () => {
+    islNext = { extra: { identity_evaluations: EVALUATIONS } };
+    const res = await post(paulRequest(PRODUCT));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(body.analysis_status).not.toBe('blocked');
+    expect(body.identity_evaluations).toEqual(EVALUATIONS);
+    // The enrichment egress guard (CEE's persisted shape) does not withhold it.
+    expect(body._meta?.evidence?.enrichment_contract_withheld ?? []).not.toContain('identity_evaluations');
+  });
+
+  it('(1) CONTROL — no identity anywhere: the response has NO identity_evaluations key', async () => {
+    const res = await post(paulRequest());
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(Object.keys(body)).not.toContain('identity_evaluations');
+  });
+
+  it('(1) CONTROL — an identity declared but ISL says nothing: PLoT never mints the key', async () => {
+    const res = await post(paulRequest(PRODUCT));
+    expect(res.status).toBe(200);
+    expect(Object.keys(await res.json())).not.toContain('identity_evaluations');
+  });
+
+  it('(2) a 422 whose ISL critique carries identity{} keeps it intact; one without has no key; a malformed one is dropped', async () => {
+    islNext = {
+      error: {
+        code: 'ISL_REJECTED',
+        message: 'Validation failed',
+        retryable: false,
+        status: 422,
+        critiques: [
+          islCritique('crit-identity', { identity: CRITIQUE_IDENTITY }),
+          islCritique('crit-plain'),
+          islCritique('crit-malformed', {
+            identity: { ...CRITIQUE_IDENTITY, participants: 'pro_plan_price, pro_paying_subscribers' },
+          }),
+        ],
+      },
+    };
+    const res = await post(paulRequest(PRODUCT));
+    expect(res.status).toBe(422);
+    const body = await res.json();
+    expect(body.analysis_status).toBe('blocked');
+    const byId = Object.fromEntries((body.critiques as any[]).map((c) => [c.id, c]));
+    expect(byId['crit-identity']?.code).toBe('IDENTITY_NOT_EVALUATED');
+    expect(byId['crit-identity'].identity).toEqual(CRITIQUE_IDENTITY);
+    expect(byId['crit-plain']).toBeDefined();
+    expect('identity' in byId['crit-plain']).toBe(false);
+    expect(byId['crit-malformed']).toBeDefined();
+    expect('identity' in byId['crit-malformed']).toBe(false);
   });
 });

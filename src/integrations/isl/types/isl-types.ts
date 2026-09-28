@@ -5,6 +5,8 @@
  * They are transformed by adapters before use in PLoT.
  */
 
+import type { IdentityEvaluationV3 } from '../../../types/engine-v3.js';
+
 /**
  * ISL validation response from /api/v1/causal/validate
  */
@@ -1109,6 +1111,14 @@ export interface ISLRobustnessAnalyzeV2Response {
    * the maths.
    */
   range_fit_disclosures?: ISLRangeFitDisclosure[];
+
+  /**
+   * R3 slice 1 (ISL #187, `ISLResponseV2.identity_evaluations`): one entry per accounting identity
+   * the graph DECLARED (`nonlinear_identity`), evaluated or withheld. TOP-LEVEL on the envelope.
+   * ABSENT when the graph declares none (ISL serialises `exclude_none`). Forwarded verbatim onto the
+   * /v2/run response via `getIslIdentityEvaluations`.
+   */
+  identity_evaluations?: IdentityEvaluationV3[];
 
   /** Overall robustness assessment (when 'robustness' in analysis_types)
    *

@@ -69,6 +69,11 @@ export interface ISLCritique {
   affected_option_ids?: string[];
   /** Legacy/alternate-producer field name — tolerated, never emitted by ISL v2. */
   affected_nodes?: string[];
+  /**
+   * R3 slice 1: the typed identity an `IDENTITY_NOT_EVALUATED` critique names. UNVALIDATED here
+   * (raw ISL JSON) — `mapISLCritiquesToV2` validates it and drops a malformed one.
+   */
+  identity?: unknown;
 }
 
 /**
