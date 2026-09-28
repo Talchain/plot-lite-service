@@ -1,8 +1,9 @@
 /**
- * R3-5, PLoT half (AIQ #72 5872273026 · 5872728325; DL ruling 5872746926 (A)): when ISL EVALUATED an
- * accounting identity, every row's `influence_score` is ISL's structural influence over EVERY factor node
- * (`structural_influence`), not PLoT's graph walk — or, when that list cannot cover every row, the walk
- * stays and every row discloses `influence_basis: 'graph_walk'`. Bases are never mixed.
+ * R3-5, PLoT half (AIQ #72 5872273026 · 5872728325; DL ruling 5872746926 (A)) and ONE influence algorithm
+ * (AIQ 5872951506; census #72 5875292873): on EVERY graph, every row's `influence_score` is ISL's structural
+ * influence over EVERY factor node (`structural_influence`), not PLoT's graph walk — or, when that list
+ * cannot cover every row, the walk stays and every row discloses `influence_basis: 'graph_walk'`. Bases
+ * are never mixed. The identity no longer gates adoption.
  *
  * WALK = PLoT's served top-level rows on P1 (AIQ capture `P1-20260928T143522Z`, olumi-programme-docs
  * 8a9fb927, PLoT 7ce9704 · ISL f8aecca), verbatim for the fields below.
@@ -16,7 +17,7 @@
 
 import { describe, it, expect } from 'vitest';
 import { adoptIslStructuralInfluence } from '../src/lib/factor-influence.js';
-import type { FactorSensitivityResultV3, IdentityEvaluationV3 } from '../src/types/engine-v3.js';
+import type { FactorSensitivityResultV3 } from '../src/types/engine-v3.js';
 import type { ISLStructuralInfluenceEntry } from '../src/integrations/isl/types/isl-types.js';
 
 function walk(): FactorSensitivityResultV3[] {
@@ -45,21 +46,12 @@ const FIVE_ROW_COHORT = Object.fromEntries(
   Object.entries(ISL_EVERY).filter(([id]) => id !== 'fac_existing_customers_grandfathered'),
 );
 
-const MRR_EVALUATED: IdentityEvaluationV3 = {
-  node_id: 'mrr', operation: 'product', factor_ids: ['pro_plan_price', 'pro_paying_subscribers'],
-  addends: ['other_mrr_growth'], stated_in_brief: true, evaluated: true, level_source: 'stated_level',
-};
-const MRR_WITHHELD: IdentityEvaluationV3 = {
-  node_id: 'mrr', operation: 'product', factor_ids: ['pro_plan_price', 'pro_paying_subscribers'],
-  stated_in_brief: false, evaluated: false, withheld_reason: 'identity_frame_missing',
-};
-
 const byId = (rows: FactorSensitivityResultV3[]) => Object.fromEntries(rows.map((r) => [r.factor_id, r]));
 const strip = ({ influence_score: _s, influence_rank: _r, influence_basis: _b, ...rest }: FactorSensitivityResultV3) => rest;
 
 describe('R3-5 (A) — a complete every-factor list under an evaluated identity is published as ISL\'s', () => {
   it('every row carries ISL\'s EXACT score, bound by factor_id, and says so', () => {
-    const out = byId(adoptIslStructuralInfluence(walk(), list(), [MRR_EVALUATED]));
+    const out = byId(adoptIslStructuralInfluence(walk(), list()));
     for (const [id, score] of Object.entries(ISL_EVERY)) {
       expect(out[id].influence_score).toBe(score);
       expect(out[id].influence_basis).toBe('isl_structural');
@@ -67,18 +59,18 @@ describe('R3-5 (A) — a complete every-factor list under an evaluated identity 
   });
 
   it('R3-5 row: price\'s bar is not the walk\'s 1 under MRR = price × subscribers; subscribers lead', () => {
-    const out = byId(adoptIslStructuralInfluence(walk(), list(), [MRR_EVALUATED]));
+    const out = byId(adoptIslStructuralInfluence(walk(), list()));
     expect(out.pro_plan_price.influence_score).not.toBe(1);
     expect(out.pro_paying_subscribers.influence_rank).toBe(1);
   });
 
   it('the unobserved factor carries ISL\'s score (normalised over six), not the walk\'s 0.9895', () => {
-    const row = byId(adoptIslStructuralInfluence(walk(), list(), [MRR_EVALUATED])).fac_existing_customers_grandfathered;
+    const row = byId(adoptIslStructuralInfluence(walk(), list())).fac_existing_customers_grandfathered;
     expect(row.influence_score).toBe(0.14907816711590297);
   });
 
   it('influence_rank follows the published scores (1 = highest)', () => {
-    const out = byId(adoptIslStructuralInfluence(walk(), list(), [MRR_EVALUATED]));
+    const out = byId(adoptIslStructuralInfluence(walk(), list()));
     expect([
       'pro_paying_subscribers', 'pro_plan_price', 'fac_existing_customers_grandfathered',
       'monthly_churn', 'other_mrr_growth', 'monthly_new_pro_subscribers',
@@ -86,7 +78,7 @@ describe('R3-5 (A) — a complete every-factor list under an evaluated identity 
   });
 
   it('rows are RE-ORDERED by ISL\'s score (driver-order rule 1); importance_rank = influence_rank = position', () => {
-    const out = adoptIslStructuralInfluence(walk(), list(), [MRR_EVALUATED]);
+    const out = adoptIslStructuralInfluence(walk(), list());
     expect(out.map((r) => r.factor_id)).toEqual([
       'pro_paying_subscribers', 'pro_plan_price', 'fac_existing_customers_grandfathered',
       'monthly_churn', 'other_mrr_growth', 'monthly_new_pro_subscribers',
@@ -98,12 +90,12 @@ describe('R3-5 (A) — a complete every-factor list under an evaluated identity 
   it('nothing else moves per factor: elasticity, sensitivity_score, zero_reason, source', () => {
     const keep = ({ importance_rank: _i, ...rest }: FactorSensitivityResultV3) => strip(rest as FactorSensitivityResultV3);
     const keyed = (rows: FactorSensitivityResultV3[]) => Object.fromEntries(rows.map((r) => [r.factor_id, keep(r)]));
-    expect(keyed(adoptIslStructuralInfluence(walk(), list(), [MRR_EVALUATED]))).toEqual(keyed(walk()));
+    expect(keyed(adoptIslStructuralInfluence(walk(), list()))).toEqual(keyed(walk()));
   });
 
   it('the input rows are not mutated', () => {
     const before = walk();
-    adoptIslStructuralInfluence(before, list(), [MRR_EVALUATED]);
+    adoptIslStructuralInfluence(before, list());
     expect(before).toEqual(walk());
   });
 });
@@ -117,39 +109,64 @@ describe('R3-5 (A) — an incomplete list never mixes bases: the walk stays and 
   };
 
   it('the five-row uncertainty cohort (the unobserved factor unscored) → walk + graph_walk', () => {
-    kept(adoptIslStructuralInfluence(walk(), list(FIVE_ROW_COHORT), [MRR_EVALUATED]));
+    kept(adoptIslStructuralInfluence(walk(), list(FIVE_ROW_COHORT)));
   });
 
   it('no list at all (an ISL build before it) → walk + graph_walk', () => {
-    kept(adoptIslStructuralInfluence(walk(), undefined, [MRR_EVALUATED]));
+    kept(adoptIslStructuralInfluence(walk(), undefined));
   });
 
   it('a withheld (truncated) list — every score null → walk + graph_walk', () => {
     const withheld = Object.fromEntries(Object.keys(ISL_EVERY).map((id) => [id, null]));
-    kept(adoptIslStructuralInfluence(walk(), list(withheld), [MRR_EVALUATED]));
+    kept(adoptIslStructuralInfluence(walk(), list(withheld)));
   });
 
   it('an out-of-domain score (> 1) counts as missing → walk + graph_walk', () => {
-    kept(adoptIslStructuralInfluence(walk(), list({ ...ISL_EVERY, pro_plan_price: 1.5 }), [MRR_EVALUATED]));
+    kept(adoptIslStructuralInfluence(walk(), list({ ...ISL_EVERY, pro_plan_price: 1.5 })));
   });
 });
 
-describe('R3-5 CONTRASTS — without an evaluated identity nothing changes (the same array comes back)', () => {
-  it('C0 (ISL reports no identity), even with a list present: same reference, deep-equal, no basis key', () => {
-    const rows = walk();
-    const out = adoptIslStructuralInfluence(rows, list(), undefined);
-    expect(out).toBe(rows);
-    expect(out).toEqual(walk());
-    expect(out.some((r) => 'influence_basis' in r)).toBe(false);
+// ISL's own walk over the six factor nodes of the SAME served wire WITHOUT the identity (C0), from ISL
+// `_compute_structural_influence` at ISL `r3b/one-influence-algorithm` 2f8e8ae (staging 8ce4ae75 + the
+// every-graph emit), `repr` values copied from the run. P1's values at that head reproduce ISL_EVERY exactly.
+const ISL_C0: Record<string, number> = {
+  pro_plan_price: 0.993460567823344,
+  pro_paying_subscribers: 0.29574132492113564,
+  monthly_churn: 0.03548895899053628,
+  monthly_new_pro_subscribers: 0.023659305993690854,
+  other_mrr_growth: 0.7886435331230284,
+  fac_existing_customers_grandfathered: 1.0,
+};
+
+describe('ONE influence algorithm (AIQ 5872951506) — without an identity a complete list is adopted too', () => {
+  it('the identity no longer gates adoption: the function takes no identity argument', () => {
+    expect(adoptIslStructuralInfluence.length).toBe(2);
   });
 
-  it('an identity ISL WITHHELD (evaluated: false): same reference', () => {
-    const rows = walk();
-    expect(adoptIslStructuralInfluence(rows, list(), [MRR_WITHHELD])).toBe(rows);
+  it('C0 (no identity) with ISL\'s C0 list: every row shows ISL\'s C0 score, basis isl_structural', () => {
+    const out = byId(adoptIslStructuralInfluence(walk(), list(ISL_C0)));
+    for (const [id, score] of Object.entries(ISL_C0)) {
+      expect(out[id].influence_score).toBe(score);
+      expect(out[id].influence_basis).toBe('isl_structural');
+    }
+    // the discriminating bar: the walk gives price 1; ISL's C0 walk gives 0.99346
+    expect(out.pro_plan_price.influence_score).not.toBe(1);
   });
 
-  it('an empty identity_evaluations array: same reference', () => {
-    const rows = walk();
-    expect(adoptIslStructuralInfluence(rows, list(), [])).toBe(rows);
+  it('C0: the rows re-order by ISL\'s C0 score — grandfathered 1st, price 2nd (the walk had price 1st)', () => {
+    const out = adoptIslStructuralInfluence(walk(), list(ISL_C0));
+    expect(out.map((r) => r.factor_id)).toEqual([
+      'fac_existing_customers_grandfathered', 'pro_plan_price', 'other_mrr_growth',
+      'pro_paying_subscribers', 'monthly_churn', 'monthly_new_pro_subscribers',
+    ]);
+    expect(out.map((r) => r.influence_rank)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(out.map((r) => r.importance_rank)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(byId(walk()).pro_plan_price.influence_rank).toBe(1);
+  });
+
+  it('C0 with no list (an ISL build before the every-graph emit): the walk stays and says graph_walk', () => {
+    const out = adoptIslStructuralInfluence(walk(), undefined);
+    expect(out.map((r) => r.influence_score)).toEqual(walk().map((r) => r.influence_score));
+    expect(out.every((r) => r.influence_basis === 'graph_walk')).toBe(true);
   });
 });

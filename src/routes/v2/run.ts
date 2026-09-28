@@ -8642,17 +8642,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             filteredGraph.edges,
             structuralLeverIds,
           );
-          // R3-5 (DL #72 5872746926): under an evaluated identity the published influence is ISL's
-          // every-factor structural influence — the walk above ignores the identity. Same array back,
-          // untouched, when no identity was evaluated.
+          // R3-5 + ONE influence algorithm (AIQ #72 5872951506): the published influence is ISL's
+          // every-factor structural influence on every graph; the walk above stays only as the
+          // disclosed fallback (`graph_walk`) when ISL's list cannot cover every row.
           factorSensitivity = adoptIslStructuralInfluence(
             factorSensitivity,
             getIslStructuralInfluence(islResult),
-            getIslIdentityEvaluations(islResult),
           );
           if (factorSensitivity[0]?.influence_basis === 'graph_walk') {
             req.log.warn({
-              event: 'influence_identity_basis_graph_walk',
+              event: 'influence_basis_graph_walk',
               request_id: requestId,
               structural_influence_rows: getIslStructuralInfluence(islResult)?.length ?? null,
               factor_rows: factorSensitivity.length,

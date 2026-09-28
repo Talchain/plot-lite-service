@@ -1046,6 +1046,16 @@ const r35List = (scores: Record<string, number>) => Object.entries(scores)
   .sort(([, a], [, b]) => b - a)
   .map(([node_id, influence_score], i) => ({ node_id, influence_score, influence_rank: i + 1 }));
 const R35_FIVE = Object.fromEntries(Object.entries(R35_EVERY).filter(([id]) => id !== 'fac_existing_customers_grandfathered'));
+// ONE influence algorithm (AIQ #72 5872951506): ISL's own walk over the six factor nodes of the SAME wire
+// WITHOUT the identity (C0), `_compute_structural_influence` at ISL r3b/one-influence-algorithm 2f8e8ae.
+const R35_C0: Record<string, number> = {
+  pro_plan_price: 0.993460567823344,
+  pro_paying_subscribers: 0.29574132492113564,
+  monthly_churn: 0.03548895899053628,
+  monthly_new_pro_subscribers: 0.023659305993690854,
+  other_mrr_growth: 0.7886435331230284,
+  fac_existing_customers_grandfathered: 1.0,
+};
 
 describe('R3-5 route — an evaluated identity puts ISL\'s every-factor influence on the Model tab', () => {
   let app: FastifyInstance;
@@ -1099,9 +1109,16 @@ describe('R3-5 route — an evaluated identity puts ISL\'s every-factor influenc
     expect(rowsOf(body).pro_paying_subscribers.importance_rank).toBe(1);
   });
 
-  it('CONTRAST C0 — no identity: the order is the walk\'s, unchanged (grandfathered leads)', async () => {
-    islNext = { extra: { structural_influence: r35List(R35_EVERY) } };
+  it('ONE ALGORITHM, C0 — no identity: every row shows ISL\'s C0 score; price\'s bar is ISL\'s 0.99346, not the walk\'s 1', async () => {
+    islNext = { extra: { structural_influence: r35List(R35_C0) } };
     const body = await bodyOf(await post(paulRequest()));
+    const rows = rowsOf(body);
+    for (const [id, score] of Object.entries(R35_C0)) {
+      expect(rows[id].influence_score).toBe(score);
+      expect(rows[id].influence_basis).toBe('isl_structural');
+    }
+    expect(rows.pro_plan_price.influence_score).not.toBe(1);
+    expect(rows.fac_existing_customers_grandfathered.influence_rank).toBe(1);
     expect(body.driver_order.ranked_factor_ids[0]).toBe('fac_existing_customers_grandfathered');
     expect(body.m1_coaching.key_drivers[0].factor_id).toBe('fac_existing_customers_grandfathered');
   });
@@ -1113,20 +1130,16 @@ describe('R3-5 route — an evaluated identity puts ISL\'s every-factor influenc
     expect(Object.values(rows).every((r: any) => r.influence_basis === 'graph_walk')).toBe(true);
   });
 
-  it('CONTRAST C0 — the same list but no identity: factor_sensitivity is deep-equal to a run with no list at all', async () => {
-    islNext = { extra: { structural_influence: r35List(R35_EVERY) } };
-    const withList = await bodyOf(await post(paulRequest()));
-    islNext = null;
-    const without = await bodyOf(await post(paulRequest()));
-    expect(withList.factor_sensitivity).toEqual(without.factor_sensitivity);
-    expect(rowsOf(withList).pro_plan_price.influence_score).toBe(1);
-    expect((withList.factor_sensitivity as any[]).some((r) => 'influence_basis' in r)).toBe(false);
+  it('C0 with NO list (an ISL build before the every-graph emit): the walk stays, and every row says graph_walk', async () => {
+    const rows = rowsOf(await bodyOf(await post(paulRequest())));
+    expect(rows.pro_plan_price.influence_score).toBe(1);
+    expect(Object.values(rows).every((r: any) => r.influence_basis === 'graph_walk')).toBe(true);
   });
 
-  it('CONTRAST: an identity ISL WITHHELD leaves the walk, with no basis stamp', async () => {
-    islNext = { extra: { identity_evaluations: [EVALUATIONS[1]], structural_influence: r35List(R35_EVERY) } };
+  it('ONE ALGORITHM: an identity ISL WITHHELD no longer gates — its complete list is adopted', async () => {
+    islNext = { extra: { identity_evaluations: [EVALUATIONS[1]], structural_influence: r35List(R35_C0) } };
     const rows = rowsOf(await bodyOf(await post(paulRequest(PRODUCT))));
-    expect(rows.pro_plan_price.influence_score).toBe(1);
-    expect(Object.values(rows).some((r: any) => 'influence_basis' in r)).toBe(false);
+    for (const [id, score] of Object.entries(R35_C0)) expect(rows[id].influence_score).toBe(score);
+    expect(Object.values(rows).every((r: any) => r.influence_basis === 'isl_structural')).toBe(true);
   });
 });
