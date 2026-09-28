@@ -1,5 +1,5 @@
 {
-  "description": "Robust model — no fragile edges, what_would_change from factor_sensitivity fallback, robustness 'robust'",
+  "description": "Robust model — no fragile edges and nothing MEASURED to change the leader (no found flip, no EVPPI above resolution), so what_would_change is [] (AIQ #72 5867389636); robustness 'robust'",
   "input": {
     "analysis_status": "computed",
     "critiques": [],
@@ -68,7 +68,7 @@
       { "factor_label": "Timeline Risk", "sensitivity": 0.35, "direction": "negative" }
     ],
     "key_assumptions": [],
-    "what_would_change": ["Team Capacity", "Budget", "Timeline Risk"],
+    "what_would_change": [],
     "robustness": "robust",
     "warnings": [],
     "lineage": {
