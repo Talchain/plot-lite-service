@@ -4107,7 +4107,8 @@ function buildResponse(
   // tests) can tell wire-gap from absence. SUPPRESSED automatically when the
   // wire carried data (edgeSensitivity non-empty): populated OR marked,
   // never both absent. Factor-level sensitivity is unaffected.
-  // T7b 4b (AIQ #72 5869679096): a zero no option touches is held at 0 with no uncertainty — said, never silent.
+  // T7b 4b (AIQ #72 5869679096): a zero no option touches is held at 0 — said, never silent; "with no uncertainty" only
+  // where no option reaches it, else its starting level is held and the options still move it (AIQ #72 5871640445).
   inferenceWarnings.push(...zeroFactorHeldWarnings(meta.zeroFactorsHeldExact ?? []));
 
   if (analysisStatus === 'computed' && islResult && !hasNonEmptyArray(edgeSensitivity)) {
@@ -6949,7 +6950,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             correlatedFactorIdsOf(body.factor_correlations),
           ) ?? [];
         const factorPuNodeIds = new Set(factorParameterUncertainties.map((pu) => pu.node_id));
-        zeroFactorsHeld = zeroFactorsHeldExact(filteredGraph.nodes, optionsAsSentToISL);
+        // AIQ #72 5871640445: the edges decide whether an option REACHES each held zero (then only its starting level
+        // is held and the options still move it) — never "no uncertainty" for a zero the analysis moves.
+        zeroFactorsHeld = zeroFactorsHeldExact(filteredGraph.nodes, optionsAsSentToISL, filteredGraph.edges);
         exactInputOptions = exactInputOptionIds(filteredGraph.nodes, filteredGraph.edges, body.goal_node_id, optionsAsSentToISL, factorParameterUncertainties);
         // One id→node map shared by the plan-time constraint-PU selection and the
         // build-time injection (both classify the same constrained nodes against

@@ -23,7 +23,9 @@ import {
   BINARY_DEFAULT_STD,
   DEFAULT_STD_FLOOR,
 } from '../src/integrations/isl/parameter-uncertainty-bounds.js';
-import type { EngineNodeV3, OptionV3 } from '../src/types/engine-v3.js';
+import type { EngineEdgeV3, EngineNodeV3, OptionV3 } from '../src/types/engine-v3.js';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 function factor(id: string, value: number, extra: Record<string, unknown> = {}): EngineNodeV3 {
   return { id, kind: 'factor', label: id, observed_state: { value, ...extra } } as EngineNodeV3;
@@ -46,6 +48,10 @@ function option(id: string, levels: Record<string, number>): OptionV3 {
     label: id,
     interventions: Object.fromEntries(Object.entries(levels).map(([k, v]) => [k, { value: v }])),
   };
+}
+
+function edge(from: string, to: string, extra: Partial<EngineEdgeV3> = {}): EngineEdgeV3 {
+  return { from, to, exists_probability: 0.8, strength: { mean: 0.5, std: 0.1 }, ...extra };
 }
 
 function puOf(result: ReturnType<typeof buildParameterUncertaintiesV3>, id: string): Record<string, unknown> {
@@ -89,7 +95,7 @@ describe('buildParameterUncertaintiesV3 — a zero estimate never takes its spre
     const result = buildParameterUncertaintiesV3(nodes, options);
     expect(puOf(result, 'fac_hiring_cost')).toStrictEqual(POINT_MASS('fac_hiring_cost'));
     expect(stdOf(result, 'set')).toBe(VALUE_BASED_STD_FRACTION * 0.1);
-    expect(zeroFactorsHeldExact(nodes, options).map((h) => h.node_id)).toEqual(['fac_hiring_cost']);
+    expect(zeroFactorsHeldExact(nodes, options, []).map((h) => h.node_id)).toEqual(['fac_hiring_cost']);
   });
 
   it('a zero factor that cannot be pinned, set by options ONLY to 0 → held at 0 too (no scale), and named', () => {
@@ -99,12 +105,12 @@ describe('buildParameterUncertaintiesV3 — a zero estimate never takes its spre
     const result = buildParameterUncertaintiesV3(nodes, options);
     expect(puOf(result, 'zero_only')).toStrictEqual(POINT_MASS('zero_only'));
     expect(puOf(result, 'observable_zero')).toStrictEqual(POINT_MASS('observable_zero'));
-    expect(zeroFactorsHeldExact(nodes, options).map((h) => h.node_id)).toEqual(['zero_only', 'observable_zero']);
+    expect(zeroFactorsHeldExact(nodes, options, []).map((h) => h.node_id)).toEqual(['zero_only', 'observable_zero']);
   });
 
   it('no options passed at all → held at 0, named — never a frame-sized spread', () => {
     expect(puOf(buildParameterUncertaintiesV3([factor('spend', 0)]), 'spend')).toStrictEqual(POINT_MASS('spend'));
-    expect(zeroFactorsHeldExact([factor('spend', 0)]).map((h) => h.node_id)).toEqual(['spend']);
+    expect(zeroFactorsHeldExact([factor('spend', 0)], [], []).map((h) => h.node_id)).toEqual(['spend']);
   });
 
   it('toISLRobustnessRequest without a prebuilt PU list scales and pins by the options it is sending', () => {
@@ -296,6 +302,8 @@ describe('4b amended — held at 0, frame-free, and named', () => {
     lever('hires', 0.2, 'brief_extraction'),
   ];
   const E_OPTIONS = [option('seniors', { hires: 0.2 }), option('juniors', { hires: 0.4 })];
+  /** Served E's shape (AIQ #72 5871640445): both zeros are NON-ROOT — their parent is the lever every option sets. */
+  const E_EDGES = [edge('hires', 'engineering_delivery_capacity'), edge('hires', 'annual_salary_spend')];
 
   it('⭐ RED (E): both untouched zeros go out as point_mass, whatever the frame (×1 and ×2 byte-identical)', () => {
     const at = (frame: number) => {
@@ -307,21 +315,23 @@ describe('4b amended — held at 0, frame-free, and named', () => {
     expect(at(2_000_000)).toStrictEqual(at(1_000_000));
   });
 
-  it('⭐ RED (E): the typed warning names BOTH factors, each as the user writes the figure', () => {
-    const held = zeroFactorsHeldExact(E(), E_OPTIONS);
+  // AIQ #72 5871640445: on E this warning said "…with no uncertainty" — FALSE. Both zeros sit below the lever every
+  // option sets, so the analysis MOVES them; only their STARTING level is held exact. Same code, the true words.
+  it('⭐ RED (E): the typed warning names BOTH factors, each as the user writes the figure — the STARTING level held, the options still move it', () => {
+    const held = zeroFactorsHeldExact(E(), E_OPTIONS, E_EDGES);
     expect(held.map((h) => h.node_id)).toEqual(['engineering_delivery_capacity', 'annual_salary_spend']);
     expect(zeroFactorHeldWarnings(held)).toEqual([
       { code: 'ZERO_FACTOR_HELD_EXACT', severity: 'info', node_label: 'Engineering delivery capacity',
-        message: 'Olumi holds "Engineering delivery capacity" at 0 FTE with no uncertainty; give a range if it can vary.' },
+        message: 'Olumi holds the starting level of "Engineering delivery capacity" at 0 FTE exactly; the options still move it.' },
       { code: 'ZERO_FACTOR_HELD_EXACT', severity: 'info', node_label: 'Annual salary spend',
-        message: 'Olumi holds "Annual salary spend" at £0 with no uncertainty; give a range if it can vary.' },
+        message: 'Olumi holds the starting level of "Annual salary spend" at £0 exactly; the options still move it.' },
     ]);
   });
 
   it('a held zero named in factor_correlations goes out as a normal at MIN_USER_STD (ISL rejects a correlated point_mass) — still named', () => {
     const r = buildParameterUncertaintiesV3(E(), E_OPTIONS, new Set(['annual_salary_spend']));
     expect(puOf(r, 'annual_salary_spend')).toStrictEqual({ node_id: 'annual_salary_spend', distribution: 'normal', std: MIN_USER_STD });
-    expect(zeroFactorsHeldExact(E(), E_OPTIONS).map((h) => h.node_id)).toContain('annual_salary_spend');
+    expect(zeroFactorsHeldExact(E(), E_OPTIONS, E_EDGES).map((h) => h.node_id)).toContain('annual_salary_spend');
   });
 
   it('CONTROLS — never held: a user std, a binary, an option-set zero (4a), a pinned lever (its own named rule)', () => {
@@ -332,7 +342,7 @@ describe('4b amended — held at 0, frame-free, and named', () => {
       lever('pinned_zero', 0, 'cee_inference'),
     ];
     const options = [option('a', { set_zero: 0.1, pinned_zero: 0.2 }), option('sq', { set_zero: 0, pinned_zero: 0 })];
-    const held = zeroFactorsHeldExact(nodes, options).map((h) => h.node_id);
+    const held = zeroFactorsHeldExact(nodes, options, []).map((h) => h.node_id);
     expect(held).not.toContain('user_std');
     expect(held).not.toContain('binary_zero');
     expect(held).not.toContain('set_zero');
@@ -342,6 +352,93 @@ describe('4b amended — held at 0, frame-free, and named', () => {
     expect(stdOf(r, 'user_std')).toBe(0.2);
     // The held list is the builder's own 4b set: every held id went out exact, and nothing else did under 4b.
     for (const id of held) expect(puOf(r, id)).toStrictEqual(POINT_MASS(id));
+  });
+});
+
+/**
+ * ⛔ "WITH NO UNCERTAINTY" ONLY WHERE NO OPTION REACHES THE NODE (AIQ #72 5871640445, served journey E on PLoT
+ * b4eaa0c). A held zero's OWN starting level goes out exact either way (point_mass — unchanged here); what differs is
+ * whether the analysis MOVES it. Reached = a directed path of length ≥ 1 from a node some option sets, read through
+ * the estate's canonical DAG filter (`buildAdjacencyList`, validation/path-to-goal.ts: a bidirected edge or one with
+ * exists_probability ≤ 0 carries no effect). ONLY options count: a zero below an uncertain ROOT that no option
+ * reaches keeps the "no uncertainty" words (the rule as briefed — its value still varies with that root; recorded in
+ * the PR as a meaning question for AIQ). A zero the options set ONLY to 0 is not moved by them (length-0 path).
+ */
+describe('held-zero wording — "no uncertainty" only where no option reaches the node (AIQ #72 5871640445)', () => {
+  const NO_UNCERTAINTY = (label: string, zero: string) =>
+    `Olumi holds "${label}" at ${zero} with no uncertainty; give a range if it can vary.`;
+  const START_HELD = (label: string, zero: string) =>
+    `Olumi holds the starting level of "${label}" at ${zero} exactly; the options still move it.`;
+  const STILL_VARIES = (label: string, zero: string, parents: string) =>
+    `Olumi holds the starting level of "${label}" at ${zero} exactly; it still varies with ${parents}.`;
+  const messagesByLabel = (nodes: EngineNodeV3[], options: OptionV3[], edges: EngineEdgeV3[]) =>
+    Object.fromEntries(zeroFactorHeldWarnings(zeroFactorsHeldExact(nodes, options, edges)).map((w) => [w.node_label, w.message]));
+
+  /** AIQ's served E request, byte-identical to the capture (programme-docs 446df48, sha256 35ea3640…). */
+  const servedE = (): { graph: { nodes: EngineNodeV3[]; edges: EngineEdgeV3[] }; options: OptionV3[] } => {
+    const req = JSON.parse(readFileSync(resolve(__dirname, 'fixtures/journey-e-held-zero-20260928/cee-to-plot.request.json'), 'utf8'));
+    // The wire carries bare levels; OptionV3 carries `{ value }` (as the route builds it).
+    req.options = req.options.map((o: { id: string; label: string; interventions: Record<string, number> }) =>
+      option(o.id, o.interventions));
+    return req;
+  };
+
+  it('⭐ ROW (served E): both NON-ROOT zeros, reached through the hire levers every option sets → "starting level … exactly; the options still move it", never "no uncertainty" — and a zero ROOT no option touches keeps "no uncertainty" in the SAME call', () => {
+    const req = servedE();
+    for (const id of ['engineering_delivery_capacity', 'annual_salary_spend']) {
+      // The served parents, asserted — not assumed.
+      expect(req.graph.edges.filter((e) => e.to === id).map((e) => e.from).sort()).toEqual(['junior_engineers_hired', 'senior_engineers_hired']);
+    }
+    const nodes = [
+      ...req.graph.nodes,
+      { id: 'office_rent', kind: 'factor', label: 'Office rent', observed_state: { value: 0, unit: 'GBP/year' } } as EngineNodeV3,
+    ];
+    const edges = [...req.graph.edges, edge('office_rent', 'ship_the_new_platform')];
+    expect(messagesByLabel(nodes, req.options, edges)).toEqual({
+      'Engineering delivery capacity': START_HELD('Engineering delivery capacity', '0 FTE-equivalents'),
+      'Annual salary spend': START_HELD('Annual salary spend', '£0'),
+      'Office rent': NO_UNCERTAINTY('Office rent', '£0'),
+    });
+  });
+
+  it('⭐ RED (AIQ #72 5872285581): a zero below an uncertain root no option reaches is NOT "no uncertainty" — it still varies with its parent; the SAME node reads "the options still move it" once one option sets that root', () => {
+    const nodes = [factor('market_size', 0.6), factor('demand', 0), factor('zero_only', 0), factor('price', 0.3), factor('goal', 0.5)];
+    const edges = [edge('market_size', 'demand'), edge('demand', 'goal'), edge('price', 'goal'), edge('zero_only', 'goal')];
+    // `zero_only`: the options set it ONLY to 0 and nothing set feeds it — 0 in every option, so "no uncertainty" is true.
+    const untouched = [option('a', { price: 0.4, zero_only: 0 }), option('b', { price: 0.2 })];
+    expect(messagesByLabel(nodes, untouched, edges)).toEqual({
+      demand: STILL_VARIES('demand', '0', '"market_size"'),
+      zero_only: NO_UNCERTAINTY('zero_only', '0'),
+    });
+    const setsTheRoot = [option('a', { price: 0.4, market_size: 0.9, zero_only: 0 }), option('b', { price: 0.2 })];
+    expect(messagesByLabel(nodes, setsTheRoot, edges)).toEqual({
+      demand: START_HELD('demand', '0'),
+      zero_only: NO_UNCERTAINTY('zero_only', '0'),
+    });
+  });
+
+  it('two uncertain parents, no option → it still varies with both, named as a person lists them', () => {
+    const nodes = [factor('market_size', 0.6), factor('season', 0.4), factor('demand', 0), factor('price', 0.3), factor('goal', 0.5)];
+    const edges = [edge('season', 'demand'), edge('market_size', 'demand'), edge('demand', 'goal'), edge('price', 'goal')];
+    expect(messagesByLabel(nodes, [option('a', { price: 0.4 }), option('b', { price: 0.2 })], edges)).toEqual({
+      demand: STILL_VARIES('demand', '0', '"market_size" and "season"'),
+    });
+  });
+
+  it('a path only through a bidirected edge or an exists_probability 0 edge does not reach it (canonical DAG filter); the same path at 0.8 does', () => {
+    const nodes = [factor('lever', 0.5), factor('mid', 0.4), factor('confounded', 0), factor('dead', 0), factor('live', 0)];
+    const options = [option('a', { lever: 0.7 }), option('b', { lever: 0.2 })];
+    const edges = [
+      edge('lever', 'confounded', { edge_type: 'bidirected' } as Partial<EngineEdgeV3>),
+      edge('lever', 'dead', { exists_probability: 0 }),
+      edge('lever', 'mid'),
+      edge('mid', 'live'),
+    ];
+    expect(messagesByLabel(nodes, options, edges)).toEqual({
+      confounded: NO_UNCERTAINTY('confounded', '0'),
+      dead: NO_UNCERTAINTY('dead', '0'),
+      live: START_HELD('live', '0'),
+    });
   });
 });
 

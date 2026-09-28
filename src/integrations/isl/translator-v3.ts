@@ -28,6 +28,7 @@ import {
 } from './parameter-uncertainty-bounds.js';
 import { sha8 } from '../../util/pii-redact.js';
 import { resolveNodeFrame, type NodeFrameCarrier } from '../../lib/intervention-normaliser.js';
+import { buildAdjacencyList, checkPathToGoal } from '../../validation/path-to-goal.js';
 // ROADMAP 2.258. DERIVED from the shared contract, never hand-mirrored.
 //
 // `GoalThresholdFrame` is the Zod enum itself, so `parseGoalThresholdFrame`
@@ -1220,16 +1221,47 @@ export interface ZeroFactorHeldExact {
   node_id: string;
   label: string;
   unit?: string;
+  /**
+   * True when an option REACHES the factor — a directed path of length ≥ 1 from a node some option sets (AIQ #72
+   * 5871640445). Only its STARTING level is then held exact; the analysis still moves it, so the user may not be told
+   * it has "no uncertainty". False ⇒ nothing any option sets feeds it, and that sentence is the true one.
+   */
+  moved_by_options: boolean;
+  /**
+   * The factor's direct parents that carry an effect (the same DAG filter), by label — AIQ #72 5872285581: only a node
+   * with NO parents has "no uncertainty"; any node with parents varies, through the options or an uncertain ancestor.
+   */
+  parent_labels: string[];
 }
 
 /**
  * The factors `buildParameterUncertaintiesV3` holds at 0 under priority 4b — a finite zero level, not pinned, no
  * user std, not binary, and no option sets it (AIQ #72 5869679096). The same predicate as the builder, so the
  * warning names exactly the factors held.
+ *
+ * ⛔ HELD IS NOT UNMOVED (AIQ #72 5871640445, served journey E on PLoT b4eaa0c). "Engineering delivery capacity" and
+ * "Annual salary spend" are held zeros whose parents are the hire levers every option sets: the analysis moves them,
+ * and "with no uncertainty" was false. `moved_by_options` records, per held factor, whether any option-set node has a
+ * directed path to it — read through the estate's ONE DAG filter and walk (`buildAdjacencyList` / `checkPathToGoal`,
+ * validation/path-to-goal.ts: a bidirected edge, or one with exists_probability ≤ 0, carries no effect). ONLY options
+ * count (the rule as briefed): a zero below an uncertain root no option reaches is not moved by the options. A factor
+ * the options set only to 0 is its own source — a length-0 path — and is not counted: it is 0 in every option.
+ *
+ * @param edges The graph's edges as the analysis will read them. REQUIRED: without them no held zero could be told
+ *   apart from an unreached one, and the default would be the false sentence.
  */
-export function zeroFactorsHeldExact(nodes: EngineNodeV3[], options: readonly OptionV3[] = []): ZeroFactorHeldExact[] {
+export function zeroFactorsHeldExact(
+  nodes: EngineNodeV3[],
+  options: readonly OptionV3[],
+  edges: readonly EngineEdgeV3[],
+): ZeroFactorHeldExact[] {
   const maxOptionLevel = maxAbsOptionLevelByFactor(options);
   const pinned = pinnedLeverIds(nodes, options);
+  const optionSetIds = [...new Set(options.flatMap((o) => Object.keys(o.interventions ?? {})))];
+  const adjacency = buildAdjacencyList([...edges]);
+  const labelOf = new Map(nodes.map((n) => [n.id, typeof n.label === 'string' && n.label !== '' ? n.label : n.id]));
+  const parentsOf = (id: string): string[] =>
+    [...new Set([...adjacency].filter(([, tos]) => tos.includes(id)).map(([from]) => labelOf.get(from) ?? from))].sort();
   const held: ZeroFactorHeldExact[] = [];
   for (const node of nodes) {
     const value = node.observed_state?.value;
@@ -1237,9 +1269,22 @@ export function zeroFactorsHeldExact(nodes: EngineNodeV3[], options: readonly Op
     if (resolveUserSuppliedStd(node.observed_state?.std) !== null || isBinaryFactor(node)) continue;
     if ((maxOptionLevel.get(node.id) ?? 0) > 0) continue;
     const unit = typeof node.observed_state?.unit === 'string' ? node.observed_state.unit : undefined;
-    held.push({ node_id: node.id, label: typeof node.label === 'string' && node.label !== '' ? node.label : node.id, ...(unit !== undefined && { unit }) });
+    const movedByOptions = optionSetIds.some((id) => id !== node.id && checkPathToGoal(adjacency, id, node.id).reachable);
+    held.push({
+      node_id: node.id,
+      label: typeof node.label === 'string' && node.label !== '' ? node.label : node.id,
+      ...(unit !== undefined && { unit }),
+      moved_by_options: movedByOptions,
+      parent_labels: parentsOf(node.id),
+    });
   }
   return held;
+}
+
+/** Quoted labels as a person lists them: "A", "A" and "B", "A", "B" and "C". */
+function sayLabels(labels: readonly string[]): string {
+  const q = labels.map((l) => `"${l}"`);
+  return q.length <= 1 ? (q[0] ?? '') : `${q.slice(0, -1).join(', ')} and ${q[q.length - 1]}`;
 }
 
 /** "£0" for a money unit, "0%" for a percent, "0 <unit>" otherwise, "0" with none — the held level as figures are said. */
@@ -1253,11 +1298,23 @@ export function formatHeldZero(unit: string | undefined): string {
   return `0 ${u}`;
 }
 
-/** One typed `ZERO_FACTOR_HELD_EXACT` warning per held factor, naming it (AIQ #72 5869679096: never a silent hold). */
+/**
+ * One typed `ZERO_FACTOR_HELD_EXACT` warning per held factor, naming it (AIQ #72 5869679096: never a silent hold).
+ * "With no uncertainty" ONLY for a factor no option reaches; a reached one is told the true thing — its starting
+ * level is held exact and the options still move it (AIQ #72 5871640445). ONE code for both: every reader keys on
+ * the code alone and none maps this one to copy (the UI's audit row renders it generically and never echoes
+ * `message`; CEE reads no ZERO_FACTOR_HELD_EXACT) — so a reader that ever maps it must not say "no uncertainty".
+ */
 export function zeroFactorHeldWarnings(held: readonly ZeroFactorHeldExact[]): InferenceWarning[] {
   return held.map((h) => ({
     code: INFERENCE_WARNING_CODES.ZERO_FACTOR_HELD_EXACT,
-    message: `Olumi holds "${h.label}" at ${formatHeldZero(h.unit)} with no uncertainty; give a range if it can vary.`,
+    // AIQ #72 5872285581: "no uncertainty" is true ONLY for a node with no parents; a reached node is moved by the options;
+    // an unreached node with parents still varies with them.
+    message: h.moved_by_options
+      ? `Olumi holds the starting level of "${h.label}" at ${formatHeldZero(h.unit)} exactly; the options still move it.`
+      : h.parent_labels.length > 0
+        ? `Olumi holds the starting level of "${h.label}" at ${formatHeldZero(h.unit)} exactly; it still varies with ${sayLabels(h.parent_labels)}.`
+        : `Olumi holds "${h.label}" at ${formatHeldZero(h.unit)} with no uncertainty; give a range if it can vary.`,
     severity: 'info' as const,
     node_label: h.label,
   }));
