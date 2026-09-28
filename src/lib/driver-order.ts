@@ -47,7 +47,10 @@
  *      `computeFactorSensitivityFromGraph`'s influence order (`influence_score`
  *      descending) — attested `basis: 'graph_structural'`. On the ISL-only
  *      fallback they arrive in ISL's own Monte-Carlo uncertainty-importance
- *      order — attested `basis: 'isl_uncertainty'`.
+ *      order — attested `basis: 'isl_uncertainty'`. When EVERY row's influence
+ *      was adopted from ISL's `structural_influence` (`influence_basis:
+ *      'isl_structural'`), the order is ISL's — attested `basis:
+ *      'isl_structural'` (Codex CR #405 5878707888).
  *   2. **ISL-only tail (merge path only).** `mergeIslConfidenceIntoGraphFactors`
  *      APPENDS non-lever ISL-only rows at the tail **with no re-sort**. Those
  *      rows carry a different quantity under the same field names, so the
@@ -93,7 +96,7 @@ import { NEAR_TIE_THRESHOLD } from '../trust/result-coherence.js';
  * omitting the object, so a consumer can distinguish "the producer ranked
  * nothing" from "an old producer, or a dropped key".
  */
-export type DriverOrderBasis = 'graph_structural' | 'isl_uncertainty' | 'none';
+export type DriverOrderBasis = 'graph_structural' | 'isl_uncertainty' | 'isl_structural' | 'none';
 
 /**
  * Whether the ordered rows are all one quantity species.
@@ -315,6 +318,8 @@ export interface DriverOrderFactorRow {
   zero_reason?: string | null;
   source?: string;
   influence_score?: number | null;
+  /** R3-5: `'isl_structural'` when the row's influence was adopted from ISL's structural influence. */
+  influence_basis?: string | null;
   sensitivity_score?: number | null;
   rank_flip_rate?: number | null;
   attribution_stability?: string | null;
@@ -515,6 +520,10 @@ export function buildDriverOrder(input: BuildDriverOrderInput): DriverOrderV1 | 
     basis = 'none';
   } else if (islOnlyPath) {
     basis = 'isl_uncertainty';
+  } else if (orderedRows.every((r) => r.influence_basis === 'isl_structural')) {
+    // Every ranked row carries ISL's structural influence, and the rows were
+    // re-ordered by it: ISL produced this order, not PLoT's walk.
+    basis = 'isl_structural';
   } else {
     basis = 'graph_structural';
   }

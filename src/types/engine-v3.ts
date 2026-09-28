@@ -2690,12 +2690,14 @@ export interface FactorSensitivityResultV3 {
    *   bootstrap stability diagnostics are merged in.
    * - `'isl_uncertainty'` — the graph path returned nothing, so ISL's own
    *   Monte-Carlo uncertainty-importance ordering is what is published.
+   * - `'isl_structural'` — every row's influence was adopted from ISL's
+   *   `structural_influence` and the rank follows it (see `influence_basis`).
    *
    * Exists because the two quantities share ISL's field NAMES and are otherwise
    * indistinguishable to a consumer. Declared in
    * `src/contracts/isl-to-ui.contract.ts`.
    */
-  importance_basis?: 'graph_structural' | 'isl_uncertainty';
+  importance_basis?: 'graph_structural' | 'isl_uncertainty' | 'isl_structural';
   /**
    * R3-5 (DL #72 5872746926) — which authority produced THIS row's `influence_score` /
    * `influence_rank`, stamped ONLY when ISL evaluated an accounting identity (absent otherwise, so a

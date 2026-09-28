@@ -6496,7 +6496,7 @@ components:
                   `importance_rank == 1` agree.
               importance_basis:
                 type: string
-                enum: [graph_structural, isl_uncertainty]
+                enum: [graph_structural, isl_uncertainty, isl_structural]
                 description: >-
                   Producer disclosure of WHICH authority produced
                   `importance_rank` (and the quantity behind
@@ -6504,7 +6504,9 @@ components:
                   `influence_score`). `graph_structural` = PLoT's graph path
                   analysis, the live primary path. `isl_uncertainty` = the graph
                   path returned nothing and ISL's own Monte-Carlo importance
-                  ordering is published. Emitted on every entry; exists because
+                  ordering is published. `isl_structural` = every row's
+                  influence was adopted from ISL's `structural_influence` and
+                  the rank follows it. Emitted on every entry; exists because
                   the two quantities share ISL's field NAMES and are otherwise
                   indistinguishable to a consumer.
               influence_basis:
@@ -6632,9 +6634,11 @@ components:
               description: Schema discriminator for this object.
             basis:
               type: string
-              enum: [graph_structural, isl_uncertainty, none]
+              enum: [graph_structural, isl_uncertainty, isl_structural, none]
               description: >-
-                WHICH authority produced the order. `graph_structural` — PLoT's
+                WHICH authority produced the order. `isl_structural` — every
+                row's influence was adopted from ISL's `structural_influence`
+                (the expected net effect) and the order follows it. `graph_structural` — PLoT's
                 own graph path analysis (the live primary path).
                 `isl_uncertainty` — the graph path returned nothing and ISL's
                 Monte-Carlo uncertainty-importance order is published.

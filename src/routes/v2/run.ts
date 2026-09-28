@@ -165,6 +165,7 @@ import {
   applyLeverAwareImportanceOrder,
   IMPORTANCE_BASIS_GRAPH,
   IMPORTANCE_BASIS_ISL,
+  IMPORTANCE_BASIS_ISL_STRUCTURAL,
 } from '../../lib/importance-authority.js';
 import { buildDriverOrder, readIslSuppressedAttributions } from '../../lib/driver-order.js';
 import {
@@ -8705,9 +8706,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // without the basis. 'graph_structural' on the primary path;
           // 'isl_uncertainty' when the graph path returned nothing and ISL's own
           // Monte-Carlo importance order is what is published.
+          // 'isl_structural' when EVERY row was adopted from ISL's structural
+          // influence (the rank follows it; Codex CR #405 5878707888).
           const importanceBasis = factorSensitivitySource === 'isl'
             ? IMPORTANCE_BASIS_ISL
-            : IMPORTANCE_BASIS_GRAPH;
+            : factorSensitivity.length > 0 && factorSensitivity.every((f) => f.influence_basis === 'isl_structural')
+              ? IMPORTANCE_BASIS_ISL_STRUCTURAL
+              : IMPORTANCE_BASIS_GRAPH;
           for (const f of factorSensitivity) {
             f.importance_basis = importanceBasis;
           }
