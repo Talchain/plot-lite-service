@@ -1089,6 +1089,23 @@ describe('R3-5 route — an evaluated identity puts ISL\'s every-factor influenc
     expect(rows.pro_paying_subscribers.influence_rank).toBe(1);
   });
 
+  it('P1: the ORDER follows ISL too — driver_order, the biggest crown and key_drivers all lead with subscribers (DL CR 5873896531)', async () => {
+    islNext = { extra: { identity_evaluations: [EVALUATIONS[0]], structural_influence: r35List(R35_EVERY) } };
+    const body = await bodyOf(await post(paulRequest(PRODUCT)));
+    expect(body.driver_order.ranked_factor_ids[0]).toBe('pro_paying_subscribers');
+    const crowned = (body.factor_sensitivity as any[]).filter((r) => r.driver_label === 'biggest').map((r) => r.factor_id);
+    expect(crowned).toEqual(['pro_paying_subscribers']);
+    expect(body.m1_coaching.key_drivers[0].factor_id).toBe('pro_paying_subscribers');
+    expect(rowsOf(body).pro_paying_subscribers.importance_rank).toBe(1);
+  });
+
+  it('CONTRAST C0 — no identity: the order is the walk\'s, unchanged (grandfathered leads)', async () => {
+    islNext = { extra: { structural_influence: r35List(R35_EVERY) } };
+    const body = await bodyOf(await post(paulRequest()));
+    expect(body.driver_order.ranked_factor_ids[0]).toBe('fac_existing_customers_grandfathered');
+    expect(body.m1_coaching.key_drivers[0].factor_id).toBe('fac_existing_customers_grandfathered');
+  });
+
   it('P1 with the five-row cohort (the unobserved factor unscored): the walk stays and says graph_walk', async () => {
     islNext = { extra: { identity_evaluations: [EVALUATIONS[0]], structural_influence: r35List(R35_FIVE) } };
     const rows = rowsOf(await bodyOf(await post(paulRequest(PRODUCT))));

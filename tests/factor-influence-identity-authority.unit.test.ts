@@ -85,8 +85,20 @@ describe('R3-5 (A) — a complete every-factor list under an evaluated identity 
     ].map((id) => out[id].influence_rank)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
-  it('nothing else moves: array order, importance_rank, elasticity, sensitivity_score, zero_reason, source', () => {
-    expect(adoptIslStructuralInfluence(walk(), list(), [MRR_EVALUATED]).map(strip)).toEqual(walk().map(strip));
+  it('rows are RE-ORDERED by ISL\'s score (driver-order rule 1); importance_rank = influence_rank = position', () => {
+    const out = adoptIslStructuralInfluence(walk(), list(), [MRR_EVALUATED]);
+    expect(out.map((r) => r.factor_id)).toEqual([
+      'pro_paying_subscribers', 'pro_plan_price', 'fac_existing_customers_grandfathered',
+      'monthly_churn', 'other_mrr_growth', 'monthly_new_pro_subscribers',
+    ]);
+    expect(out.map((r) => r.importance_rank)).toEqual([1, 2, 3, 4, 5, 6]);
+    expect(out.map((r) => r.influence_rank)).toEqual([1, 2, 3, 4, 5, 6]);
+  });
+
+  it('nothing else moves per factor: elasticity, sensitivity_score, zero_reason, source', () => {
+    const keep = ({ importance_rank: _i, ...rest }: FactorSensitivityResultV3) => strip(rest as FactorSensitivityResultV3);
+    const keyed = (rows: FactorSensitivityResultV3[]) => Object.fromEntries(rows.map((r) => [r.factor_id, keep(r)]));
+    expect(keyed(adoptIslStructuralInfluence(walk(), list(), [MRR_EVALUATED]))).toEqual(keyed(walk()));
   });
 
   it('the input rows are not mutated', () => {

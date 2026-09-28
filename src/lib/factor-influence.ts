@@ -1147,14 +1147,17 @@ export function mergeIslConfidenceIntoGraphFactors(
  *
  * - No evaluated identity: returns `factors` itself, the SAME array, untouched (byte-identical).
  * - ISL's list covers EVERY row with a finite score: each row carries ISL's `influence_score`, bound by
- *   factor_id, `influence_rank` re-derived over the rows (1 = highest; ties keep row order), and
- *   `influence_basis: 'isl_structural'`.
+ *   factor_id, and `influence_basis: 'isl_structural'`; the rows are RE-ORDERED by that score (stable:
+ *   ties keep row order), with `influence_rank` = `importance_rank` = position — the same contract the
+ *   graph stage gives (driver-order rule 1: the order IS influence_score descending). The lever partition
+ *   that follows (`applyLeverAwareImportanceOrder`) therefore ranks on ISL's order, so `importance_rank`,
+ *   `driver_order`, the 'biggest' crown and `key_drivers` follow ISL — never the walk (DL CR 5873896531).
  * - Otherwise (list absent — an ISL build before it —, partial, or withheld on truncation): the walk's
  *   numbers stay and every row says `influence_basis: 'graph_walk'`. Bases are never mixed: a UI shows
  *   producer influence only when EVERY factor carries one (DGAI `useResultsSectionData.ts:2958`).
  *
- * Nothing else moves: array order, `importance_rank`, `elasticity`, `sensitivity_score`,
- * `value_of_information`, `zero_reason`, `source`. Never mutates its input.
+ * Nothing else moves per factor: `elasticity`, `sensitivity_score`, `value_of_information`,
+ * `zero_reason`, `source`. Never mutates its input.
  */
 export function adoptIslStructuralInfluence(
   factors: FactorSensitivityResultV3[],
@@ -1175,16 +1178,13 @@ export function adoptIslStructuralInfluence(
     return factors.map((f) => ({ ...f, influence_basis: 'graph_walk' as const }));
   }
 
-  const adopted = factors.map((f) => ({
-    ...f,
-    influence_score: islScore.get(f.factor_id) as number,
-    influence_basis: 'isl_structural' as const,
-  }));
-  adopted
-    .map((f, index) => ({ f, index }))
+  return factors
+    .map((f, index) => ({
+      f: { ...f, influence_score: islScore.get(f.factor_id) as number, influence_basis: 'isl_structural' as const },
+      index,
+    }))
     .sort((a, b) => (b.f.influence_score - a.f.influence_score) || (a.index - b.index))
-    .forEach(({ f }, i) => { f.influence_rank = i + 1; });
-  return adopted;
+    .map(({ f }, i) => ({ ...f, influence_rank: i + 1, importance_rank: i + 1 }));
 }
 
 const VALID_ATTRIBUTION_STABILITY = new Set(['high', 'moderate', 'low', 'negligible']);
