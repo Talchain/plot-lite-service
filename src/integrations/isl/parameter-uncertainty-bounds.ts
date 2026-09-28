@@ -10,10 +10,20 @@
  *   2. Binary-factor default (BINARY_DEFAULT_STD).
  *   3. Value-based default for non-zero continuous factors
  *      (|value| × VALUE_BASED_STD_FRACTION, floored at DEFAULT_STD_FLOOR).
- *   4. Fallback for zero-valued continuous factors (FALLBACK_STD).
+ *   4. Zero-valued continuous factors → FALLBACK_STD — EXCEPT on the V3
+ *      translator for a factor some option SETS (T7b, AIQ #72 5867008723 +
+ *      5867934055): there it is VALUE_BASED_STD_FRACTION × the largest |level|
+ *      an option sets it to, never a frame fraction. A zero factor no option
+ *      touches keeps FALLBACK_STD on both paths (the V1/V2 preflight builder has
+ *      no options at all).
+ *
+ * The V3 translator ALSO sends a PINNED lever as `point_mass` ahead of every
+ * priority above (T7b amended rule — see `pinnedLeverIds` in translator-v3.ts);
+ * the V1/V2 preflight builder has no options and never pins.
  *
  * The DEFAULT_STD_FLOOR applies ONLY to synthesised defaults (priorities
- * 2–4). User-supplied values are honoured down to MIN_USER_STD; the floor
+ * 2–4; NOT to the V3 option-scaled zero spread, itself deliberately below a
+ * frame fraction). User-supplied values are honoured down to MIN_USER_STD; the floor
  * never silently widens what the user told us.
  *
  * Distinct from CONSTRAINT_PINNED_STD in `constraint-pu-injection.ts`,
@@ -36,7 +46,12 @@ export const BINARY_DEFAULT_STD = 0.3;
 /** Fraction of |value| used as the synthesised default for non-zero continuous factors. */
 export const VALUE_BASED_STD_FRACTION = 0.15;
 
-/** Fallback std when no user value, not binary, and value is exactly 0. */
+/**
+ * Fallback std when no user value, not binary, and value is exactly 0. It is
+ * half the factor's frame in raw terms, so since T7b the V3 translator uses it
+ * ONLY for a zero factor NO option intervenes on (byte-identical to aac1970);
+ * a zero factor an option sets is scaled by the option levels or pinned.
+ */
 export const FALLBACK_STD = 0.5;
 
 /**

@@ -736,6 +736,30 @@ function fallbackMessage(_code: string): string {
  *
  * Pure function — no side effects.
  */
+/**
+ * T7b (b), AIQ #72 5869679096: ISL's zero-variance critique on an option whose every goal ancestor it sets is held
+ * exact (`point_mass`). True under zero variance; /v2/run uses it in place of the "never reaches the goal" text only
+ * in that case (it alone knows the distributions it sent).
+ */
+export const ZERO_VARIANCE_EXACT_INPUTS_MESSAGE = "This option's result has no spread: every figure it depends on is set exactly.";
+
+/**
+ * Swap in `ZERO_VARIANCE_EXACT_INPUTS_MESSAGE` for ISL's zero-variance critique when EVERY option it names is one
+ * whose every goal ancestor it sets was sent exact (`exactInputOptionIds`, translator-v3). Anything else keeps its text.
+ */
+export function withExactInputZeroVarianceWording<T extends { code: string; user_message: string; affected_option_ids?: string[] }>(
+  critiques: T[],
+  exactInputOptionIds: ReadonlySet<string> | undefined,
+): T[] {
+  if (exactInputOptionIds === undefined || exactInputOptionIds.size === 0) return critiques;
+  return critiques.map((c) => {
+    const ids = c.affected_option_ids ?? [];
+    return c.code === 'DEGENERATE_OPTION_ZERO_VARIANCE' && ids.length > 0 && ids.every((id) => exactInputOptionIds.has(id))
+      ? { ...c, user_message: ZERO_VARIANCE_EXACT_INPUTS_MESSAGE }
+      : c;
+  });
+}
+
 export function humaniseCritique(
   critique: CritiqueV3,
   graph: GraphForLabels = EMPTY_GRAPH,

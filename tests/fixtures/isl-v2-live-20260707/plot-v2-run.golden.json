@@ -689,6 +689,12 @@
   },
   "inference_warnings": [
     {
+      "code": "ZERO_FACTOR_HELD_EXACT",
+      "message": "Olumi holds \"Hiring and Salary Cost\" at 0 with no uncertainty; give a range if it can vary.",
+      "severity": "info",
+      "node_label": "Hiring and Salary Cost"
+    },
+    {
       "code": "EDGE_E_VALUE_NON_FINITE_DROPPED",
       "message": "4 edge E-value entries were omitted from edge_e_values: 4 carried no finite E-value from the analysis engine (an unflippable edge, whose current and flip means coincide, has no evidence ratio). edge_e_values is shorter because those entries could not be represented, not because they were computed empty. All other analyses are unaffected.",
       "severity": "info"
@@ -1202,11 +1208,11 @@
     "reason": "CEE feature disabled"
   },
   "processing_time_ms": "__VOLATILE__",
-  "response_hash": "0745a6e63dc5d0d0",
+  "response_hash": "d6c17020b98202ca",
   "decision_brief": {
-    "brief_id": "d818a188-d845-4860-b1ec-e46b3c3fef89",
+    "brief_id": "e619f062-1fd3-4f8b-b329-a777746b14d5",
     "version": "1",
-    "graph_hash": "0745a6e63dc5d0d0",
+    "graph_hash": "d6c17020b98202ca",
     "seed": 2034401427,
     "created_at": "__VOLATILE__",
     "headline": "Hire One Tech Lead currently leads, but the outcome is highly uncertain. However, the outcome is within model uncertainty, so the ranking could shift with new information. Define tie-breaker criteria or gather additional evidence.",
@@ -1272,7 +1278,7 @@
     ],
     "lineage": {
       "config_version": "0c29e308b4b3",
-      "response_hash": "0745a6e63dc5d0d0",
+      "response_hash": "d6c17020b98202ca",
       "n_samples": 10000
     },
     "headline_banded": {
@@ -1544,7 +1550,7 @@
     "request_id": "__VOLATILE__",
     "plot_build": "__VOLATILE__",
     "hash_version": 8,
-    "response_hash": "0745a6e63dc5d0d0",
+    "response_hash": "d6c17020b98202ca",
     "request_id_chain": {
       "ui": null,
       "plot": "__VOLATILE__",
@@ -1611,7 +1617,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:751d55b61a61c153"
+    "response_content_hash": "rch_v2:6aa9ab3f0b3ce5be"
   },
   "meta": {
     "seed_used": "2034401427",
