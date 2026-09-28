@@ -8158,6 +8158,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             );
             if (withdrawn !== null && withdrawn.length > 0) {
               identitiesNotForwarded.push(...withdrawn);
+              // Verifier FIX_FIRST: a withdrawn variant-(a) carrier's Olumi-derived frame left the retried request with
+              // it, so `_meta.identity_derived_frames` must not still claim it (spliced in place: the array is `_meta`'s).
+              const withdrawnIds = new Set(withdrawn.map((w) => w.node_id));
+              for (let i = identityDerivedFrames.length - 1; i >= 0; i -= 1) {
+                if (withdrawnIds.has(identityDerivedFrames[i]!.node_id)) identityDerivedFrames.splice(i, 1);
+              }
               req.log.info({ event: 'isl_inferred_identity_withdrawn', request_id: requestId, node_ids: withdrawn.map((w) => w.node_id), reasons: withdrawn.map((w) => w.reason) });
               response = await islService.callAnalysisEndpoint<any>(
                 '/api/v1/robustness/analyze/v2',

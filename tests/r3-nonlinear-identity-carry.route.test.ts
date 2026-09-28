@@ -728,6 +728,24 @@ describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the R
     ]);
   });
 
+  it('⭐ RED (verifier FIX_FIRST): a withdrawn variant-(a) carrier takes its Olumi-derived frame out of _meta too — no claim of a frame the retry never sent', async () => {
+    const req = JSON.parse(readFileSync(resolve(__dirname, 'fixtures/r3-intermediate-carrier-dl-a15.request.json'), 'utf8'));
+    islSeq = [reject(islCritique('crit-a15-operand', {
+      affected_node_ids: ['pro_plan_mrr', 'pro_plan_monthly_price', 'pro_paying_subscribers'],
+      identity: { node_id: 'pro_plan_mrr', operation: 'product', participants: ['pro_plan_monthly_price', 'pro_paying_subscribers'], withheld_reason: 'identity_operand_missing' },
+    }))];
+    const res = await post(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(islBodies).toHaveLength(2);
+    // Precondition: the first call carried the Olumi-derived frame; the retry carries neither it nor the identity.
+    expect(islBodies[0].graph.nodes.find((n: any) => n.id === 'pro_plan_mrr')?.execution_frame).toBeDefined();
+    expect(islBodies[1].graph.nodes.find((n: any) => n.id === 'pro_plan_mrr')?.execution_frame).toBeUndefined();
+    expect(body._meta?.identities_not_forwarded?.map((w: any) => [w.node_id, w.reason])).toEqual([['pro_plan_mrr', 'inferred_identity_operand_missing']]);
+    // The claim goes with the frame: nothing names a derived frame for the withdrawn carrier.
+    expect((body._meta?.identity_derived_frames ?? []).map((d: any) => d.node_id)).not.toContain('pro_plan_mrr');
+  });
+
   it('CONTRAST: a STATED identity ISL finds inconsistent keeps ISL\'s refusal — one call, 422 (the user\'s own figures conflict)', async () => {
     islSeq = [reject(inconsistent)];
     const res = await post(paulRequest(PRODUCT));
