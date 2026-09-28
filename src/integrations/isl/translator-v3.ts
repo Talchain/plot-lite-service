@@ -16,6 +16,7 @@ import type {
   GoalConstraint,
   ConstraintLevelDomain,
   FactorCorrelation,
+  NonlinearIdentity,
 } from '../../types/engine-v3.js';
 import {
   DEFAULT_STD_FLOOR,
@@ -25,6 +26,7 @@ import {
   resolveUserSuppliedStd,
 } from './parameter-uncertainty-bounds.js';
 import { sha8 } from '../../util/pii-redact.js';
+import { resolveNodeFrame, type NodeFrameCarrier } from '../../lib/intervention-normaliser.js';
 // ROADMAP 2.258. DERIVED from the shared contract, never hand-mirrored.
 //
 // `GoalThresholdFrame` is the Zod enum itself, so `parseGoalThresholdFrame`
@@ -135,6 +137,102 @@ export interface ISLNodeV3 {
   };
   intercept?: number;
   epsilon_std?: number;
+  /**
+   * R3 slice 1 (B2): the node is exactly `operation` of `factor_ids`. Forwarded VERBATIM only when
+   * the node declares one (validated at ingress by `readNonlinearIdentity`), so every other
+   * request's ISL body — and its response_hash — is byte-identical.
+   */
+  nonlinear_identity?: NonlinearIdentity;
+  /**
+   * R3-8: the node's frame (user units = normalised × frame), resolved by THE node-frame reader
+   * (`resolveNodeFrame`: cap → scale_frame → pair). Runtime metadata, attached ONLY to a declared
+   * identity's own nodes (`attachIdentityExecutionFrames`); never persisted, never written into
+   * `nonlinear_identity`. Absent when no frame resolves — ISL then withholds the identity
+   * (`identity_frame_missing`), never infers one.
+   */
+  execution_frame?: { frame: number; carrier: NodeFrameCarrier };
+}
+
+/**
+ * R3-8: attach each declared identity's participants' execution frames (the node, its factor_ids
+ * and its addends) to the ISL nodes, in place. Every node that is not an identity participant is
+ * untouched, so a request that declares no identity sends a byte-identical ISL body.
+ */
+export function attachIdentityExecutionFrames(
+  islNodes: ISLNodeV3[],
+  engineNodes: readonly EngineNodeV3[],
+  scaleFrameByNodeId: ReadonlyMap<string, number>,
+  /**
+   * The GOAL's producer-declared `goal_threshold_cap` by node id (`collectGoalThresholdNodeMeta`). Read ONLY for a
+   * `kind: 'goal'` participant, and ONLY when the node-frame reader resolves nothing — see `goalCapFrame`.
+   */
+  goalCapByNodeId: ReadonlyMap<string, number> = new Map(),
+): IdentityNotForwarded[] {
+  const engineById = new Map(engineNodes.map((node) => [node.id, node]));
+  const islById = new Map(islNodes.map((node) => [node.id, node]));
+  const participantsOf = (node: ISLNodeV3): string[] => {
+    const identity = node.nonlinear_identity!;
+    return [node.id, ...identity.factor_ids, ...(identity.addends ?? [])];
+  };
+  for (const node of islNodes) {
+    if (!node.nonlinear_identity) continue;
+    for (const id of participantsOf(node)) {
+      const participant = islById.get(id);
+      if (!participant || participant.execution_frame) continue;
+      const engine = engineById.get(id);
+      const resolved = resolveNodeFrame(engine?.observed_state, scaleFrameByNodeId.get(id))
+        ?? goalCapFrame(engine, goalCapByNodeId.get(id));
+      if (resolved) participant.execution_frame = { frame: resolved.frame, carrier: resolved.carrier };
+    }
+  }
+  // ⛔ Variant (b) (DL #72 5863297824): an INFERRED identity (`stated_in_brief: false`) with any participant left
+  // frameless is NOT forwarded — the node stays linear, exactly as served before the re-land — and is said
+  // (`IdentityNotForwarded`). ISL would refuse the whole Run (`identity_frame_missing`) for a figure the user never
+  // stated and cannot answer. A STATED identity is always forwarded: ISL's refusal stands (AIQ's rule).
+  const notForwarded: IdentityNotForwarded[] = [];
+  for (const node of islNodes) {
+    const identity = node.nonlinear_identity;
+    if (!identity || identity.stated_in_brief !== false) continue;
+    const missing = participantsOf(node).filter((id) => !islById.get(id)?.execution_frame);
+    if (missing.length === 0) continue;
+    delete node.nonlinear_identity;
+    notForwarded.push({ node_id: node.id, reason: 'inferred_identity_frame_unresolved', frameless_node_ids: missing });
+  }
+  // A frame is carried only on a participant of an identity that IS forwarded (R3-8: no other node is touched).
+  if (notForwarded.length > 0) {
+    const kept = new Set(islNodes.filter((n) => n.nonlinear_identity).flatMap(participantsOf));
+    for (const node of islNodes) if (node.execution_frame && !kept.has(node.id)) delete node.execution_frame;
+  }
+  return notForwarded;
+}
+
+/** An inferred identity PLoT did not forward to ISL, and why (`_meta.identities_not_forwarded`). */
+export interface IdentityNotForwarded {
+  node_id: string;
+  reason: 'inferred_identity_frame_unresolved';
+  /** The identity's own nodes that had no frame — the node, a factor or an addend. */
+  frameless_node_ids: string[];
+}
+
+/**
+ * ⛔ A GOAL CARRIER WITH NO OBSERVED LEVEL STILL HAS A FRAME — its `goal_threshold_cap` (MG, 28 Sep; Canonical #72
+ * 5862209460). Served journey A after batch 7: the carrier `mrr = pro_plan_price × pro_paying_subscribers` is the GOAL,
+ * with `observed_state: null` and `goal_threshold_cap: 25000` (goal_threshold 0.8 = £20k / £25k). The node-frame reader
+ * reads only observed cap / scale_frame / pair, so `mrr` got NO frame, ISL withheld the identity
+ * (`identity_frame_missing`, a blocker) and journey A's Run was refused — asking the user for units they had given.
+ *
+ * The goal's normalised levels ARE value / goal_threshold_cap (the ruler CEE and the UI already rescale the goal by), so
+ * user units = normalised × cap: exactly an `execution_frame`. Carried as `cap`, so ISL's carrier enum is unchanged.
+ * Only a `kind: 'goal'` node, only a finite positive cap, only when nothing else resolved — every other node, and a
+ * goal whose own observed frame resolves, is byte-identical to before.
+ */
+function goalCapFrame(
+  engine: EngineNodeV3 | undefined,
+  goalCap: number | undefined,
+): { frame: number; carrier: NodeFrameCarrier } | undefined {
+  if (engine?.kind !== 'goal') return undefined;
+  if (typeof goalCap !== 'number' || !Number.isFinite(goalCap) || goalCap <= 0) return undefined;
+  return { frame: goalCap, carrier: 'cap' };
 }
 
 /**
@@ -721,6 +819,18 @@ export function toISLNode(node: EngineNodeV3): ISLNodeV3 {
     observed_state: toISLObservedState(node.observed_state),
     intercept: node.intercept ?? 0.0,
     epsilon_std: node.epsilon_std ?? 0.0,
+    ...(node.nonlinear_identity
+      ? {
+          nonlinear_identity: {
+            operation: node.nonlinear_identity.operation,
+            factor_ids: [...node.nonlinear_identity.factor_ids],
+            stated_in_brief: node.nonlinear_identity.stated_in_brief,
+            ...(node.nonlinear_identity.addends
+              ? { addends: [...node.nonlinear_identity.addends] }
+              : {}),
+          },
+        }
+      : {}),
   };
 }
 
