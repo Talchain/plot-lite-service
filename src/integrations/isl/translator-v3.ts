@@ -162,6 +162,11 @@ export function attachIdentityExecutionFrames(
   islNodes: ISLNodeV3[],
   engineNodes: readonly EngineNodeV3[],
   scaleFrameByNodeId: ReadonlyMap<string, number>,
+  /**
+   * The GOAL's producer-declared `goal_threshold_cap` by node id (`collectGoalThresholdNodeMeta`). Read ONLY for a
+   * `kind: 'goal'` participant, and ONLY when the node-frame reader resolves nothing — see `goalCapFrame`.
+   */
+  goalCapByNodeId: ReadonlyMap<string, number> = new Map(),
 ): void {
   const engineById = new Map(engineNodes.map((node) => [node.id, node]));
   const islById = new Map(islNodes.map((node) => [node.id, node]));
@@ -171,10 +176,33 @@ export function attachIdentityExecutionFrames(
     for (const id of [node.id, ...identity.factor_ids, ...(identity.addends ?? [])]) {
       const participant = islById.get(id);
       if (!participant || participant.execution_frame) continue;
-      const resolved = resolveNodeFrame(engineById.get(id)?.observed_state, scaleFrameByNodeId.get(id));
+      const engine = engineById.get(id);
+      const resolved = resolveNodeFrame(engine?.observed_state, scaleFrameByNodeId.get(id))
+        ?? goalCapFrame(engine, goalCapByNodeId.get(id));
       if (resolved) participant.execution_frame = { frame: resolved.frame, carrier: resolved.carrier };
     }
   }
+}
+
+/**
+ * ⛔ A GOAL CARRIER WITH NO OBSERVED LEVEL STILL HAS A FRAME — its `goal_threshold_cap` (MG, 28 Sep; Canonical #72
+ * 5862209460). Served journey A after batch 7: the carrier `mrr = pro_plan_price × pro_paying_subscribers` is the GOAL,
+ * with `observed_state: null` and `goal_threshold_cap: 25000` (goal_threshold 0.8 = £20k / £25k). The node-frame reader
+ * reads only observed cap / scale_frame / pair, so `mrr` got NO frame, ISL withheld the identity
+ * (`identity_frame_missing`, a blocker) and journey A's Run was refused — asking the user for units they had given.
+ *
+ * The goal's normalised levels ARE value / goal_threshold_cap (the ruler CEE and the UI already rescale the goal by), so
+ * user units = normalised × cap: exactly an `execution_frame`. Carried as `cap`, so ISL's carrier enum is unchanged.
+ * Only a `kind: 'goal'` node, only a finite positive cap, only when nothing else resolved — every other node, and a
+ * goal whose own observed frame resolves, is byte-identical to before.
+ */
+function goalCapFrame(
+  engine: EngineNodeV3 | undefined,
+  goalCap: number | undefined,
+): { frame: number; carrier: NodeFrameCarrier } | undefined {
+  if (engine?.kind !== 'goal') return undefined;
+  if (typeof goalCap !== 'number' || !Number.isFinite(goalCap) || goalCap <= 0) return undefined;
+  return { frame: goalCap, carrier: 'cap' };
 }
 
 /**

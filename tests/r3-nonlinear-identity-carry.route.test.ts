@@ -128,6 +128,36 @@ function paulRequest(identity?: unknown): any {
   return d;
 }
 
+/**
+ * Journey A as served on 28 Sep 02:2xZ (Canonical #72 5862209460; CEE 79b69f8 · PLoT d036ab4 · ISL 742c2c4), the run
+ * batch 7 refused with `identity_frame_missing`. The graph (nodes, edges, goal_constraints) is the scenario's served read
+ * `7512a0e6-bc54-47c5-b026-bc8c0469a699` VERBATIM (canonical-state/witness-batch7/after-1/05-read.json, sha256
+ * fc3c0ef9…), less `operator_as_stated`, which CEE withholds from PLoT. The options are mapped the way Paul's capture
+ * shows (raw_value, else value; the baseline holds today's level). The GOAL `mrr` has NO observed level: its only frame
+ * is `goal_threshold_cap: 25000`.
+ */
+function journeyARequest(): any {
+  return JSON.parse(readFileSync(resolve(__dirname, 'fixtures/journey-a-7512a0e6-20260928/cee-to-plot.request.json'), 'utf8'));
+}
+
+/**
+ * ISL's rule 1 for an identity (#187 @6ea5e3a2, robustness_analyzer_v2.py `resolve_identity_plans`, :1553): the node
+ * and every participant carry an `execution_frame`, else it is withheld as `identity_frame_missing` (a blocker). Returns
+ * the ids that would trip it.
+ */
+function frameMissing(islBody: any): string[] {
+  const byId = new Map<string, any>(islBody.graph.nodes.map((n: any) => [n.id, n]));
+  const missing: string[] = [];
+  for (const node of islBody.graph.nodes) {
+    const identity = node.nonlinear_identity;
+    if (!identity) continue;
+    for (const id of [node.id, ...identity.factor_ids, ...(identity.addends ?? [])]) {
+      if (!byId.get(id)?.execution_frame) missing.push(id);
+    }
+  }
+  return missing;
+}
+
 function occurrences(body: unknown): number {
   return (JSON.stringify(body).match(/"nonlinear_identity"/g) ?? []).length;
 }
@@ -190,6 +220,52 @@ describe('R3-3 unit — normaliseNode / toISLNode carry the declaration or refus
       pro_plan_price: { frame: 200, carrier: 'scale_frame' },
       pro_paying_subscribers: undefined,
     });
+  });
+
+  // Canonical #72 5862209460 (batch 7 refused journey A's Run): the carrier is the GOAL, with no observed level. Its
+  // frame is its own goal_threshold_cap, the ruler its normalised levels are already on (goalCapFrame).
+  function goalCarrier(
+    mrr: Record<string, unknown>,
+    goalCaps: ReadonlyMap<string, number>,
+    scaleFrames: ReadonlyMap<string, number> = new Map([['pro_paying_subscribers', 2000]]),
+  ) {
+    const engine = [
+      normaliseNode({ ...node, ...mrr } as any),
+      normaliseNode({ id: 'pro_plan_price', kind: 'factor', label: 'Price', observed_state: { value: 0.245, cap: 200 } } as any),
+      normaliseNode({ id: 'pro_paying_subscribers', kind: 'factor', label: 'Subs' } as any),
+    ];
+    const isl = engine.map(toISLNode);
+    attachIdentityExecutionFrames(isl, engine, scaleFrames, goalCaps);
+    return Object.fromEntries(isl.map((n) => [n.id, n.execution_frame]));
+  }
+
+  it('R3-8 — a GOAL carrier with no observed level is framed by its goal_threshold_cap, as carrier `cap`', () => {
+    expect(goalCarrier({}, new Map([['mrr', 25000]]))).toEqual({
+      mrr: { frame: 25000, carrier: 'cap' },
+      pro_plan_price: { frame: 200, carrier: 'cap' },
+      pro_paying_subscribers: { frame: 2000, carrier: 'scale_frame' },
+    });
+  });
+
+  it('R3-8 — the goal cap is a FALLBACK: a goal whose own observed frame resolves keeps it', () => {
+    expect(goalCarrier({ observed_state: { value: 0.6, cap: 125000 } }, new Map([['mrr', 25000]])).mrr)
+      .toEqual({ frame: 125000, carrier: 'cap' });
+  });
+
+  it('R3-8 — only a GOAL reads it: a frameless FACTOR participant with a goal cap entry still gets none', () => {
+    const frames = goalCarrier({}, new Map([['mrr', 25000], ['pro_paying_subscribers', 999]]), new Map());
+    expect(frames.mrr).toEqual({ frame: 25000, carrier: 'cap' });
+    expect(frames.pro_paying_subscribers).toBeUndefined();
+  });
+
+  it.each([
+    ['absent', new Map<string, number>()],
+    ['zero', new Map([['mrr', 0]])],
+    ['negative', new Map([['mrr', -25000]])],
+    ['NaN', new Map([['mrr', Number.NaN]])],
+    ['infinite', new Map([['mrr', Number.POSITIVE_INFINITY]])],
+  ])('R3-8 — a goal cap that is %s frames nothing (ISL withholds; PLoT never invents one)', (_label, caps) => {
+    expect(goalCarrier({}, caps).mrr).toBeUndefined();
   });
 
   it('`sum` is admitted (AIQ 5859633012: CEE widens the carrier to product | sum)', () => {
@@ -261,6 +337,32 @@ describe("R3-3 route — Paul's request: the declaration reaches ISL exactly onc
         pro_paying_subscribers: { frame: 10000, carrier: 'scale_frame' },
         other_mrr_growth: { frame: 50000, carrier: 'scale_frame' },
       });
+    }
+  });
+
+  it('PRECONDITION — journey A served: the goal mrr declares the identity, has NO observed level, and a goal_threshold_cap of 25000', () => {
+    const mrr = journeyARequest().graph.nodes.find((n: any) => n.id === 'mrr');
+    expect(mrr.kind).toBe('goal');
+    expect(mrr.nonlinear_identity.factor_ids).toEqual(['pro_plan_price', 'pro_paying_subscribers']);
+    expect(mrr.observed_state ?? null).toBeNull();
+    expect(mrr.goal_threshold_cap).toBe(25000);
+  });
+
+  it('R3-8 — journey A served (7512a0e6): the goal is framed by its goal_threshold_cap, so ISL has no identity_frame_missing', async () => {
+    const res = await post(journeyARequest());
+    expect(res.status).toBe(200);
+    expect(islBodies.length).toBeGreaterThan(0);
+    for (const body of islBodies) {
+      expect(occurrences(body)).toBe(1);
+      const frames = Object.fromEntries(
+        body.graph.nodes.filter((n: any) => n.execution_frame).map((n: any) => [n.id, n.execution_frame]),
+      );
+      expect(frames).toEqual({
+        mrr: { frame: 25000, carrier: 'cap' },
+        pro_plan_price: { frame: 200, carrier: 'cap' },
+        pro_paying_subscribers: { frame: 2000, carrier: 'scale_frame' },
+      });
+      expect(frameMissing(body)).toEqual([]);
     }
   });
 

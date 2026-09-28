@@ -7918,7 +7918,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // R3-8: each declared identity's participants carry the frame PLoT resolved (runtime
         // metadata; ISL withholds an identity any of whose frames is absent — never infers one).
         // Only identity participants are touched, so a request declaring none is byte-identical.
-        attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId);
+        // A goal carrier with no observed frame reads its own goal_threshold_cap (goalCapFrame, Canonical 5862209460).
+        const goalCapByNodeId = new Map<string, number>();
+        for (const [nodeId, meta] of goalThresholdMetaByNodeId) {
+          if (meta.goal_threshold_cap !== undefined) goalCapByNodeId.set(nodeId, meta.goal_threshold_cap);
+        }
+        attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId, goalCapByNodeId);
 
         req.log.info(
           {
