@@ -654,7 +654,7 @@ describe('POST /v2/run Integration', () => {
   });
 
   describe('Scale mismatch warning', () => {
-    it('includes SCALE_MISMATCH_WARNING in critiques for mixed-scale interventions', async () => {
+    it('R5-3: does NOT include SCALE_MISMATCH_WARNING for mixed-scale interventions (retired)', async () => {
       vi.resetModules();
       server = await spawnServer({ env: ENV });
 
@@ -691,13 +691,10 @@ describe('POST /v2/run Integration', () => {
       expect(res.status).toBe(200);
       expect(['computed', 'partial', 'failed']).toContain(res.data.analysis_status);
 
-      // Should have scale mismatch warning in critiques
+      // R5-3 (R&C, MG #72 5871363476): RETIRED. Each intervention is read on its own factor's range, so a
+      // cross-factor ratio is never an engine fact and no scale-mismatch critique is emitted.
       const scaleWarning = res.data.critiques.find((c: any) => c.code === 'SCALE_MISMATCH_WARNING');
-      expect(scaleWarning).toBeDefined();
-      expect(scaleWarning.severity).toBe('warning');
-      expect(scaleWarning.blocks_analysis).toBe(false);
-      expect(scaleWarning.message).toContain('180,000');  // Ratio display
-      expect(scaleWarning.suggestion).toBeDefined();
+      expect(scaleWarning).toBeUndefined();
     });
 
     it('does NOT include SCALE_MISMATCH_WARNING for normal scale interventions', async () => {
