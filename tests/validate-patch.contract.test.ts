@@ -190,7 +190,7 @@ describe('validate-patch contract', () => {
     // Verify repaired edge values in normalised_graph (canonical form)
     const edge = d.normalised_graph.edges.find((e: any) => e.from === 'a' && e.to === 'goal');
     expect(edge.exists_probability).toBe(0.8);
-    // Shared normaliser clamps std to [STD_RANGE_MIN, STD_RANGE_MAX] (0.05–0.4)
+    // Shared normaliser floors std at STD_RANGE_MIN (0.05); no ceiling (AIQ olumi-programme-docs#72 5869431686 §2)
     expect(edge.strength.std).toBeGreaterThanOrEqual(0.05);
   });
 

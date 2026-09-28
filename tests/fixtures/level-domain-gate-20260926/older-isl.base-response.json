@@ -340,17 +340,7 @@
         "evpi_method": "heuristic"
       }
     ],
-    "model_critiques": [
-      {
-        "type": "DOMINANT_FACTOR",
-        "severity": "warn",
-        "challenge_question": "One factor dominates. What would change if Monthly logo churn had less influence?",
-        "suggested_action": "Consider whether Monthly logo churn's importance is evidence-based or assumed",
-        "targets": [
-          "fac_churn"
-        ]
-      }
-    ],
+    "model_critiques": [],
     "next_actions": [
       {
         "priority": 2,
@@ -605,11 +595,6 @@
     "what_would_change": [],
     "robustness": "not_assessed",
     "warnings": [
-      {
-        "code": "DOMINANT_FACTOR",
-        "message": "One factor dominates. What would change if Monthly logo churn had less influence?",
-        "severity": "warning"
-      },
       {
         "code": "M2_UNAVAILABLE",
         "message": "Decision review was unavailable; brief uses deterministic coaching fallback",

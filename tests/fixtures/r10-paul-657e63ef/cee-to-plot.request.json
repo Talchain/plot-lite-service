@@ -1,0 +1,467 @@
+{
+ "graph": {
+  "nodes": [
+   {
+    "id": "help_me_decide_whether_to_hire_a_personal_assistant_or_use_an_ai_assistant_to_save_money",
+    "kind": "decision",
+    "label": "Help me decide whether to hire\u2026",
+    "description": "Help me decide whether to hire a personal assistant or use an AI assistant to save money."
+   },
+   {
+    "id": "ability_to_focus_on_high_value_tasks",
+    "kind": "goal",
+    "label": "ability to focus on high-value\u2026",
+    "description": "ability to focus on high-value tasks",
+    "goal_threshold_unit": "% of working time focused on high-value tasks"
+   },
+   {
+    "id": "human_assistant_capacity",
+    "kind": "factor",
+    "label": "Human assistant capacity",
+    "observed_state": {
+     "unit": "hours/week",
+     "value": 0,
+     "source": "cee_inference",
+     "raw_value": 0,
+     "extractionType": "inferred"
+    },
+    "category": "controllable"
+   },
+   {
+    "id": "ai_assistant_use",
+    "kind": "factor",
+    "label": "AI assistant use",
+    "observed_state": {
+     "unit": "binary adoption",
+     "value": 0,
+     "source": "cee_inference",
+     "extractionType": "inferred"
+    },
+    "category": "controllable"
+   },
+   {
+    "id": "annual_assistant_tool_cost",
+    "kind": "factor",
+    "label": "Annual assistant-tool cost",
+    "observed_state": {
+     "unit": "USD/year",
+     "value": 0,
+     "source": "cee_inference",
+     "raw_value": 0,
+     "extractionType": "inferred"
+    },
+    "category": "controllable"
+   },
+   {
+    "id": "delegable_routine_workload",
+    "kind": "factor",
+    "label": "Delegable routine workload",
+    "observed_state": {
+     "unit": "% of working time",
+     "value": 0.3,
+     "source": "cee_inference",
+     "raw_value": 30,
+     "extractionType": "inferred"
+    },
+    "category": "observable"
+   },
+   {
+    "id": "ai_output_error_risk",
+    "kind": "risk",
+    "label": "AI output error risk"
+   },
+   {
+    "id": "assistant_coordination_overhead",
+    "kind": "risk",
+    "label": "Assistant coordination overhead"
+   },
+   {
+    "id": "delegation_quality",
+    "kind": "outcome",
+    "label": "Delegation quality"
+   },
+   {
+    "id": "routine_work_hours_delegated",
+    "kind": "outcome",
+    "label": "Routine-work hours delegated"
+   },
+   {
+    "id": "current_approach",
+    "kind": "option",
+    "label": "Current approach",
+    "interventions": {
+     "ai_assistant_use": 0,
+     "human_assistant_capacity": 0,
+     "annual_assistant_tool_cost": 0
+    },
+    "is_baseline": true
+   },
+   {
+    "id": "personal_assistant",
+    "kind": "option",
+    "label": "Personal assistant",
+    "interventions": {
+     "ai_assistant_use": 0,
+     "human_assistant_capacity": 0.5,
+     "annual_assistant_tool_cost": 0.45
+    }
+   },
+   {
+    "id": "ai_assistant",
+    "kind": "option",
+    "label": "AI assistant",
+    "interventions": {
+     "ai_assistant_use": 1,
+     "human_assistant_capacity": 0,
+     "annual_assistant_tool_cost": 0.1
+    }
+   },
+   {
+    "id": "personal_assistant_plus_ai",
+    "kind": "option",
+    "label": "Personal assistant plus AI",
+    "interventions": {
+     "ai_assistant_use": 1,
+     "human_assistant_capacity": 0.5,
+     "annual_assistant_tool_cost": 0.55
+    }
+   }
+  ],
+  "edges": [
+   {
+    "id": "e-0",
+    "from": "help_me_decide_whether_to_hire_a_personal_assistant_or_use_an_ai_assistant_to_save_money",
+    "to": "current_approach",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-1",
+    "from": "help_me_decide_whether_to_hire_a_personal_assistant_or_use_an_ai_assistant_to_save_money",
+    "to": "personal_assistant",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-2",
+    "from": "help_me_decide_whether_to_hire_a_personal_assistant_or_use_an_ai_assistant_to_save_money",
+    "to": "ai_assistant",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-3",
+    "from": "help_me_decide_whether_to_hire_a_personal_assistant_or_use_an_ai_assistant_to_save_money",
+    "to": "personal_assistant_plus_ai",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-4",
+    "from": "personal_assistant",
+    "to": "human_assistant_capacity",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-5",
+    "from": "personal_assistant",
+    "to": "ai_assistant_use",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-6",
+    "from": "personal_assistant",
+    "to": "annual_assistant_tool_cost",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-7",
+    "from": "ai_assistant",
+    "to": "human_assistant_capacity",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-8",
+    "from": "ai_assistant",
+    "to": "ai_assistant_use",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-9",
+    "from": "ai_assistant",
+    "to": "annual_assistant_tool_cost",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-10",
+    "from": "personal_assistant_plus_ai",
+    "to": "human_assistant_capacity",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-11",
+    "from": "personal_assistant_plus_ai",
+    "to": "ai_assistant_use",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-12",
+    "from": "personal_assistant_plus_ai",
+    "to": "annual_assistant_tool_cost",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-13",
+    "from": "current_approach",
+    "to": "human_assistant_capacity",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-14",
+    "from": "current_approach",
+    "to": "ai_assistant_use",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-15",
+    "from": "current_approach",
+    "to": "annual_assistant_tool_cost",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-16",
+    "from": "human_assistant_capacity",
+    "to": "delegation_quality",
+    "strength": {
+     "mean": 0.5,
+     "std": 0.125
+    },
+    "exists_probability": 0.8,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-17",
+    "from": "human_assistant_capacity",
+    "to": "assistant_coordination_overhead",
+    "strength": {
+     "mean": 0.5,
+     "std": 0.125
+    },
+    "exists_probability": 0.8,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-18",
+    "from": "ai_assistant_use",
+    "to": "delegation_quality",
+    "strength": {
+     "mean": 0.5,
+     "std": 0.125
+    },
+    "exists_probability": 0.8,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-19",
+    "from": "ai_assistant_use",
+    "to": "ai_output_error_risk",
+    "strength": {
+     "mean": 0.5,
+     "std": 0.125
+    },
+    "exists_probability": 0.8,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-20",
+    "from": "annual_assistant_tool_cost",
+    "to": "ability_to_focus_on_high_value_tasks",
+    "strength": {
+     "mean": 0.5,
+     "std": 0.125
+    },
+    "exists_probability": 0.8,
+    "effect_direction": "negative"
+   },
+   {
+    "id": "e-21",
+    "from": "delegable_routine_workload",
+    "to": "routine_work_hours_delegated",
+    "strength": {
+     "mean": 0.5,
+     "std": 0.125
+    },
+    "exists_probability": 0.8,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-22",
+    "from": "delegation_quality",
+    "to": "routine_work_hours_delegated",
+    "strength": {
+     "mean": 0.5,
+     "std": 0.125
+    },
+    "exists_probability": 0.8,
+    "effect_direction": "positive"
+   },
+   {
+    "id": "e-23",
+    "from": "ai_output_error_risk",
+    "to": "delegation_quality",
+    "strength": {
+     "mean": 0.5,
+     "std": 0.125
+    },
+    "exists_probability": 0.8,
+    "effect_direction": "negative"
+   },
+   {
+    "id": "e-24",
+    "from": "assistant_coordination_overhead",
+    "to": "delegation_quality",
+    "strength": {
+     "mean": 0.5,
+     "std": 0.125
+    },
+    "exists_probability": 0.8,
+    "effect_direction": "negative"
+   },
+   {
+    "id": "e-25",
+    "from": "routine_work_hours_delegated",
+    "to": "ability_to_focus_on_high_value_tasks",
+    "strength": {
+     "mean": 0.5,
+     "std": 0.125
+    },
+    "exists_probability": 0.8,
+    "effect_direction": "positive"
+   }
+  ]
+ },
+ "options": [
+  {
+   "id": "current_approach",
+   "option_id": "current_approach",
+   "label": "Current approach",
+   "interventions": {
+    "ai_assistant_use": 0,
+    "human_assistant_capacity": 0,
+    "annual_assistant_tool_cost": 0
+   },
+   "is_baseline": true
+  },
+  {
+   "id": "personal_assistant",
+   "option_id": "personal_assistant",
+   "label": "Personal assistant",
+   "interventions": {
+    "ai_assistant_use": 0,
+    "human_assistant_capacity": 0.5,
+    "annual_assistant_tool_cost": 0.45
+   },
+   "is_baseline": false
+  },
+  {
+   "id": "ai_assistant",
+   "option_id": "ai_assistant",
+   "label": "AI assistant",
+   "interventions": {
+    "ai_assistant_use": 1,
+    "human_assistant_capacity": 0,
+    "annual_assistant_tool_cost": 0.1
+   },
+   "is_baseline": false
+  },
+  {
+   "id": "personal_assistant_plus_ai",
+   "option_id": "personal_assistant_plus_ai",
+   "label": "Personal assistant plus AI",
+   "interventions": {
+    "ai_assistant_use": 1,
+    "human_assistant_capacity": 0.5,
+    "annual_assistant_tool_cost": 0.55
+   },
+   "is_baseline": false
+  }
+ ],
+ "goal_node_id": "ability_to_focus_on_high_value_tasks",
+ "request_id": "87425558-9078-473c-bdc5-55afef38387a"
+}
