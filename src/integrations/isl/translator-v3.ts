@@ -167,6 +167,8 @@ export function attachIdentityExecutionFrames(
    * `kind: 'goal'` participant, and ONLY when the node-frame reader resolves nothing — see `goalCapFrame`.
    */
   goalCapByNodeId: ReadonlyMap<string, number> = new Map(),
+  /** Variant (a): OUT — each frame PLoT derived for a frameless inferred intermediate carrier (`_meta.identity_derived_frames`). */
+  derivedFrames: IdentityDerivedFrame[] = [],
 ): IdentityNotForwarded[] {
   const engineById = new Map(engineNodes.map((node) => [node.id, node]));
   const islById = new Map(islNodes.map((node) => [node.id, node]));
@@ -184,6 +186,31 @@ export function attachIdentityExecutionFrames(
         ?? goalCapFrame(engine, goalCapByNodeId.get(id));
       if (resolved) participant.execution_frame = { frame: resolved.frame, carrier: resolved.carrier };
     }
+  }
+  // ⭐ Variant (a) (DL #72 5865205478, Canonical 5862317311) — ONE shape only: an INFERRED (`stated_in_brief: false`)
+  // PRODUCT identity with no addends, whose carrier is a NON-GOAL OUTCOME with no level and no frame, and EVERY factor of
+  // which is framed. Its frame is the product of its factors' frames — the most the parts can make — sent as carrier
+  // `cap` (ISL's enum unchanged) and DISCLOSED as Olumi's derived frame (`IdentityDerivedFrame`), never a user figure.
+  // Served: journey A's `pro_plan_mrr = price × subscribers` (5 of 10 runs since 05:15Z) was withheld for want of a
+  // ruler. The ruler gate (×0.5 / ×1 / ×2 on 5 served drafts, ISL's real analyser) is the PR's evidence. A goal, a
+  // stated identity, a carrier with a level, and a partly framed identity fall through to today's rules untouched.
+  for (const node of islNodes) {
+    const identity = node.nonlinear_identity;
+    if (!identity || identity.stated_in_brief !== false || identity.operation !== 'product') continue;
+    if ((identity.addends?.length ?? 0) > 0 || node.execution_frame) continue;
+    const engine = engineById.get(node.id);
+    if (engine?.kind !== 'outcome' || hasFiniteLevel(engine.observed_state)) continue;
+    const factorFrames = identity.factor_ids.map((id) => ({ node_id: id, frame: islById.get(id)?.execution_frame?.frame }));
+    if (factorFrames.some((f) => typeof f.frame !== 'number' || !Number.isFinite(f.frame) || f.frame <= 0)) continue;
+    const frame = factorFrames.reduce((product, f) => product * (f.frame as number), 1);
+    if (!Number.isFinite(frame) || frame <= 0) continue;
+    node.execution_frame = { frame, carrier: 'cap' };
+    derivedFrames.push({
+      node_id: node.id,
+      frame,
+      source: 'olumi_derived_product_of_factor_frames',
+      factor_frames: factorFrames.map((f) => ({ node_id: f.node_id, frame: f.frame as number })),
+    });
   }
   // ⛔ Variant (b) (DL #72 5863297824): an INFERRED identity (`stated_in_brief: false`) with any participant left
   // frameless is NOT forwarded — the node stays linear, exactly as served before the re-land — and is said
@@ -204,6 +231,23 @@ export function attachIdentityExecutionFrames(
     for (const node of islNodes) if (node.execution_frame && !kept.has(node.id)) delete node.execution_frame;
   }
   return notForwarded;
+}
+
+/**
+ * Variant (a): a frame PLoT DERIVED for a frameless inferred intermediate product carrier (`_meta.identity_derived_frames`)
+ * — Olumi's ruler, the product of its factors' frames; never a figure the user stated.
+ */
+export interface IdentityDerivedFrame {
+  node_id: string;
+  frame: number;
+  source: 'olumi_derived_product_of_factor_frames';
+  factor_frames: { node_id: string; frame: number }[];
+}
+
+/** A finite `observed_state.value` or `raw_value` — the node has a level, so its ruler is not ours to choose. */
+function hasFiniteLevel(observed: unknown): boolean {
+  const o = observed as { value?: unknown; raw_value?: unknown } | null | undefined;
+  return (typeof o?.value === 'number' && Number.isFinite(o.value)) || (typeof o?.raw_value === 'number' && Number.isFinite(o.raw_value));
 }
 
 /** An inferred identity PLoT did not forward to ISL, and why (`_meta.identities_not_forwarded`). */
