@@ -35,7 +35,6 @@ import type {
   EngineNodeV3,
   FactorSensitivityResultV3,
   FactorStabilityEntry,
-  IdentityEvaluationV3,
   ConfidenceSource,
   ConfidenceInputQuality,
   ConfidenceProvenance,
@@ -1053,8 +1052,8 @@ export function mergeIslConfidenceIntoGraphFactors(
       // re-derive lever status from graph topology; the two authorities are
       // the request-side union and ISL's stamp. `influence_score` (graph
       // structural importance) and `source` ('graph', a legacy/object
-      // provenance label) are deliberately left unchanged HERE; under an
-      // evaluated identity `adoptIslStructuralInfluence` (R3-5) replaces
+      // provenance label) are deliberately left unchanged HERE;
+      // `adoptIslStructuralInfluence` (R3-5, one algorithm) replaces
       // `influence_score` with ISL's every-factor structural influence. Field-level
       // rationale on LEVER_SUPPRESSION_FIELDS; constants, so re-applying to an
       // ISL-stamped entry is a byte-identical no-op (idempotence).
@@ -1137,24 +1136,30 @@ export function mergeIslConfidenceIntoGraphFactors(
 }
 
 /**
- * R3-5, PLoT half (AIQ #72 5872273026 · 5872728325; DL ruling 5872746926) — when ISL EVALUATED an
- * accounting identity, every row's `influence_score` is ISL's structural influence, not PLoT's walk.
+ * R3-5, PLoT half (AIQ #72 5872273026 · 5872728325; DL ruling 5872746926) and ONE influence algorithm
+ * (AIQ 5872951506): every row's `influence_score` is ISL's structural influence, not PLoT's walk, on EVERY
+ * graph whose ISL list covers every row — with or without an identity.
+ *
+ * Why not the walk (census #72 5875292873): it sums SIGNED path effects, so a factor whose channels offset
+ * scores ≈ 0 (eng-hiring: senior engineers +0.25 / −0.125 / −0.125 → 0). ISL sums path magnitudes.
  *
  * PLoT's walk (`computeFactorInfluence`: products of edge strengths) knows nothing of an identity, so
  * under MRR = price × subscribers it published the same influence with and without one. ISL walks an
  * evaluated identity at its own partials (#195) and, for exactly this, scores EVERY factor node in one
  * cohort (`structural_influence`) — `factor_sensitivity` scores only the factors with an uncertainty.
  *
- * - No evaluated identity: returns `factors` itself, the SAME array, untouched (byte-identical).
  * - ISL's list covers EVERY row with a finite score: each row carries ISL's `influence_score`, bound by
  *   factor_id, and `influence_basis: 'isl_structural'`; the rows are RE-ORDERED by that score (stable:
  *   ties keep row order), with `influence_rank` = `importance_rank` = position — the same contract the
  *   graph stage gives (driver-order rule 1: the order IS influence_score descending). The lever partition
  *   that follows (`applyLeverAwareImportanceOrder`) therefore ranks on ISL's order, so `importance_rank`,
  *   `driver_order`, the 'biggest' crown and `key_drivers` follow ISL — never the walk (DL CR 5873896531).
- * - Otherwise (list absent — an ISL build before it —, partial, or withheld on truncation): the walk's
- *   numbers stay and every row says `influence_basis: 'graph_walk'`. Bases are never mixed: a UI shows
- *   producer influence only when EVERY factor carries one (DGAI `useResultsSectionData.ts:2958`).
+ * - No list at all (ISL did not run the phase, or an ISL build before the every-graph emit): returns
+ *   `factors` itself, the SAME array, untouched — byte-identical to the walk-only response (the
+ *   `/v2/run` golden pin and `response_hash` stay put).
+ * - A list that cannot cover every row (partial, or withheld on truncation): the walk's numbers stay and
+ *   every row says `influence_basis: 'graph_walk'`. Bases are never mixed: a UI shows producer influence
+ *   only when EVERY factor carries one (DGAI `useResultsSectionData.ts:2958`).
  *
  * Nothing else moves per factor: `elasticity`, `sensitivity_score`, `value_of_information`,
  * `zero_reason`, `source`. Never mutates its input.
@@ -1162,9 +1167,8 @@ export function mergeIslConfidenceIntoGraphFactors(
 export function adoptIslStructuralInfluence(
   factors: FactorSensitivityResultV3[],
   structuralInfluence: ReadonlyArray<ISLStructuralInfluenceEntry> | undefined,
-  identityEvaluations: ReadonlyArray<Pick<IdentityEvaluationV3, 'evaluated'>> | undefined,
 ): FactorSensitivityResultV3[] {
-  if (!identityEvaluations?.some((e) => e?.evaluated === true)) return factors;
+  if (structuralInfluence === undefined) return factors;
 
   const islScore = new Map<string, number>();
   for (const row of structuralInfluence ?? []) {

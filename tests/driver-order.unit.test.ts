@@ -80,6 +80,32 @@ describe('buildDriverOrder — basis', () => {
     expect(o.basis).toBe('graph_structural');
   });
 
+  it("⭐ graph path whose EVERY row was adopted from ISL's structural influence attests 'isl_structural' (Codex CR #405 5878707888)", () => {
+    const o = buildDriverOrder({
+      factors: [
+        row('a', { influence_basis: 'isl_structural' }),
+        row('b', { influence_basis: 'isl_structural', influence_score: 0.2 }),
+      ],
+      structuralLeverIds: new Set(),
+      factorSensitivitySource: GRAPH_PATH,
+      islSuppressedAttributions: undefined,
+    })!;
+    expect(o.basis).toBe('isl_structural');
+  });
+
+  it("a list that could not cover every row keeps the walk — 'graph_structural', never a mixed claim", () => {
+    const o = buildDriverOrder({
+      factors: [
+        row('a', { influence_basis: 'graph_walk' }),
+        row('b', { influence_basis: 'graph_walk', influence_score: 0.2 }),
+      ],
+      structuralLeverIds: new Set(),
+      factorSensitivitySource: GRAPH_PATH,
+      islSuppressedAttributions: undefined,
+    })!;
+    expect(o.basis).toBe('graph_structural');
+  });
+
   it("ISL-only fallback attests 'isl_uncertainty'", () => {
     const o = buildDriverOrder({
       factors: [row('a', { source: 'isl' }), row('b', { source: 'isl', influence_score: 0.2 })],

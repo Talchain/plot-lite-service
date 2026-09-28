@@ -240,7 +240,7 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     // the pre-change world is the hand-maintained-mirror defect this file
     // exists to prevent.
     'factor_sensitivity[].source',       // 'graph' on the primary path | 'isl' on the ISL-only fallback. A legacy/object provenance label — for the RANKING basis read importance_basis, not this.
-    'factor_sensitivity[].importance_basis', // Lane PLoT importance-authority: 'graph_structural' | 'isl_uncertainty'. The runtime disclosure for every entry in `substitutions` below. ⚠ SUPERSEDED by driver_order.basis — kept for ONE release as a fail-loud mirror (a per-row copy of an ORDER-level fact is N things to drift), then deleted. The agreement is pinned by tests/driver-order-attestation.fixture.test.ts.
+    'factor_sensitivity[].importance_basis', // Lane PLoT importance-authority: 'graph_structural' | 'isl_uncertainty' | 'isl_structural' (R3-5: every row adopted from ISL's structural_influence). The runtime disclosure for every entry in `substitutions` below. ⚠ SUPERSEDED by driver_order.basis — kept for ONE release as a fail-loud mirror (a per-row copy of an ORDER-level fact is N things to drift), then deleted. The agreement is pinned by tests/driver-order-attestation.fixture.test.ts.
     // ⭐ Family-4 slice S1: THE canonical driver ordering + its attestation.
     // PLoT's role in the ratified authority model is order + attest — exactly
     // ONE ordering over the factor set, plus the disclosure that makes it
@@ -259,7 +259,7 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     // still published as factor_sensitivity[].influence_rank.
     // See src/lib/driver-order.ts.
     'driver_order',
-    'driver_order.basis',                // 'graph_structural' | 'isl_uncertainty' | 'none' — the ORDER-level successor to the per-row importance_basis
+    'driver_order.basis',                // 'graph_structural' | 'isl_uncertainty' | 'isl_structural' | 'none' — the ORDER-level successor to the per-row importance_basis
     'driver_order.ranked_factor_ids',    // the canonical order, IDS only (a second copy of a label is a second thing to drift)
     'driver_order.species',              // 'single' | 'mixed_graph_isl' — the ISL-only tail appended with no re-sort carries an incommensurable quantity; before this field no consumer could detect it
     'driver_order.lever_policy',         // 'du_union' on /v2/run — the ISL stamp OR the options-derived intervention union; 'stamp_only' is RESERVED for the surfaces that still use the under-covering predicate
