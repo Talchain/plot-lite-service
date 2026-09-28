@@ -157,11 +157,19 @@ export interface ISLNodeV3 {
  * R3-8: attach each declared identity's participants' execution frames (the node, its factor_ids
  * and its addends) to the ISL nodes, in place. Every node that is not an identity participant is
  * untouched, so a request that declares no identity sends a byte-identical ISL body.
+ *
+ * `goalThresholdMetaByNodeId` (the raw-node capture `collectGoalThresholdNodeMeta`; the canonical
+ * node drops it): a node THE node-frame reader cannot frame — a GOAL with no `observed_state`, as
+ * journey A's `mrr` is — is framed by its own `goal_threshold_cap`, the divisor CEE normalised its
+ * `goal_threshold` against (served 79b69f8/d036ab4: without it ISL withheld MRR = price × subscribers
+ * as `identity_frame_missing`, a blocker, and the Run was refused). A FALLBACK only: a node that
+ * resolves today keeps its frame. Sent as carrier `cap` (it is that node's cap), so ISL's enum is unchanged.
  */
 export function attachIdentityExecutionFrames(
   islNodes: ISLNodeV3[],
   engineNodes: readonly EngineNodeV3[],
   scaleFrameByNodeId: ReadonlyMap<string, number>,
+  goalThresholdMetaByNodeId: ReadonlyMap<string, { readonly goal_threshold_cap?: number }> = new Map(),
 ): void {
   const engineById = new Map(engineNodes.map((node) => [node.id, node]));
   const islById = new Map(islNodes.map((node) => [node.id, node]));
@@ -171,7 +179,11 @@ export function attachIdentityExecutionFrames(
     for (const id of [node.id, ...identity.factor_ids, ...(identity.addends ?? [])]) {
       const participant = islById.get(id);
       if (!participant || participant.execution_frame) continue;
-      const resolved = resolveNodeFrame(engineById.get(id)?.observed_state, scaleFrameByNodeId.get(id));
+      const goalCap = goalThresholdMetaByNodeId.get(id)?.goal_threshold_cap;
+      const resolved = resolveNodeFrame(engineById.get(id)?.observed_state, scaleFrameByNodeId.get(id))
+        ?? (typeof goalCap === 'number' && Number.isFinite(goalCap) && goalCap > 0
+          ? { frame: goalCap, carrier: 'cap' as const }
+          : undefined);
       if (resolved) participant.execution_frame = { frame: resolved.frame, carrier: resolved.carrier };
     }
   }

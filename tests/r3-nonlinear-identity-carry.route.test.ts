@@ -176,6 +176,41 @@ describe('R3-3 unit — normaliseNode / toISLNode carry the declaration or refus
     expect(toISLNode(engine).nonlinear_identity).toEqual(withAddend);
   });
 
+  it('R3-8 GOAL FRAME — a goal with no observed_state is framed by its own goal_threshold_cap (journey A, served 79b69f8)', () => {
+    const engine = [
+      normaliseNode({ ...node, observed_state: undefined } as any),
+      normaliseNode({ id: 'pro_plan_price', kind: 'factor', label: 'Price', observed_state: { value: 0.245, cap: 200 } } as any),
+      normaliseNode({ id: 'pro_paying_subscribers', kind: 'factor', label: 'Subs', observed_state: { value: 0.15 } } as any),
+    ];
+    const frames = (meta?: Map<string, { goal_threshold_cap?: number }>) => {
+      const isl = engine.map(toISLNode);
+      attachIdentityExecutionFrames(isl, engine, new Map([['pro_paying_subscribers', 2000]]), meta);
+      return Object.fromEntries(isl.map((n) => [n.id, n.execution_frame]));
+    };
+    // The fix: the goal's cap (the divisor its goal_threshold was normalised against) frames it.
+    expect(frames(new Map([['mrr', { goal_threshold_cap: 25000 }]]))).toEqual({
+      mrr: { frame: 25000, carrier: 'cap' },
+      pro_plan_price: { frame: 200, carrier: 'cap' },
+      pro_paying_subscribers: { frame: 2000, carrier: 'scale_frame' },
+    });
+    // CONTROL: no goal meta ⇒ no frame on the goal (ISL withholds) — exactly the served defect.
+    expect(frames().mrr).toBeUndefined();
+    // A non-positive or non-finite cap frames nothing.
+    expect(frames(new Map([['mrr', { goal_threshold_cap: 0 }]])).mrr).toBeUndefined();
+    expect(frames(new Map([['mrr', { goal_threshold_cap: Number.NaN }]])).mrr).toBeUndefined();
+  });
+
+  it('R3-8 GOAL FRAME — a FALLBACK only: a node whose own frame resolves keeps it over its goal_threshold_cap', () => {
+    const engine = [
+      normaliseNode({ ...node, observed_state: { value: 0.6, cap: 125000 } }),
+      normaliseNode({ id: 'pro_plan_price', kind: 'factor', label: 'Price', observed_state: { value: 0.245, cap: 200 } } as any),
+      normaliseNode({ id: 'pro_paying_subscribers', kind: 'factor', label: 'Subs', observed_state: { value: 0.15 } } as any),
+    ];
+    const isl = engine.map(toISLNode);
+    attachIdentityExecutionFrames(isl, engine, new Map([['pro_paying_subscribers', 2000]]), new Map([['mrr', { goal_threshold_cap: 25000 }]]));
+    expect(isl.find((n) => n.id === 'mrr')?.execution_frame).toEqual({ frame: 125000, carrier: 'cap' });
+  });
+
   it('R3-8 — a participant with no resolvable frame gets none (ISL withholds; PLoT never infers one)', () => {
     const engine = [
       normaliseNode({ ...node, observed_state: { value: 0.6, cap: 125000 } }),
@@ -242,6 +277,19 @@ describe("R3-3 route — Paul's request: the declaration reaches ISL exactly onc
     for (const body of islBodies) {
       expect(occurrences(body)).toBe(0);
       expect(JSON.stringify(body)).not.toContain('"execution_frame"');
+    }
+  });
+
+  it('R3-8 GOAL FRAME route — journey A\'s shape (the goal has NO observed_state): the ISL body frames it by goal_threshold_cap', async () => {
+    const req = paulRequest(PRODUCT);
+    const mrr = req.graph.nodes.find((n: any) => n.id === 'mrr');
+    delete mrr.observed_state;
+    expect(mrr.goal_threshold_cap).toBe(125000);
+    const res = await post(req);
+    expect(res.status).toBe(200);
+    expect(islBodies.length).toBeGreaterThan(0);
+    for (const body of islBodies) {
+      expect(body.graph.nodes.find((n: any) => n.id === 'mrr').execution_frame).toEqual({ frame: 125000, carrier: 'cap' });
     }
   });
 

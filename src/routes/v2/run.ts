@@ -7918,7 +7918,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // R3-8: each declared identity's participants carry the frame PLoT resolved (runtime
         // metadata; ISL withholds an identity any of whose frames is absent — never infers one).
         // Only identity participants are touched, so a request declaring none is byte-identical.
-        attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId);
+        attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId, goalThresholdMetaByNodeId);
 
         req.log.info(
           {
