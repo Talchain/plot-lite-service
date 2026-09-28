@@ -524,9 +524,6 @@ export const HASHED_NODE_FIELDS: readonly (keyof EngineNodeV3)[] = [
   'state_space',
   'category',
   'prior',
-  // R3 rung (a): a declared identity changes how ISL computes the node, so two graphs
-  // that differ only here must not share a hash. (Nodes are hashed whole anyway.)
-  'nonlinear_identity',
 ];
 
 /** Node fields deliberately kept OUT of `graph_hash`. Empty by design — see above. */
@@ -606,7 +603,7 @@ function computeGraphHash(graph: GraphState): string {
   // ⛔ EDGES ONLY. `sortedNodes` IS DELIBERATELY UNPROJECTED, AND PROJECTING IT
   // WAS A LIVE DEFECT. Corrected 18 Sep 2026 on an independent review.
   //
-  // `HASHED_NODE_FIELDS` lists the 11 DECLARED members of `EngineNodeV3`. But
+  // `HASHED_NODE_FIELDS` lists the 10 DECLARED members of `EngineNodeV3`. But
   // `normaliseNode` returns `{ ...declared, ...ceeConstraintFields } as
   // EngineNodeV3` (graph-normaliser.ts:438-468), adding `deadline_metadata`,
   // `unit`, `source_quote`, `confidence` and `provenance` on constraint nodes.
