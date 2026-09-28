@@ -571,6 +571,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "winner_label",
   "winner_probability",
   "with_margin",
+  "withheld_options",
   "withheld_reason",
   "without_margin",
   "zero_reason",

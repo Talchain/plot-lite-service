@@ -231,11 +231,20 @@ describe("route — Paul's retention and conversion reach ISL on their node's fr
       .toBe('normalised range=[0,100] source=pair_frame');
   });
 
-  it('CLAMP DISCLOSED on the route — an out-of-frame retention level (churn 150 on frame 100) carries a typed clamped repair', async () => {
+  it('CLAMP ⇒ WITHHELD on the route — an out-of-frame retention level (churn 150 on frame 100) never reaches ISL; the typed clamped repair is kept', async () => {
+    // ⚠ RE-PINNED (A3 round 2, AIQ olumi-programme-docs#70 5855192170): round 1
+    // pinned "reaches ISL at the 1.0 rail, disclosed by a clamped repair". A
+    // disclosed clamp beside a number answers a different question, so the
+    // option is now WITHHELD (`_meta.withheld_options`) and the repair stays as
+    // the evidence.
     const req = paulRequest();
     req.options.find((o: any) => o.id === 'ca47b368').interventions.monthly_churn = 150;
     const body = await run(req);
-    for (const v of wireLevels('ca47b368', 'monthly_churn')) expect(v).toBe(1);
+    expect(islBodies.length).toBeGreaterThan(0);
+    for (const b of islBodies) expect((b.options ?? []).map((o: any) => o.id)).not.toContain('ca47b368');
+    expect(body._meta?.withheld_options).toEqual([
+      { option_id: 'ca47b368', reason: 'intervention_clamped', factor_id: 'monthly_churn', stated: 150, applied: 100 },
+    ]);
     const clamps = (body._meta?.repairs_applied ?? []).filter((r: any) => r.action === 'clamped');
     expect(clamps).toHaveLength(1);
     expect(clamps[0]).toMatchObject({

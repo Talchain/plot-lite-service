@@ -623,6 +623,28 @@ export interface FilteredConstraintRecord {
 }
 
 /**
+ * A3 round 2 (AIQ olumi-programme-docs#70 5855192170) — an OPTION the run did
+ * not analyse, because normalisation would have analysed it at a level other
+ * than the one stated (a CLAMPED intervention). Stored in
+ * `_meta.withheld_options[]`, the option analogue of
+ * `_meta.filtered_constraints` ("did not reach the engine, and why"). One
+ * record per (option, factor) clamp; the option has no entry in
+ * `option_comparison` (no share, mean gap or rank). The normaliser's
+ * `action: 'clamped'` repair stays in `_meta.repairs_applied` as the evidence.
+ */
+export interface WithheldOptionRecord {
+  option_id: string;
+  /** Closed vocabulary; one member today. */
+  reason: 'intervention_clamped';
+  /** The factor whose stated level could not be analysed as stated. */
+  factor_id: string;
+  /** The level the user (or Olumi) stated for the factor, in the stated units. */
+  stated: number;
+  /** The level normalisation would have analysed instead (the clamped edge), in the same units. */
+  applied: number;
+}
+
+/**
  * Result for a single constraint evaluation.
  */
 /**
@@ -1079,6 +1101,9 @@ export const BLOCKER_CODES = [
   'CONSTRAINT_INVALID_OPERATOR',        // Operator not >= or <=
   'CONSTRAINT_DUPLICATE_ID',            // Two constraints share the same constraint_id
   'IDENTICAL_OPTIONS',
+  // A3 round 2: withholding the options whose stated levels would clamp leaves
+  // fewer than two to compare (mirrors IDENTICAL_OPTIONS for the dedupe).
+  'INTERVENTION_CLAMPED_NO_COMPARISON',
   'INVALID_NODE_ID_PATTERN',
   'INVALID_EDGE_ENDPOINT',
   'DUPLICATE_NODE_IDS',
@@ -1139,6 +1164,7 @@ export const INLINE_CRITIQUE_CODES = [
   'GRAPH_TOO_COMPLEX',                // complexity refusal at the ISL cap (ROADMAP 1.54)
   'DUPLICATE_EDGE_CONFLICT',          // same-relationship edges with divergent values
   'MIXED_RANGE_DERIVATION',           // factors use 2+ different derivation tiers
+  'INTERVENTION_CLAMPED',             // A3 round 2: an option withheld because a stated level would clamp
   // preflight-v2.ts
   'SCALE_MISMATCH_WARNING',
   'INVALID_BIDIRECTED_EDGE',
@@ -1425,6 +1451,14 @@ export interface V2RunError {
     request_id: string;
     computed_at: string;
   };
+  /**
+   * A3 round 2, C2 (AIQ olumi-programme-docs#70 5859510098): on the 422
+   * INTERVENTION_CLAMPED_NO_COMPARISON block, every option withheld because a
+   * stated level would clamp — the SAME typed records a 200 carries in
+   * `_meta.withheld_options` — so a consumer can say WHICH option and why.
+   * Absent on every other error.
+   */
+  withheld_options?: WithheldOptionRecord[];
 }
 
 /**
@@ -3544,6 +3578,8 @@ export interface CanonicalMeta {
   };
   /** Constraints filtered before ISL (non-evaluable temporal constraints) */
   filtered_constraints?: FilteredConstraintRecord[];
+  /** A3 round 2: options withheld before ISL because a stated level would clamp. */
+  withheld_options?: WithheldOptionRecord[];
   /** Source of each constraint (e.g., 'auto_from_goal_threshold') */
   constraint_sources?: Record<string, string>;
   /** Hash version used for response_hash computation (audit trail) */

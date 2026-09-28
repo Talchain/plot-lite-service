@@ -13,7 +13,7 @@
  * @see Schema v2.6 §B.8 - Range derivation priority chain
  */
 
-import type { EngineNodeV3, OptionV3, InterventionValueV3, RepairRecord, ConstraintLevelDomain } from '../types/engine-v3.js';
+import type { EngineNodeV3, OptionV3, InterventionValueV3, RepairRecord, ConstraintLevelDomain, WithheldOptionRecord } from '../types/engine-v3.js';
 import { finiteNum } from '../util/numeric.js';
 import {
   PERCENT_UNIT_TOKENS,
@@ -781,11 +781,15 @@ function formatNormalisationReason(range: NormalisationRange): string {
  *
  * @param options Original options with raw intervention values
  * @param context Normalisation context
+ * @param rangeOptions The option set the fallback ranges are derived from
+ *   (default: `options`). A3 round 2 C1: the route passes the FULL set, fixed
+ *   before any option is withheld — see {@link normaliseOptionsForISL}.
  * @returns Normalised options, diagnostics, transforms, and repair records
  */
 export function normaliseOptions(
   options: OptionV3[],
-  context: NormalisationContext
+  context: NormalisationContext,
+  rangeOptions: OptionV3[] = options,
 ): {
   options: OptionV3[];
   diagnostics: NormalisationDiagnostic[];
@@ -810,8 +814,9 @@ export function normaliseOptions(
   // constraint path: RepairAction `clamped` + the ` (clamped)` reason suffix.
   const clampRepairs: RepairRecord[] = [];
 
-  // Build fallback ranges for factors without context
-  const fallbackRanges = buildFallbackRanges(options, context);
+  // Build fallback ranges for factors without context — from the RANGE set
+  // (the options themselves unless the caller fixed a wider set; A3 r2 C1).
+  const fallbackRanges = buildFallbackRanges(rangeOptions, context);
 
   const normalisedOptions: OptionV3[] = options.map(option => {
     const normalisedInterventions: Record<string, InterventionValueV3> = {};
@@ -947,6 +952,20 @@ export interface NormalisationResult {
  * @param interventionHints Optional map of factor ID to intervention hints from CE
  * @param scaleFrameByNodeId The raw request nodes' `scale_frame` (`collectScaleFrameByNodeId`);
  *   the canonical nodes drop it, so the route captures it off the raw body.
+ * @param rangeOptions The option set EVERY range is derived from — the
+ *   `inferred_spread` of a graph factor and the fallback range of an unknown
+ *   one (default: `options`, today's behaviour).
+ *
+ *   A3 ROUND 2, C1 (AIQ olumi-programme-docs#70 5859510098; DL CHANGES_REQUIRED
+ *   on PLoT #376): WITHHOLDING ONE OPTION MUST NEVER CHANGE ANOTHER. An
+ *   `inferred_spread` range is a property of the option SET, so re-deriving it
+ *   from the survivors after a clamped option is withheld narrows it and moves
+ *   every survivor's normalised level — a result that depends on which options
+ *   happened to be present, and a CASCADE (a survivor that fitted the full-set
+ *   range clamps on the narrowed one and is withheld in turn). The route
+ *   therefore fixes the range set to the FULL option set BEFORE withholding and
+ *   normalises the survivors against it: each survivor reaches ISL byte-identical
+ *   to its full-set normalisation.
  * @returns Normalised options, context, diagnostics, transforms, and repair records
  */
 export function normaliseOptionsForISL(
@@ -955,10 +974,11 @@ export function normaliseOptionsForISL(
   goalNodeId: string,
   interventionHints?: Map<string, InterventionHints>,
   scaleFrameByNodeId?: Map<string, number>,
+  rangeOptions: OptionV3[] = options,
 ): NormalisationResult {
-  // Pass options to context builder for intervention spread calculation
-  const context = buildNormalisationContext(nodes, goalNodeId, interventionHints, options, scaleFrameByNodeId);
-  const { options: normalisedOptions, diagnostics, transforms, repairs } = normaliseOptions(options, context);
+  // Pass the RANGE set to the context builder for intervention spread calculation
+  const context = buildNormalisationContext(nodes, goalNodeId, interventionHints, rangeOptions, scaleFrameByNodeId);
+  const { options: normalisedOptions, diagnostics, transforms, repairs } = normaliseOptions(options, context, rangeOptions);
 
   return {
     options: normalisedOptions,
@@ -1048,6 +1068,44 @@ export function collectInterventionsForwardedAsStated(
     for (const nodeId of Object.keys(interventions)) {
       if (!notAsStated.has(nodeId)) out.add(nodeId);
     }
+  }
+  return out;
+}
+
+/**
+ * A3 ROUND 2 — CLAMP ⇒ WITHHOLD (AIQ olumi-programme-docs#70 5855192170).
+ *
+ * Every (option, factor) the Phase-4a normaliser PINNED to an end of [0,1] —
+ * `normalised` outside [0,1] before the clamp — as a typed
+ * `intervention_clamped` record. Such an option would be analysed at the
+ * range's edge, not at the level stated: "hire 10" on an unframed factor at 3
+ * (`inferred_value` = [0, 6]) runs as "hire 6". A disclosed clamp beside a
+ * number answers a different question than the user asked, so the route
+ * WITHHOLDS the option (its share, mean gap and rank) and keeps the
+ * normaliser's `clamped` repair as the evidence.
+ *
+ * `stated` is the level as it arrived; `applied` is the level the clamp would
+ * have analysed, in the SAME units (the edge of the range, denormalised) —
+ * never the internal [0,1] number. Read off the RECORDED diagnostics, the same
+ * source the clamp repair is built from, so the two cannot disagree about
+ * which (option, factor) clamped.
+ */
+export function collectInterventionClamps(
+  diagnostics: ReadonlyArray<Pick<NormalisationDiagnostic, 'option_id' | 'factor_id' | 'original_value' | 'normalised_value' | 'range' | 'clamped'>>,
+): WithheldOptionRecord[] {
+  const out: WithheldOptionRecord[] = [];
+  for (const d of diagnostics) {
+    if (!d.clamped) continue;
+    const applied = denormaliseValue(d.normalised_value, d.range);
+    out.push({
+      option_id: d.option_id,
+      reason: 'intervention_clamped',
+      factor_id: d.factor_id,
+      stated: roundTo6Decimals(d.original_value),
+      // A clamped edge on a usable range always denormalises; the fallback is
+      // the range endpoint itself, never an invented number.
+      applied: roundTo6Decimals(applied ?? (d.normalised_value >= 1 ? d.range.max : d.range.min)),
+    });
   }
   return out;
 }
@@ -1929,10 +1987,16 @@ export interface ConstraintNormalisationResult {
  *     own frame is not stated in percent (or cannot be shown to be), or whose
  *     target declares a non-percent unit (framed or not), so no reading of the
  *     '%' places the limit on that node's scale (`resolvePercentTargetFrame`).
+ *   threshold_clamped — A3 round 2 (AIQ olumi-programme-docs#70 5855192170,
+ *     rule 3; B5's per-limit code of the same name, 5855511541). A LEVEL limit
+ *     whose threshold would be PINNED to an end of [0,1] by the resolved
+ *     range: the engine would be asked about the edge of the scale, not the
+ *     limit stated, so P(meet) is 0 or 1 by arithmetic. Refused, never scored.
  */
 export type ConstraintRefusalReason =
   | 'delta_frame_value_altered_by_normalisation'
-  | 'percent_unit_disagrees_with_target_frame';
+  | 'percent_unit_disagrees_with_target_frame'
+  | 'threshold_clamped';
 
 /** ROADMAP 2.878 — see {@link ConstraintRefusalReason}. */
 export const DELTA_FRAME_VALUE_ALTERED: ConstraintRefusalReason =
@@ -1941,6 +2005,9 @@ export const DELTA_FRAME_VALUE_ALTERED: ConstraintRefusalReason =
 /** See {@link ConstraintRefusalReason} and {@link resolvePercentTargetFrame}. */
 export const PERCENT_UNIT_DISAGREES_WITH_TARGET_FRAME: ConstraintRefusalReason =
   'percent_unit_disagrees_with_target_frame';
+
+/** A3 round 2, rule 3 — see {@link ConstraintRefusalReason}. */
+export const THRESHOLD_CLAMPED: ConstraintRefusalReason = 'threshold_clamped';
 
 /**
  * ROADMAP 2.878 — a constraint that PLoT declined to send to ISL, with the
@@ -2479,6 +2546,74 @@ export function normaliseGoalConstraints(
     const isAutoSynthesised =
       (constraint as { _internal?: { source?: string } })._internal?.source ===
       'auto_from_goal_threshold';
+
+    // A3 ROUND 2 — A CLAMPED THRESHOLD IS REFUSED, NEVER SCORED (AIQ
+    // olumi-programme-docs#70 5855192170 rule 3: "a clamped threshold is
+    // refused, never scored"; B5's per-limit code `threshold_clamped`,
+    // 5855511541).
+    //
+    // WHAT IT DID BEFORE. A LEVEL limit outside its resolved range was PINNED
+    // to 0 or 1 and SENT: the engine answered "P(level <= the edge of the
+    // scale)", which every option meets (or misses) by arithmetic. F2a's
+    // `threshold_clamped` on `scale_provenance` kept it off `decision_grade`,
+    // but the number was still published as the limit's P(meet) and fed ISL's
+    // joint — a typed flag beside a still-present number.
+    //
+    // THE RULE. Same per-constraint refusal as the '%' frame and 2.878 delta
+    // refusals: the limit leaves the ISL payload AND (in the route) the active
+    // list, is disclosed in `_meta.filtered_constraints` with this typed reason
+    // and a CONSTRAINT_REFUSED_FRAME_FIDELITY critique, and every other limit
+    // still delivers. The route also withholds `probability_of_joint_goal`
+    // (the joint over "all your limits" cannot cover a limit that was not
+    // scored).
+    //
+    // SCOPE, stated rather than smoothed over:
+    //   · `value_frame === 'level'` only. A clamped DELTA is refused below
+    //     under 2.878's more specific reason (its `clamped` arm).
+    //   · NOT the auto-synthesised goal constraint: refusing it would withdraw
+    //     the user's TARGET with it (2.1023, below). A clamped target keeps
+    //     today's disclosed path (`threshold_clamped` on `scale_provenance`,
+    //     never decision-grade).
+    //   · An UNFRAMED constraint (no `value_frame`) keeps today's path too:
+    //     ISL does not score an unstamped constraint (see 2.878 below).
+    //   · NOT a threshold on a DEFAULT range (`range.source === 'default'`).
+    //     There is no scale to be "beyond": the range is a placeholder, so the
+    //     clamp is a symptom of the missing frame, not a finding about the
+    //     limit. That limit is already refused PER LIMIT by B5 (#378) under its
+    //     truer typed causes: `detectUnreliableConstraintTargets` gives every
+    //     default-range threshold `threshold_normalisation_defaulted`, which
+    //     `partitionConstraintTargets` can never deliver (doctrine B needs the
+    //     reason set to be exactly {target_base_defaulted}), so its P and the
+    //     joint are withheld and CONSTRAINT_TARGET_UNRELIABLE names it. Refusing
+    //     it HERE instead would replace those causes with this one, and move
+    //     the ISL request B5's captured fixtures answer (Paul's 0e19bb82 spend
+    //     limit, pinned in tests/constraint-per-limit-b5.route.test.ts).
+    //
+    // ⛔ NOT TOUCHED: Paul's 17d1 churn limit ('%' relabel, 4 on the '%'
+    // rung's [0,100]) normalises to 0.04 UNCLAMPED, so it never reaches here
+    // (MG replay 27 Sep: EXECUTED + hash-bound WIRE, ISL-bound 0.04).
+    if (value_frame === 'level' && clamped && !isAutoSynthesised && range.source !== 'default') {
+      refused.push({
+        constraint_id,
+        node_id,
+        reason: THRESHOLD_CLAMPED,
+        stated_value: value,
+        would_have_sent: normalised,
+        range,
+      });
+      repairs.push({
+        field: `constraint.value.${constraint_id}`,
+        action: 'removed',
+        from_value: value,
+        to_value: 'refused',
+        reason:
+          `refused (threshold_clamped): the limit ${value} lies outside its node's scale ` +
+          `range=[${range.min},${range.max}] source=${range.source} and would have been pinned ` +
+          `to ${normalised}, asking the engine about the edge of the scale rather than the ` +
+          `limit stated.`,
+      });
+      continue;
+    }
 
     if (
       value_frame === 'delta' &&

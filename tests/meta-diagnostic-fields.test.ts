@@ -35,8 +35,9 @@ const GRAPH = {
 };
 
 const OPTIONS = [
-  { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': { value: 1.5, source: 'user_specified' } } },
-  { id: 'opt2', label: 'Option 2', interventions: { 'factor-b': { value: 2.0, source: 'user_specified' } } },
+  // A3 round 2: a level that would clamp is withheld (AIQ #70 5855192170); neither factor carries a level, so the range is [0,1].
+  { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': { value: 0.9, source: 'user_specified' } } },
+  { id: 'opt2', label: 'Option 2', interventions: { 'factor-b': { value: 0.8, source: 'user_specified' } } },
 ];
 
 const VALID_BODY = {

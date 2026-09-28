@@ -263,7 +263,9 @@ describe('ROADMAP 1.278 · Phase 1a++ intervention ingress-shape guard', () => {
       // Rich object with additional keys — the shape tests/categorical-migration-
       // safety.test.ts sends (`raw_value: '£180,000'`). Unknown keys must remain
       // forward-compatible, per the nested-object convention on this route.
-      { f: { value: 180000, raw_value: '£180,000', source: 'user_specified' }, g: 60 },
+      // (A3 round 2: a level that would clamp is withheld (AIQ #70 5855192170): the level sits inside f's inferred [0,200] — 180000 was
+      // analysed at 200 before.)
+      { f: { value: 180, raw_value: '£180', source: 'user_specified' }, g: 60 },
     ]) {
       const { res, body } = await post(good);
       expect(res.statusCode, JSON.stringify(good)).toBe(200);

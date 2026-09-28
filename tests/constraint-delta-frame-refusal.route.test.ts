@@ -182,7 +182,8 @@ const GRAPH = {
 };
 
 const OPTIONS = [
-  { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': 1.5 } },
+  // A3 round 2: a level that would clamp is withheld (AIQ #70 5855192170), so every stated level sits inside its factor's range (factor-a has no level: [0,1]).
+  { id: 'opt1', label: 'Option 1', interventions: { 'factor-a': 0.9 } },
   { id: 'opt2', label: 'Option 2', interventions: { 'factor-b': 2.0 } },
 ];
 
@@ -269,14 +270,25 @@ describe('2.878 F1 — a refused delta must not destroy its siblings verdicts', 
     }
   });
 
-  it('ISOLATOR / DISCRIMINATING PAIR: the SAME payload with value_frame "level" delivers all THREE', async () => {
-    // Byte-identical but for one string. If this arm ever stops delivering 3,
-    // the refusal has started catching levels and the separation has broken.
+  it('ISOLATOR / DISCRIMINATING PAIR: the SAME payload with value_frame "level" is NOT refused as a delta', async () => {
+    // Byte-identical but for one string. If this arm is ever refused under the
+    // DELTA reason, the delta refusal has started catching levels and the
+    // separation has broken.
+    //
+    // ⚠ RE-PINNED (A3 round 2, AIQ olumi-programme-docs#70 5855192170 rule 3).
+    // This arm used to deliver all THREE: −0.15 as a LEVEL on factor-c's
+    // inferred [0,200] clamps to 0, and was scored as "unit cost <= 0". A
+    // level that would clamp is now refused under its OWN reason
+    // (`threshold_clamped`), so the arm delivers the two plain levels and
+    // refuses this one — by a different reason than the delta arm, which is
+    // exactly the separation this row exists to show.
     const body = await run(baseUrl, [...TWO_LEVELS, reduction('level')]);
 
     expect(body.constraints_status).toBe('computed');
     expect((body.constraint_results ?? []).map((r: any) => r.constraint_id).sort())
-      .toEqual(['cost-reduce', 'retention-max', 'revenue-min']);
+      .toEqual(['retention-max', 'revenue-min']);
+    const refused = (body._meta?.filtered_constraints ?? []).filter((f: any) => f.constraint_id === 'cost-reduce');
+    expect(refused.map((f: any) => f.reason)).toEqual(['threshold_clamped']);
   });
 
   it('DEFECT: the refusal is disclosed by name in _meta.filtered_constraints', async () => {
