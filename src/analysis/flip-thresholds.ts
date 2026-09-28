@@ -818,9 +818,12 @@ export function createISLInferenceFn(
     // entries, so a prior-only factor rides through a probe untouched — but the
     // type must say so, or the next reader adds `pu.std` arithmetic that is
     // `undefined` for exactly the factors whose centre this repo just fixed.
+    // A `point_mass` entry (T7b: a PINNED lever held exactly at today's level)
+    // carries neither: it too only rides through the clone unchanged.
     parameter_uncertainties?: Array<
       | { node_id: string; distribution: 'normal'; std: number }
       | { node_id: string; distribution: 'uniform'; range_min: number; range_max: number }
+      | { node_id: string; distribution: 'point_mass' }
     >;
     // Resolved seed sent to the main ISL analysis call (explicit request seed,
     // or PLoT-derived seed when omitted). Forwarded verbatim on every probe so

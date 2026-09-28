@@ -127,10 +127,9 @@ describe('buildParameterUncertaintiesV3 — user-supplied std propagation', () =
       expect(result[0].std).toBeCloseTo(1.5, 10);
     });
 
-    it('missing std with value = 0 and no option level is HELD at MIN_USER_STD (T7b — never FALLBACK_STD, a frame fraction)', () => {
+    it('missing std with value = 0 uses FALLBACK_STD = 0.5', () => {
       const result = buildParameterUncertaintiesV3([factor('f', 0)])!;
-      expect(result[0].std).toBe(MIN_USER_STD);
-      expect(result[0].std).not.toBe(FALLBACK_STD);
+      expect(result[0].std).toBe(FALLBACK_STD);
     });
 
     it('std = 0 is treated as missing (falls through to defaults)', () => {
@@ -279,11 +278,7 @@ describe('translator vs preflight parity for std derivation', () => {
     { name: 'negative user std', value: 10, std: -0.1 },
     { name: 'NaN user std', value: 10, std: NaN },
     { name: 'no std, value 10', value: 10 },
-    // 'no std, value 0' is DELIBERATELY not a parity case since T7b (AIQ #72
-    // 5867008723): the V3 translator (served /v2/run) scales a zero estimate by
-    // the options' levels, or holds it at MIN_USER_STD, and never uses
-    // FALLBACK_STD; the V1/V2 preflight builder has no options and still does.
-    // Pinned separately below so the divergence is visible, not silent.
+    { name: 'no std, value 0', value: 0 },
     { name: 'no std, value 0.5', value: 0.5 },
   ];
 
@@ -312,17 +307,6 @@ describe('translator vs preflight parity for std derivation', () => {
       expect(v3[0].std).toBe(preflight[0].std);
     });
   }
-
-  it('divergence (T7b): no std, value 0 — V3 holds at MIN_USER_STD, preflight keeps FALLBACK_STD', () => {
-    const node = { id: 'f', kind: 'factor' as const, label: 'F', observed_state: { value: 0 } };
-    const v3 = buildParameterUncertaintiesV3([node])!;
-    const preflight = buildParameterUncertainties({
-      nodes: [node, { id: 'goal', kind: 'goal', label: 'Goal' }],
-      edges: [{ from: 'f', to: 'goal' }],
-    });
-    expect(v3[0].std).toBe(MIN_USER_STD);
-    expect(preflight[0].std).toBe(FALLBACK_STD);
-  });
 });
 
 // ---------------------------------------------------------------------------

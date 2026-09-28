@@ -22,6 +22,7 @@ import {
   DEFAULT_STD_FLOOR,
   BINARY_DEFAULT_STD,
   VALUE_BASED_STD_FRACTION,
+  FALLBACK_STD,
   MIN_USER_STD,
   resolveUserSuppliedStd,
 } from './parameter-uncertainty-bounds.js';
@@ -463,8 +464,15 @@ export interface ISLRobustnessRequestV3 {
    *                  ENTIRELY on the wire; `observed_state` is not read at all
    *                  (robustness_analyzer_v2.py:1180-1188), and the correlated
    *                  copula path treats it the same way (1140-1149).
-   *   - `point_mass` → the observed value verbatim; useless to a node that has
-   *                  none, so PLoT never emits it.
+   *   - `point_mass` → the observed value verbatim (`_sample_from_distribution`
+   *                  returns the mean; no sampling). Useless to a node that has
+   *                  no observed value, so PLoT emits it ONLY for a PINNED lever
+   *                  (T7b, `pinnedLeverIds`): a controllable lever an option
+   *                  sets exactly to its own today level, which must be held
+   *                  EXACT. ISL rejects it for a factor named in
+   *                  `factor_correlations` (robustness_v2.py
+   *                  validate_factor_correlations), so such a lever is never
+   *                  sent as point_mass.
    * A factor whose only quantitative statement is a `prior` therefore MUST go
    * out as `uniform`: sent as a `normal` it parses cleanly, and ISL then
    * silently centres a declared Uniform[0.6,1.0] on 0.0.
@@ -480,6 +488,10 @@ export interface ISLRobustnessRequestV3 {
         distribution: 'uniform';
         range_min: number;
         range_max: number;
+      }
+    | {
+        node_id: string;
+        distribution: 'point_mass';
       }
   >;
   /**
@@ -1008,6 +1020,104 @@ function maxAbsOptionLevelByFactor(options: readonly OptionV3[]): Map<string, nu
 }
 
 /**
+ * `observed_state.source` stamps that make a today level THE USER'S OWN (T7b
+ * amended rule, AI Quality #72 5867934055). Mirrors CEE's `classifyValueSource`
+ * (olumi-assistants-service src/cee/graph-readiness/obligation-provenance.ts,
+ * OBSERVED_STATE_SOURCE): every stamp it classifies `user_stated` or
+ * `user_ratified`. Exact, case-sensitive membership — as CEE's is. `cee_inference`,
+ * `inferred`, `cee_repair` and an absent stamp are NOT the user's own.
+ *
+ * ⚠ The stamp is an unvalidated string (see `EngineNodeV3.observed_state.source`,
+ * ROADMAP 2.525). Here it can only NARROW a spread to exact, and only for a level
+ * an option in the same Run restates exactly, so a forged stamp can hold a lever
+ * at a number the options already assert — never move the number itself.
+ */
+export const USER_OWN_TODAY_SOURCES: ReadonlySet<string> = new Set([
+  'brief_extraction',
+  'explicit',
+  'user',
+  'user_override',
+  'user_edited',
+  'user_calibration',
+  'panel_elicited',
+  'user_confirmed',
+  'user_assumption',
+]);
+
+/** Relative tolerance for "an option sets the lever EXACTLY to today" (T7b). */
+export const PIN_RELATIVE_TOLERANCE = 1e-9;
+
+/**
+ * The PINNED levers of a Run (T7b amended rule, AI Quality olumi-programme-docs
+ * #72 5867604513 + 5867934055).
+ *
+ * A factor is PINNED when ALL of:
+ *   - it is a controllable lever (`category === 'controllable'`, the top-level
+ *     field `normaliseNode` validates and lower-cases);
+ *   - it has a finite today level (`observed_state.value`);
+ *   - some option sets it EXACTLY to that level:
+ *     |level − today| ≤ PIN_RELATIVE_TOLERANCE × max(1, |today|), both read in
+ *     the normalised units they share on the ISL wire (pass the options AS SENT);
+ *   - that today level is the user's own (`USER_OWN_TODAY_SOURCES`) OR exactly 0.
+ *
+ * WHY: ISL's sum identity computes a plan's tally as today + (plan − this draw's
+ * status-quo operands), so ANY spread on today's level of a lever leaks into an
+ * exact plan total — at MIN_USER_STD on a £100k frame the journey-C features
+ * tally had sd £9.93 and P(spend ≤ £20,000) ≈ 0.509 where it is 1. A pinned
+ * lever's today level is therefore held EXACT (point_mass).
+ *
+ * NOT pinned: an Olumi NON-zero estimate an option merely echoes (e.g.
+ * `cee_inference` £10,000 with "keep marketing as is" at £10,000) — that number
+ * is ours, not the user's, and keeps its spread.
+ */
+export function pinnedLeverIds(
+  nodes: readonly EngineNodeV3[],
+  options: readonly OptionV3[],
+): Set<string> {
+  const todayById = new Map<string, number>();
+  for (const node of nodes) {
+    if (node.kind !== 'factor' || node.category !== 'controllable') continue;
+    const today = node.observed_state?.value;
+    if (typeof today !== 'number' || !Number.isFinite(today)) continue;
+    const source = node.observed_state?.source;
+    const userOwn = typeof source === 'string' && USER_OWN_TODAY_SOURCES.has(source);
+    if (!userOwn && today !== 0) continue;
+    todayById.set(node.id, today);
+  }
+  const pinned = new Set<string>();
+  if (todayById.size === 0) return pinned;
+  for (const option of options) {
+    for (const [factorId, intervention] of Object.entries(option.interventions ?? {})) {
+      const today = todayById.get(factorId);
+      if (today === undefined) continue;
+      const level = intervention?.value;
+      if (typeof level !== 'number' || !Number.isFinite(level)) continue;
+      if (Math.abs(level - today) <= PIN_RELATIVE_TOLERANCE * Math.max(1, Math.abs(today))) {
+        pinned.add(factorId);
+      }
+    }
+  }
+  return pinned;
+}
+
+/**
+ * Every factor id named on either side of a `factor_correlations` pair — the
+ * set a pinned lever must NOT be sent as point_mass for (ISL rejects it there).
+ * Tolerates the unvalidated request shape: non-string ids are skipped.
+ */
+export function correlatedFactorIdsOf(
+  factorCorrelations: readonly FactorCorrelation[] | undefined,
+): Set<string> {
+  const ids = new Set<string>();
+  if (!Array.isArray(factorCorrelations)) return ids;
+  for (const pair of factorCorrelations) {
+    if (typeof pair?.factor_a === 'string') ids.add(pair.factor_a);
+    if (typeof pair?.factor_b === 'string') ids.add(pair.factor_b);
+  }
+  return ids;
+}
+
+/**
  * Build parameter uncertainties from factor nodes with observed_state.
  *
  * For each factor node with an observed value, create a parameter uncertainty
@@ -1019,14 +1129,27 @@ function maxAbsOptionLevelByFactor(options: readonly OptionV3[]): Map<string, nu
  *    does NOT apply.
  * 2. Binary factors (0/1 range or labelled yes/no) → BINARY_DEFAULT_STD.
  * 3. Non-zero continuous factors → |value| × VALUE_BASED_STD_FRACTION.
- * 4. Zero-valued continuous factors → VALUE_BASED_STD_FRACTION × the largest
- *    |level| any of `options` sets for the factor, never below MIN_USER_STD.
- *    With no non-zero option level there is no scale, so the factor is HELD at
- *    its stated 0 (std = MIN_USER_STD, ISL's minimum admissible normal).
+ * 4. Zero-valued continuous factors:
+ *    a. some option sets the factor to a NON-zero level → VALUE_BASED_STD_FRACTION
+ *       × the largest |level| any of `options` sets for it (never below
+ *       MIN_USER_STD, NOT floored by DEFAULT_STD_FLOOR);
+ *    b. otherwise (no option intervenes on it, or — for a factor that cannot be
+ *       pinned — options set it only to 0) → FALLBACK_STD, floored: the BASE
+ *       behaviour, byte-identical to aac1970.
  *
- * The DEFAULT_STD_FLOOR is applied ONLY to priorities 2–3 (synthesised defaults),
- * never to user-supplied values. This is the fix for the silent-widening bug
- * where `observed_state.std = 0.001` was being floored to 0.1.
+ * ⭐ PINNED LEVERS COME FIRST, ahead of priority 1 (T7b amended rule, AIQ #72
+ * 5867934055; see `pinnedLeverIds`): a controllable lever that an option sets
+ * EXACTLY to its own today level, where that level is the user's own or exactly
+ * 0, goes out as `{distribution: 'point_mass'}` — ISL holds it at
+ * `observed_state.value` with no sampling and no floor. A CEE-sent std does NOT
+ * override this (AIQ Control 1: a user-stated today echoed by an option → sd 0).
+ * The ONE exception is a pinned lever named in `factor_correlations`: ISL rejects
+ * point_mass there, so it is sent as a normal at MIN_USER_STD (the tightest
+ * normal ISL admits) rather than failing the whole Run with a 422.
+ *
+ * The DEFAULT_STD_FLOOR is applied ONLY to priorities 2–3 and 4b (synthesised
+ * defaults), never to user-supplied values. This is the fix for the
+ * silent-widening bug where `observed_state.std = 0.001` was being floored to 0.1.
  *
  * ⛔ PRIORITY 4 NEVER TAKES ITS SPREAD FROM THE FRAME (T7b, AI Quality re-rule
  * olumi-programme-docs #72 5867008723, R3-2 root 1). A std here is in the
@@ -1038,9 +1161,10 @@ function maxAbsOptionLevelByFactor(options: readonly OptionV3[]): Map<string, nu
  * 0.15 × (the largest raw level) / frame: its RAW spread (±£3,000 on journey C)
  * does not move with the frame. DEFAULT_STD_FLOOR (0.1 = a tenth of the frame)
  * is deliberately NOT applied to it, for the same reason.
- * The HOLD for a lever no option sets is AIQ's to confirm (T7b); a positive std
- * is required because ISL rejects a normal with std 0, and MIN_USER_STD is the
- * same hold CEE's STATED_LEVEL_STD already uses for a stated level.
+ * ⛔ NO SILENT HOLD (Verifier FIX_FIRST, HIGH): a zero factor NO option touches
+ * has no option scale, and holding it at MIN_USER_STD pinned it without saying
+ * so (golden `fac_hiring_cost`: 0.5 → 1e-4). It keeps the base FALLBACK_STD
+ * path instead; only a PINNED lever is held, and that is the named rule above.
  *
  * Non-finite, zero, and negative `observed_state.std` are treated as missing
  * and fall through to default synthesis.
@@ -1065,19 +1189,42 @@ function maxAbsOptionLevelByFactor(options: readonly OptionV3[]): Map<string, nu
  * @param nodes Graph nodes
  * @param options The options EXACTLY AS THEY TRAVEL TO ISL (post-normalisation,
  *   the same units as `observed_state.value`) — the only source of a scale for a
- *   zero-valued factor (priority 4). Omitted ⇒ no option levels ⇒ held.
+ *   zero-valued factor (priority 4a) and of a pin. Omitted ⇒ no option levels ⇒
+ *   nothing pinned and every zero factor takes the base FALLBACK_STD path.
+ * @param correlatedFactorIds Factor ids named in the request's
+ *   `factor_correlations` (either side of any pair). A pinned lever among them
+ *   is sent as normal at MIN_USER_STD, because ISL rejects a correlated point_mass.
  * @returns Parameter uncertainties for ISL
  */
 export function buildParameterUncertaintiesV3(
   nodes: EngineNodeV3[],
   options: readonly OptionV3[] = [],
+  correlatedFactorIds: ReadonlySet<string> = new Set(),
 ): ISLRobustnessRequestV3['parameter_uncertainties'] {
   const uncertainties: NonNullable<ISLRobustnessRequestV3['parameter_uncertainties']> = [];
   const maxOptionLevel = maxAbsOptionLevelByFactor(options);
+  const pinned = pinnedLeverIds(nodes, options);
 
   for (const node of nodes) {
     if (node.kind === 'factor' && node.observed_state?.value !== undefined && Number.isFinite(node.observed_state.value)) {
       const value = node.observed_state.value;
+
+      if (pinned.has(node.id)) {
+        if (correlatedFactorIds.has(node.id)) {
+          // ISL 14f1a3a rejects point_mass for any factor named in
+          // factor_correlations (robustness_v2.py validate_factor_correlations,
+          // _CORRELATION_SUPPORTED_DISTRIBUTIONS = {normal, uniform}) with a 422
+          // that fails the whole Run. The tightest admissible hold is a normal at
+          // MIN_USER_STD — the only place a pinned lever is not held exact.
+          uncertainties.push({ node_id: node.id, distribution: 'normal', std: MIN_USER_STD });
+        } else {
+          // T7b: a pinned lever's today level is held EXACT — no sampling, no
+          // floor, and ahead of a CEE-sent std (AIQ Control 1).
+          uncertainties.push({ node_id: node.id, distribution: 'point_mass' });
+        }
+        continue;
+      }
+
       const userStd = resolveUserSuppliedStd(node.observed_state.std);
 
       let std: number;
@@ -1095,9 +1242,16 @@ export function buildParameterUncertaintiesV3(
         } else if (value !== 0) {
           std = Math.max(DEFAULT_STD_FLOOR, Math.abs(value) * VALUE_BASED_STD_FRACTION);
         } else {
-          // Priority 4 (T7b): scaled by the option levels, never by the frame —
-          // and so NOT floored by DEFAULT_STD_FLOOR, itself a frame fraction.
-          std = Math.max(MIN_USER_STD, VALUE_BASED_STD_FRACTION * (maxOptionLevel.get(node.id) ?? 0));
+          const maxLevel = maxOptionLevel.get(node.id) ?? 0;
+          if (maxLevel > 0) {
+            // Priority 4a (T7b): scaled by the option levels, never by the frame
+            // — and so NOT floored by DEFAULT_STD_FLOOR, itself a frame fraction.
+            std = Math.max(MIN_USER_STD, VALUE_BASED_STD_FRACTION * maxLevel);
+          } else {
+            // Priority 4b: no option scale — the base FALLBACK_STD path,
+            // byte-identical to aac1970. Never a silent MIN_USER_STD hold.
+            std = Math.max(DEFAULT_STD_FLOOR, FALLBACK_STD);
+          }
         }
       }
 
@@ -1342,7 +1496,9 @@ export function toISLRobustnessRequest(
     goal_node_id: goalNodeId,
     n_samples: nSamples,
     analysis_types: ['comparison', 'sensitivity', 'robustness'],
-    parameter_uncertainties: prebuiltParameterUncertainties ?? buildParameterUncertaintiesV3(graph.nodes, options),
+    parameter_uncertainties:
+      prebuiltParameterUncertainties ??
+      buildParameterUncertaintiesV3(graph.nodes, options, correlatedFactorIdsOf(factorCorrelations)),
     include_e_values: true,
     include_voi: true,
     // ROADMAP 2.228-F3: ask ISL for closed-form per-factor flip thresholds.

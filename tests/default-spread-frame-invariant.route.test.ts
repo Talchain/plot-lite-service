@@ -13,8 +13,17 @@
  * THE RULE (AIQ): a zero estimate on a factor the options SET takes
  * std = 0.15 × the largest |level| any option sets for it, in the units the
  * std is expressed in on the ISL wire. Journey C: max level 0.2 of £100k →
- * std 0.03 → ±£3,000. With no option level there is no scale: the factor is
- * held at its stated 0 (std = MIN_USER_STD, ISL's minimum admissible normal).
+ * std 0.03 → ±£3,000. A zero factor NO option touches keeps the base
+ * FALLBACK_STD path (Verifier FIX_FIRST: no silent 1e-4 hold).
+ *
+ * THE AMENDED RULE (AIQ #72 5867604513 + 5867934055): ISL's sum identity
+ * computes a plan's tally as today + (plan − this draw's status-quo operands),
+ * so ANY spread on today's level leaks into an exact plan total. A controllable
+ * lever an option sets EXACTLY to its today level — where that level is the
+ * user's own or exactly 0 — is PINNED and goes out as point_mass. GT1 as served
+ * pins both spend levers (carry-on sets them to their £0 today) and the Pro
+ * price (brief_extraction £49, echoed by carry-on). The 0.15 × max rule is
+ * exercised on the CONTROL-2 shape: no option at today's level.
  *
  * The request is AIQ's served one (fixture, byte-identical to the capture);
  * the route is PLoT's REAL POST /v2/run; only the ISL client is mocked, and
@@ -68,10 +77,66 @@ const LEVERS = [FEATURES, ADVERTISING] as const;
 const TALLY = 'six_month_decision_spend';
 /** AIQ's rule constant — the same 0.15 a non-zero estimate uses. */
 const FRACTION = 0.15;
-/** ISL's minimum admissible normal std (PLoT MIN_USER_STD). */
-const HOLD_STD = 1e-4;
+/** PLoT FALLBACK_STD — the base path for a zero factor no option touches. */
+const FALLBACK = 0.5;
+/** The golden fixture whose `fac_hiring_cost` no option touches (Verifier row). */
+const GOLDEN_REQUEST = resolve(__dirname, 'fixtures/isl-v2-live-20260707/isl-v2-request.json');
 
 const gt1 = (): any => JSON.parse(readFileSync(FIXTURE, 'utf8'));
+
+/**
+ * AIQ CONTROL-2 shape on GT1: the carry-on option no longer sets the spend
+ * levers to their £0 today (it sets £1,000 instead), so NO option is at today's
+ * level and nothing pins them. Removing the carry-on interventions outright
+ * would leave that option with no path to the spend goal.
+ */
+function withoutTodayEcho(req: any): any {
+  for (const n of req.graph.nodes) {
+    if (n.id === 'carry_on_as_now' && n.interventions) {
+      for (const id of LEVERS) if (n.interventions[id]) n.interventions[id].value = 0.01;
+    }
+  }
+  for (const o of req.options) {
+    if (o.id !== 'carry_on_as_now') continue;
+    for (const id of LEVERS) {
+      expect(o.interventions[id], `carry_on_as_now sets ${id}`).toBe(0);
+      o.interventions[id] = 0.01;
+    }
+  }
+  return req;
+}
+
+/** The golden /v2/run body, built exactly as isl-v2-golden-response.pin.test.ts builds it. */
+function goldenBody(): any {
+  const requestA = JSON.parse(readFileSync(GOLDEN_REQUEST, 'utf8'));
+  return {
+    graph: {
+      nodes: requestA.graph.nodes.map((n: any) => ({
+        id: n.id,
+        kind: n.kind,
+        label: n.label,
+        ...(n.observed_state?.value !== undefined && n.observed_state?.value !== null
+          ? { observed_state: { value: n.observed_state.value } }
+          : {}),
+      })),
+      edges: requestA.graph.edges.map((e: any) => ({
+        from: e.from,
+        to: e.to,
+        exists_probability: e.exists_probability,
+        strength: { mean: e.strength.mean, std: e.strength.std },
+      })),
+    },
+    options: requestA.options.map((o: any) => ({
+      id: o.id,
+      label: o.label,
+      interventions: Object.fromEntries(
+        Object.entries(o.interventions).map(([nodeId, value]) => [nodeId, { value, source: 'user_specified' }]),
+      ),
+    })),
+    goal_node_id: requestA.goal_node_id,
+    seed: String(requestA.seed),
+  };
+}
 
 function node(req: any, id: string): any {
   const n = req.graph.nodes.find((x: any) => x.id === id);
@@ -138,7 +203,7 @@ function maxAbs(levels: Record<string, number>): number {
   return Math.max(0, ...Object.values(levels).map((v) => Math.abs(v)));
 }
 
-describe('T7b — a zero estimate on an option-set lever takes its spread from the option levels, never the frame', () => {
+describe('T7b — a zero estimate on an option-set lever takes its spread from the option levels, never the frame; a PINNED lever is held exact', () => {
   let app: FastifyInstance;
 
   async function run(req: any): Promise<any> {
@@ -157,28 +222,55 @@ describe('T7b — a zero estimate on an option-set lever takes its spread from t
 
   afterAll(async () => { await app?.close(); });
 
-  it('row 1 — GT1 as served: each lever\'s std = 0.15 × its largest wire option level (≈ ±£3,000), not FALLBACK 0.5 (±£50,000)', async () => {
+  it('GT1 ROW — as served: both spend levers (today £0, cee_inference; carry-on sets £0) go out as point_mass, never a sampled normal', async () => {
     const isl = await run(gt1());
     for (const id of LEVERS) {
+      // Precondition: the served shape — a controllable zero estimate CEE sent
+      // no std for, which the carry-on option sets to exactly that 0.
+      const src = node(gt1(), id);
+      expect(src.category).toBe('controllable');
+      expect(src.observed_state.value).toBe(0);
+      expect(src.observed_state.source).toBe('cee_inference');
+      expect(src.observed_state.std).toBeUndefined();
       const levels = wireLevels(isl, id);
-      // Precondition: the served shape — a zero estimate CEE sent no std for,
-      // which the options DO set (0.2 on its own option, 0.05 on the split).
-      const src = node(gt1(), id).observed_state;
-      expect(src.value).toBe(0);
-      expect(src.std).toBeUndefined();
-      expect(maxAbs(levels), `${id} wire levels ${JSON.stringify(levels)}`).toBe(0.2);
+      expect(levels.carry_on_as_now, `${id} wire levels ${JSON.stringify(levels)}`).toBe(0);
+      expect(maxAbs(levels)).toBe(0.2);
 
+      expect(wirePu(isl, id)).toStrictEqual({ node_id: id, distribution: 'point_mass' });
+    }
+    // The tally carrier really is the sum of the two pinned levers on this request.
+    const tally = isl.graph.nodes.find((n: any) => n.id === TALLY);
+    expect(tally?.nonlinear_identity?.operation).toBe('sum');
+    expect([...tally.nonlinear_identity.factor_ids].sort()).toStrictEqual([...LEVERS].sort());
+  });
+
+  it('AIQ CONTROL 1 on the served request: the user-stated Pro price (brief_extraction £49, CEE std 1e-4) echoed by carry-on → point_mass', async () => {
+    const src = node(gt1(), 'pro_plan_price');
+    expect(src.observed_state.source).toBe('brief_extraction');
+    expect(src.observed_state.std).toBe(1e-4);
+    const isl = await run(gt1());
+    expect(wireLevels(isl, 'pro_plan_price').carry_on_as_now).toBe(src.observed_state.value);
+    expect(wirePu(isl, 'pro_plan_price')).toStrictEqual({ node_id: 'pro_plan_price', distribution: 'point_mass' });
+    // Contrast in the same run: observable factors are never pinned.
+    expect(wirePu(isl, 'monthly_churn').distribution).toBe('normal');
+  });
+
+  it('AIQ CONTROL 2: no option at today\'s level → each lever\'s std = 0.15 × its largest wire option level (≈ ±£3,000), not FALLBACK 0.5 (±£50,000)', async () => {
+    const isl = await run(withoutTodayEcho(gt1()));
+    for (const id of LEVERS) {
+      const levels = wireLevels(isl, id);
+      expect(Object.values(levels)).not.toContain(0);
+      expect(maxAbs(levels), `${id} wire levels ${JSON.stringify(levels)}`).toBe(0.2);
       const pu = wirePu(isl, id);
       expect(pu.distribution).toBe('normal');
       expect(pu.std).toBe(FRACTION * maxAbs(levels));
       expect(pu.std * wireCap(isl, id)).toBe(3_000);
-      expect(pu.std).not.toBe(0.5);
     }
   });
 
-  it('row 2 — FRAME INVARIANCE: the same decision on a £200k frame gives byte-identical RAW stds and raw option levels', async () => {
-    const at100k = await run(gt1());
-    const at200k = await run(onFrame200k(gt1()));
+  it('FRAME INVARIANCE (Control-2 shape): the same decision on a £200k frame gives byte-identical RAW stds and raw option levels', async () => {
+    const at100k = await run(withoutTodayEcho(gt1()));
+    const at200k = await run(onFrame200k(withoutTodayEcho(gt1())));
     for (const id of LEVERS) {
       // The frame really moved on the wire (else the comparison proves nothing)…
       expect(wireCap(at100k, id)).toBe(100_000);
@@ -196,57 +288,73 @@ describe('T7b — a zero estimate on an option-set lever takes its spread from t
     }
   });
 
-  it('row 4 — CONTROL: a non-zero estimate keeps 0.15 × |value|, and a CEE-sent std always wins', async () => {
-    const req = gt1();
-    const features = node(req, FEATURES).observed_state;
+  it('FRAME INVARIANCE of the pin: the served decision on a £200k frame is still point_mass for both levers', async () => {
+    const isl = await run(onFrame200k(gt1()));
+    for (const id of LEVERS) {
+      expect(wireCap(isl, id)).toBe(200_000);
+      expect(wirePu(isl, id)).toStrictEqual({ node_id: id, distribution: 'point_mass' });
+    }
+  });
+
+  it('PRECEDENCE: a CEE-sent std loses to a pin, and wins when the lever is not pinned; a non-zero Olumi estimate keeps 0.15 × |value|', async () => {
+    const pinnedReq = gt1();
+    node(pinnedReq, ADVERTISING).observed_state.std = 0.07;
+    const features = node(pinnedReq, FEATURES).observed_state;
     features.value = 0.8;
     features.raw_value = 80_000;
-    node(req, ADVERTISING).observed_state.std = 0.07;
-    const isl = await run(req);
-    expect(wirePu(isl, FEATURES).std).toBe(Math.abs(0.8) * FRACTION);
-    expect(wirePu(isl, ADVERTISING).std).toBe(0.07);
-    // STATED_LEVEL_STD: the user-stated price travels at CEE's 1e-4, untouched.
-    expect(wirePu(isl, 'pro_plan_price').std).toBe(1e-4);
+    const pinned = await run(pinnedReq);
+    expect(wirePu(pinned, ADVERTISING)).toStrictEqual({ node_id: ADVERTISING, distribution: 'point_mass' });
+    // cee_inference £80,000, carry-on sets £0 ≠ today: not pinned, the non-zero rule.
+    expect(wirePu(pinned, FEATURES)).toStrictEqual({ node_id: FEATURES, distribution: 'normal', std: Math.abs(0.8) * FRACTION });
+
+    const unpinnedReq = withoutTodayEcho(gt1());
+    node(unpinnedReq, ADVERTISING).observed_state.std = 0.07;
+    const unpinned = await run(unpinnedReq);
+    expect(wirePu(unpinned, ADVERTISING)).toStrictEqual({ node_id: ADVERTISING, distribution: 'normal', std: 0.07 });
   });
 
-  it('no option sets the zero lever to a non-zero level: it is HELD at its stated 0 (MIN_USER_STD), never sampled at ±frame (AIQ to confirm)', async () => {
-    // Every option still intervenes on the lever (removing it would leave the
-    // features option with no path to the spend goal — a 422, not this shape),
-    // but none at a non-zero level: there is no scale to take a spread from.
-    const req = gt1();
-    for (const n of req.graph.nodes) {
-      if (n.kind === 'option' && n.interventions?.[FEATURES]) {
-        n.interventions[FEATURES].value = 0;
-        delete n.interventions[FEATURES].raw_value;
-      }
-    }
-    for (const o of req.options) {
-      if (typeof o.interventions?.[FEATURES] === 'number') o.interventions[FEATURES] = 0;
-    }
-    const isl = await run(req);
-    const levels = wireLevels(isl, FEATURES);
-    expect(Object.keys(levels).length).toBeGreaterThan(1);
-    expect(maxAbs(levels)).toBe(0);
-    expect(wirePu(isl, FEATURES).std).toBe(HOLD_STD);
-    // Contrast in the same run: the sibling lever the options still set keeps its rule.
-    expect(wirePu(isl, ADVERTISING).std).toBe(FRACTION * 0.2);
+  it('VERIFIER ROW — golden fac_hiring_cost (value 0, no option touches it) keeps the base path byte-for-byte: normal, std 0.5, never 1e-4', async () => {
+    const body = goldenBody();
+    for (const o of body.options) expect(Object.keys(o.interventions)).not.toContain('fac_hiring_cost');
+    const isl = await run(body);
+    expect(wirePu(isl, 'fac_hiring_cost')).toStrictEqual({ node_id: 'fac_hiring_cost', distribution: 'normal', std: FALLBACK });
+    // Contrast in the same run: the zero factors the options DO set take 0.15 × max|level| (= 1).
+    expect(wirePu(isl, 'fac_dev_headcount')).toStrictEqual({ node_id: 'fac_dev_headcount', distribution: 'normal', std: FRACTION * 1 });
+    expect(wirePu(isl, 'fac_tech_lead')).toStrictEqual({ node_id: 'fac_tech_lead', distribution: 'normal', std: FRACTION * 1 });
   });
 
-  it('options stated RAW (normalisation gate open): the std reads the NORMALISED wire levels, identical to the unit-scale spelling', async () => {
+  it('options stated RAW (normalisation gate open): pin and spread both read the NORMALISED wire levels', async () => {
     const req = gt1();
     const raw: Record<string, Record<string, number>> = {
       features_pro_price_rise: { pro_plan_price: 59, [FEATURES]: 20_000 },
       additional_advertising: { [ADVERTISING]: 20_000 },
-      carry_on_as_now: { [FEATURES]: 0, pro_plan_price: 49, [ADVERTISING]: 0 },
+      carry_on_as_now: { [FEATURES]: 1_000, pro_plan_price: 49, [ADVERTISING]: 1_000 },
       '6526b52c': { [FEATURES]: 5_000, [ADVERTISING]: 5_000 },
     };
     for (const o of req.options) o.interventions = raw[o.id];
+    for (const n of req.graph.nodes) {
+      if (n.id === 'carry_on_as_now' && n.interventions) {
+        for (const id of LEVERS) if (n.interventions[id]) n.interventions[id].value = 0.01;
+      }
+    }
     const isl = await run(req);
+    // Raw £49 is today's 0.245 only in normalised units: pinned by the normalised comparison.
+    expect(wireLevels(isl, 'pro_plan_price').carry_on_as_now).toBeCloseTo(0.245, 12);
+    expect(wirePu(isl, 'pro_plan_price')).toStrictEqual({ node_id: 'pro_plan_price', distribution: 'point_mass' });
     for (const id of LEVERS) {
       const levels = wireLevels(isl, id);
       expect(maxAbs(levels), `${id} normalised wire levels ${JSON.stringify(levels)}`).toBeCloseTo(0.2, 12);
       expect(wirePu(isl, id).std).toBe(FRACTION * maxAbs(levels));
       expect(wirePu(isl, id).std * wireCap(isl, id)).toBeCloseTo(3_000, 6);
     }
+  });
+
+  it('a pinned lever named in factor_correlations goes out as a normal at MIN_USER_STD (ISL 422s a correlated point_mass); its unnamed sibling stays point_mass', async () => {
+    const req = gt1();
+    req.factor_correlations = [{ factor_a: FEATURES, factor_b: 'monthly_churn', rho: 0.2 }];
+    const isl = await run(req);
+    expect(isl.factor_correlations).toStrictEqual(req.factor_correlations);
+    expect(wirePu(isl, FEATURES)).toStrictEqual({ node_id: FEATURES, distribution: 'normal', std: 1e-4 });
+    expect(wirePu(isl, ADVERTISING)).toStrictEqual({ node_id: ADVERTISING, distribution: 'point_mass' });
   });
 });

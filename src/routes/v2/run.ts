@@ -87,7 +87,7 @@ import { filterTemporalConstraints } from '../../normalisation/constraint-filter
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, InternalMetadata } from '../../types/engine-v3.js';
-import { withdrawInferredInconsistentIdentities, attachIdentityExecutionFrames, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
+import { withdrawInferredInconsistentIdentities, attachIdentityExecutionFrames, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, correlatedFactorIdsOf, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
@@ -6916,6 +6916,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // call's output (same function, same inputs: nothing between here and
         // Phase 4a reassigns `normalizedOptions` or mutates the nodes). Reading
         // the RAW levels instead would put the spread in the wrong units.
+        // The same options decide which levers are PINNED (T7b amended rule, AIQ
+        // #72 5867934055: an option sets a controllable lever exactly to its
+        // user-stated or zero today level → point_mass), and the forwarded
+        // factor_correlations name the levers ISL will not accept as point_mass.
         const optionsAsSentToISL = interventionNormalisationGateOpen
           ? normaliseOptionsForISL(
               normalizedOptions,
@@ -6926,7 +6930,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               rangeOptionSet,
             ).options
           : normalizedOptions;
-        const factorParameterUncertainties = buildParameterUncertaintiesV3(filteredGraph.nodes, optionsAsSentToISL) ?? [];
+        const factorParameterUncertainties =
+          buildParameterUncertaintiesV3(
+            filteredGraph.nodes,
+            optionsAsSentToISL,
+            correlatedFactorIdsOf(body.factor_correlations),
+          ) ?? [];
         const factorPuNodeIds = new Set(factorParameterUncertainties.map((pu) => pu.node_id));
         // One id→node map shared by the plan-time constraint-PU selection and the
         // build-time injection (both classify the same constrained nodes against
