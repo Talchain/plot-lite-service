@@ -955,10 +955,15 @@ export function buildConstraintTargetUnreliableMessage(
   // own domain, where it recorded this exact asymmetry and left "the L63-only
   // message's own shape-dependent first limb pre-existing and untouched".
   if (reasons.includes('sample_frame_unanchored')) {
+    // ⚠ NO PROBABILITY CLAIM (R5-1, R1 design note; #72 5871257542). This used
+    // to say comparing the two "would report a near-zero chance for every option
+    // no matter how good the options are". Nothing computed that: this builder
+    // is given a label and reasons, never a probability, and an unanchored
+    // modelled change can fall on either side of an absolute threshold. State
+    // the true reason (not the same scale) and what was withheld; nothing more.
     const withheld =
-      `Comparing the two would report a near-zero chance for every option no matter how ` +
-      `good the options are, so goal-fit probabilities were withheld for this run rather ` +
-      `than shown. `;
+      `The two are not on the same scale, so goal-fit probabilities were withheld for ` +
+      `this run rather than computed against the wrong number. `;
 
     // ROOT ARM. Reaching here with a PROVED root means the resolver fell through
     // every limb: not delta-framed, not pinned by every option, not a directed
