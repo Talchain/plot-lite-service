@@ -16,9 +16,24 @@ let capturedISLRequestBody: any = null;
 // the dated corpus, so it cannot be fixed here and quietly left fabricating in
 // tests/goal-threshold-frame-synthesis-gate.test.ts, which is where it hid.
 // ---------------------------------------------------------------------------
+// R1 S2's ISL resolves change frames and stamps a frame verdict on each limit row (R3 5872798858).
+// The mock answers ONLY change-frame limits this way; everything else follows the captured contract.
+function changeFrameAnalysis(constraints: any[]) {
+  const rows = constraints.filter((c) => c.value_frame === 'change_abs' || c.value_frame === 'change_rel');
+  if (rows.length === 0) return undefined;
+  return {
+    constraints: rows.map((c) => ({
+      constraint_id: c.constraint_id, node_id: c.node_id, operator: c.operator,
+      threshold: c.value, value: c.value, prob_satisfied: 0.42, binding: false,
+      frame_verdict: c.label === 'JUNK VERDICT' ? 'scored_ish' : c.value_frame === 'change_rel' ? 'estimate_only' : 'scored',
+    })),
+    joint_probability: 0.42,
+  };
+}
+
 function mockResultRows(body: any) {
   const options = body.options || [];
-  const analysis = islConstraintAnalysis(body.goal_constraints || []);
+  const analysis = islConstraintAnalysis(body.goal_constraints || []) ?? changeFrameAnalysis(body.goal_constraints || []);
   return options.map((opt: any, idx: number) => ({
     option_id: opt.id,
     outcome: {
@@ -204,6 +219,36 @@ describe('R1 S3 route — the goal channel carries a change from today', () => {
     expect(text).not.toContain('raw_range');
     expect(text).not.toContain('baseline_owner');
     expect(text).not.toContain('quantity_frame');
+  });
+
+  it('SR-8 ISL\'s frame verdict reaches CEE on constraint_results, by presence; an unknown token is dropped', async () => {
+    // One limit per node: limits sharing a node and operator are merged before ISL.
+    const spendNode = (id: string, cap: number) => ({
+      id, kind: 'factor', label: id,
+      observed_state: { value: 0.3, raw_value: 0.3 * cap, cap, unit: 'GBP/month', source: 'brief_extraction' },
+    });
+    const { res } = await run(payload(
+      cloudGraph({}, [spendNode('support_spend', 20000), spendNode('licence_spend', 5000)], [
+        { from: 'commitment', to: 'support_spend', strength: { mean: -0.2, std: 0.1 } },
+        { from: 'support_spend', to: 'monthly_cloud_bill', strength: { mean: 0.2, std: 0.1 } },
+        { from: 'commitment', to: 'licence_spend', strength: { mean: -0.2, std: 0.1 } },
+        { from: 'licence_spend', to: 'monthly_cloud_bill', strength: { mean: 0.2, std: 0.1 } },
+      ]),
+      {
+        goal_constraints: [
+          { constraint_id: 'egress_cut', node_id: 'egress', operator: '<=', value: -0.1, value_frame: 'change_rel' },
+          { constraint_id: 'support_down', node_id: 'support_spend', operator: '<=', value: -500, value_frame: 'change_abs' },
+          { constraint_id: 'licence_junk', node_id: 'licence_spend', operator: '<=', value: -400, value_frame: 'change_abs', label: 'JUNK VERDICT' },
+        ],
+      },
+    ));
+    const body = res.json() as any;
+    const rows = (body.constraint_results ?? []) as any[];
+    const byId = (id: string) => rows.find((r) => r.constraint_id === id);
+    expect(byId('egress_cut')?.frame_verdict).toBe('estimate_only');
+    expect(byId('support_down')?.frame_verdict).toBe('scored');
+    expect(byId('licence_junk')).toBeDefined();
+    expect('frame_verdict' in byId('licence_junk')).toBe(false);
   });
 
   it('SR-7 a node the producer typed as a CHANGE reaches ISL as one', async () => {

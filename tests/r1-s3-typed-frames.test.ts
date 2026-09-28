@@ -29,6 +29,7 @@ import {
   toISLRobustnessRequest,
   attachChangeFrameRawRanges,
 } from '../src/integrations/isl/translator-v3.js';
+import { resolveConstraintSampleFrameAnchor, detectUnanchoredSampleFrameTargets, detectUnreliableConstraintTargets } from '../src/lib/constraint-reliability.js';
 import type { EngineNodeV3, GoalConstraint } from '../src/types/engine-v3.js';
 
 const spend = (os: Record<string, unknown> = {}): EngineNodeV3 =>
@@ -210,5 +211,39 @@ describe('R1 S3 — node facts ISL reads: quantity_frame, raw_range (whose base 
     attachChangeFrameRawRanges(req.graph.nodes, new Map([['monthly_cloud_spend', { min: 0, max: 100000 }]]));
     expect(req.graph.nodes.find((n) => n.id === 'monthly_cloud_spend')!.raw_range).toEqual({ min: 0, max: 100000 });
     expect(JSON.stringify(req.graph.nodes.find((n) => n.id === 'other'))).toBe(before);
+  });
+});
+
+describe('R1 S3 — the sample-frame gate: ISL resolves a change target, so PLoT does not suppress it', () => {
+  // A NON-root target with no baseline and no option setting it: the level gate has no anchor.
+  const nodes = [{ id: 'egress', observed_state: { value: 0.3 } }];
+  const edgeTargets = new Set(['egress']);
+  const options = [{ id: 'a', interventions: { commitment: 0.8 } }, { id: 'b', interventions: { commitment: 0.2 } }];
+
+  it('S3-17 change_abs / change_rel on a non-root node → anchored as isl_resolved_change', () => {
+    expect(resolveConstraintSampleFrameAnchor('egress', nodes, edgeTargets, options, undefined, 'change_abs')).toBe('isl_resolved_change');
+    expect(resolveConstraintSampleFrameAnchor('egress', nodes, edgeTargets, options, undefined, 'change_rel')).toBe('isl_resolved_change');
+  });
+
+  it('S3-18 CONTROL: a LEVEL limit on the same node stays unanchored (the gate still guards levels)', () => {
+    expect(resolveConstraintSampleFrameAnchor('egress', nodes, edgeTargets, options, undefined, 'level')).toBeNull();
+    const out = detectUnanchoredSampleFrameTargets(
+      [limit({ constraint_id: 'lvl', node_id: 'egress', value: 0.2, value_frame: 'level' }),
+       limit({ constraint_id: 'chg', node_id: 'egress', value: -0.1, value_frame: 'change_rel' })],
+      nodes, edgeTargets, options, undefined,
+    );
+    expect(out.map((t) => t.constraint_id)).toEqual(['lvl']);
+  });
+});
+
+describe('R1 S3 — ISL\'s defaulted-base warning does not condemn a change-frame limit', () => {
+  it('S3-19 target_base_defaulted: kept for a level limit, NOT given to a change-frame limit on the same node', () => {
+    const isl = { inference_warnings: [{ code: 'CONSTRAINT_NODE_DEFAULT_BASE', detail: { node_id: 'egress' } }] };
+    const out = detectUnreliableConstraintTargets(
+      [limit({ constraint_id: 'lvl', node_id: 'egress', value: 0.2, value_frame: 'level' }),
+       limit({ constraint_id: 'chg', node_id: 'egress', value: -0.1, value_frame: 'change_rel' })],
+      new Map(), isl,
+    );
+    expect(out.map((t) => [t.constraint_id, t.reasons])).toEqual([['lvl', ['target_base_defaulted']]]);
   });
 });

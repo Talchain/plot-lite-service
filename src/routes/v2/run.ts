@@ -2686,6 +2686,9 @@ function buildConstraintFields(
       // A3 trust marker (additive): disclose how this threshold's scale was
       // resolved so consumers can gate on trust (D-2/D-5).
       ...(scaleProvenance !== undefined && { scale_provenance: scaleProvenance }),
+      // R1 S3: ISL's frame verdict, forwarded by presence and only in the contract's two values
+      // (@talchain/schemas 0.61.0); an unknown token is dropped, never coerced to `scored`.
+      ...((c.frame_verdict === 'scored' || c.frame_verdict === 'estimate_only') && { frame_verdict: c.frame_verdict }),
     };
   });
 

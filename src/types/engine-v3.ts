@@ -767,6 +767,12 @@ export interface ConstraintResult {
    * ConstraintScaleProvenance. Additive; present for every active constraint.
    */
   scale_provenance?: ConstraintScaleProvenance;
+  /**
+   * R1 S3 — ISL's frame verdict for this limit, carried to CEE by presence (@talchain/schemas 0.61.0
+   * `EnrichmentConstraintResultSchema.frame_verdict`). Absent = no verdict carried; CEE must not read
+   * absence as `scored` for a `change_rel` limit.
+   */
+  frame_verdict?: 'scored' | 'estimate_only';
 }
 
 /**
