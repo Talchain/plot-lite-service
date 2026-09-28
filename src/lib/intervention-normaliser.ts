@@ -2517,7 +2517,9 @@ export function normaliseGoalConstraints(
         });
         continue;
       }
-      const scaled = value === 0 ? 0 : value / span;
+      // A stated change of 0 ("maintain") is a MEASURED zero and is scale-free: it is sent as the
+      // stated value itself, never divided by a span that may be the default range's.
+      const scaled = value === 0 ? value : value / span;
       normalisedConstraints.push({
         constraint_id, node_id, operator, value: scaled, original_value: value, label, weight, value_frame,
       });
