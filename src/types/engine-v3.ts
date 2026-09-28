@@ -1166,7 +1166,7 @@ export const INLINE_CRITIQUE_CODES = [
   'MIXED_RANGE_DERIVATION',           // factors use 2+ different derivation tiers
   'INTERVENTION_CLAMPED',             // A3 round 2: an option withheld because a stated level would clamp
   // preflight-v2.ts
-  'SCALE_MISMATCH_WARNING',
+  'SCALE_MISMATCH_WARNING', // RETIRED (R5-3): no writer; kept so consumers that name it still compile
   'INVALID_BIDIRECTED_EDGE',
   'IDENTICAL_OPTIONS_DEDUPED',
   'INBOUND_STRENGTH_SUM_EXCEEDED',    // inbound |strength.mean| sum > 1.0

@@ -393,6 +393,7 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
     return `The constraint on ${label} has no baseline value. Results may be unreliable without an estimate.`;
   },
 
+  // RETIRED (R5-3): no writer since the preflight check was removed; kept for payloads captured before it.
   SCALE_MISMATCH_WARNING:
     'Intervention values span a wide range. Large magnitudes may dominate outcomes. Consider normalising values to similar scales.',
 
