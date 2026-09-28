@@ -1757,31 +1757,48 @@ function percentExtentOf(frame: PercentTargetFrame): number {
  * of draws outside them.
  *
  * THE RULE, and the ONE place it is decided: a constraint gets
- * `level_domain {min: 0, max: 1}` exactly when
+ * `level_domain {min: 0, max: 100 / extent}` exactly when
  *   · its frame is 'level' (a 'delta' is a change, which has no domain; ISL
  *     ignores a domain on one, so sending it would only mislead a reader), AND
  *   · the '%' rung resolved its range (`unit_percent`) — the legacy [0,100] /
  *     [0,1] reading, or Fix 2's deferral to the target's own percent/fraction
- *     frame. On that rung the target's normalised [0,1] IS its frame's full
- *     extent (0-100% on the legacy reading, [0, frame] when deferred), so
- *     [0,1] is the level domain in the frame `value` is stated in. A '%' limit
- *     on a non-percent target never gets here: Fix 2 refuses it.
+ *     frame. A '%' limit on a non-percent target never gets here: Fix 2
+ *     refuses it.
+ *
+ * ⭐ THE DOMAIN IS THE UNIT'S, IN THE TARGET'S OWN NORMALISED UNITS (AI Quality,
+ * olumi-programme-docs#72 5870377659). A percentage can take 0–100% whatever
+ * the node's frame. `extent` is the percentage points the target's normalised
+ * [0,1] spans — `percentExtentOf` over the SAME `PercentTargetFrame` the '%'
+ * rung read the limit's range on (`resolvePercentTargetFrame` →
+ * `resolveNodeFrame`), so the domain and `value` cannot be read on two frames.
+ * On the legacy reading the extent is 100 and the domain is `{0, 1}`, exactly
+ * as before; on a 20-point frame normalised 1.0 is 20% and 100% sits at 5.0,
+ * so the domain is `{0, 5}`. The old `{0, 1}` there said "churn cannot exceed
+ * 20%": ISL counted every draw above the frame as an impossible level, and
+ * gate (ii) withdrew grades on levels that are perfectly possible.
+ * A target whose frame cannot be resolved is read on the legacy frame by the
+ * '%' rung (`resolvePercentTargetFrame` → `legacy`), so its domain stays `{0, 1}`
+ * — the domain of the frame its `value` was normalised on.
+ *
  * Every other rung — an intervention spread, a goal_threshold_cap, a node cap
  * or range, the default — gets NO domain in this change (count and currency
  * limits included): PLoT has not established what their normalised levels can
  * physically be, and guessing a domain would manufacture the very gate verdict
  * this exists to make honest. A residual, disclosed.
  *
- * ⚠ ALSO DISCLOSED: a percent that can legitimately leave [0%, 100%] on the
- * legacy frame (a growth rate below zero, a retention above 100%) reads as
+ * ⚠ ALSO DISCLOSED: a percent that can legitimately leave [0%, 100%] on any
+ * frame (a growth rate below zero, a retention above 100%) reads as
  * out-of-domain. That errs toward withholding the grade, never toward
  * certifying a pass — the honest direction — and it is the contract as ratified.
  */
 export function levelDomainFor(
   range: NormalisationRange,
   valueFrame: GoalConstraint['value_frame'],
+  percentFrame: PercentTargetFrame,
 ): ConstraintLevelDomain | undefined {
-  return valueFrame === 'level' && range.source === 'unit_percent' ? { min: 0, max: 1 } : undefined;
+  if (valueFrame !== 'level' || range.source !== 'unit_percent') return undefined;
+  // 100 percentage points (100%) over the points the target's [0,1] spans.
+  return { min: 0, max: 100 / percentExtentOf(percentFrame) };
 }
 
 /**
@@ -2914,7 +2931,7 @@ export function normaliseGoalConstraints(
     ]);
     const usedHeuristic = !NON_HEURISTIC_SOURCES.has(range.source);
 
-    const levelDomain = levelDomainFor(range, value_frame);
+    const levelDomain = levelDomainFor(range, value_frame, percentFrame);
 
     // Create normalised constraint
     const normalisedConstraint: NormalisedGoalConstraint = {
