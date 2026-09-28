@@ -87,7 +87,7 @@ import { filterTemporalConstraints } from '../../normalisation/constraint-filter
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, InternalMetadata } from '../../types/engine-v3.js';
-import { withdrawInferredUnevaluatedIdentities, attachIdentityExecutionFrames, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, correlatedFactorIdsOf, zeroFactorsHeldExact, zeroFactorHeldWarnings, exactInputOptionIds, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
+import { withdrawInferredUnevaluatedIdentities, attachIdentityExecutionFrames, attachChangeFrameRawRanges, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, correlatedFactorIdsOf, zeroFactorsHeldExact, zeroFactorHeldWarnings, exactInputOptionIds, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
@@ -208,10 +208,12 @@ import {
   needsNormalisation,
   normaliseGoalConstraints,
   constraintsNeedNormalisation,
+  isChangeFrame,
   constraintsHavePercentPointValue,
   constraintsNeedPercentTargetFrame,
   collectScaleFrameByNodeId,
   isIdentityRange,
+  DECISION_GRADE_SOURCES,
   deriveClampDirection,
   collectInterventionsForwardedAsStated,
   collectInterventionClamps,
@@ -2344,6 +2346,11 @@ const REFUSAL_CRITIQUE_COPY: Record<ConstraintRefusalReason, string> = {
     `have been asked about the edge of that scale, which every option meets or misses ` +
     `by arithmetic. Rather than report that as your limit, it was left out of the ` +
     `analysis.`,
+  // R1 S3 (wire R3 #72 5872798858).
+  change_frame_scale_unknown:
+    `Each states a CHANGE from today, and its target node has no scale this graph can read ` +
+    `a change on, so the size of the change cannot be placed on it. Rather than guess a ` +
+    `scale, the constraint was left out of the analysis.`,
 };
 
 /**
@@ -2420,14 +2427,7 @@ const REFUSAL_CRITIQUE_COPY: Record<ConstraintRefusalReason, string> = {
  * `decision_grade`'s derivation (the whitelist AND) is unchanged — only its
  * `range_unified` input is now correct + projected.
  */
-const DECISION_GRADE_SOURCES: ReadonlySet<RangeSource> = new Set<RangeSource>([
-  'inferred_spread',
-  'explicit', // = state_space.range (spec: "state_space")
-  'explicit_cap',
-  'goal_threshold_cap',
-  'unit_percent',
-  'scale_frame', // the node's own frame (rung 1.6) — DL 5861214582 "(3)"
-]);
+// DECISION_GRADE_SOURCES is imported from lib/intervention-normaliser (one set for the route and the normaliser).
 
 export function buildConstraintScaleProvenance(
   activeConstraints: GoalConstraint[],
@@ -2681,6 +2681,9 @@ function buildConstraintFields(
       // A3 trust marker (additive): disclose how this threshold's scale was
       // resolved so consumers can gate on trust (D-2/D-5).
       ...(scaleProvenance !== undefined && { scale_provenance: scaleProvenance }),
+      // R1 S3: ISL's frame verdict, forwarded by presence and only in the contract's two values
+      // (@talchain/schemas 0.61.0); an unknown token is dropped, never coerced to `scored`.
+      ...((c.frame_verdict === 'scored' || c.frame_verdict === 'estimate_only') && { frame_verdict: c.frame_verdict }),
     };
   });
 
@@ -6274,6 +6277,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let autoSynthesisFrameRefusal:
           | 'unattested'
           | 'level'
+          | 'change'
           | 'attestation_mismatch'
           | undefined;
         const clientConstraintCount = body.goal_constraints?.length ?? 0;
@@ -6483,13 +6487,18 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // User-authored `goal_constraints` are untouched — they never reach
           // this branch, which runs only when the compiled set is empty.
           const frameIsSampleFrame = resolvedGoalTarget.frame === 'delta';
-          const synthesisRefusal: 'unattested' | 'level' | 'attestation_mismatch' | undefined =
+          // R1 S3: a CHANGE-from-today target (`change_abs` / `change_rel`) is resolved by ISL on
+          // the goal channel itself (R3's resolver); PLoT does not synthesise a constraint from it
+          // (the synthesised constraint is a `>=` on the goal, which would mis-state a ceiling).
+          const synthesisRefusal: 'unattested' | 'level' | 'change' | 'attestation_mismatch' | undefined =
             targetAttestationMismatch
               ? 'attestation_mismatch'
               : !frameIsSampleFrame
                 ? resolvedGoalTarget.frame === undefined
                   ? 'unattested'
-                  : 'level'
+                  : isChangeFrame(resolvedGoalTarget.frame)
+                    ? 'change'
+                    : 'level'
                 : undefined;
 
           if (
@@ -6514,6 +6523,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                     'ISL evaluates goal_constraints against change-from-baseline samples; synthesising an ' +
                     'unattested target would compare a possibly-absolute level against a change. ' +
                     'No constraint synthesised — the joint-goal figure is omitted rather than guessed.'
+                  : synthesisRefusal === 'change'
+                    ? 'goal_threshold is attested as a CHANGE from today (change_abs / change_rel). ISL ' +
+                      'resolves it on the goal channel from the goal node\'s base (R1). No constraint ' +
+                      'synthesised — a synthesised constraint would restate it as a level.'
                   : synthesisRefusal === 'level'
                     ? 'goal_threshold is attested as a LEVEL, but ISL evaluates goal_constraints against ' +
                       'change-from-baseline samples and goal_constraints carry no frame field. PLoT cannot ' +
@@ -7083,7 +7096,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // request whose threshold is later dropped — the conservative direction,
           // and the same rule uniqueParamUncertainties follows. Under-charging
           // here is what produces a pass-then-422.
-          levelFramedGoalThreshold: goalTargetStated && resolvedGoalTarget.frame === 'level',
+          // R1 S3: a change frame runs the SAME per-draw status-quo reference (R3: change_abs goes
+          // through the level resolver; no base → paired Δ), so it is priced as one.
+          levelFramedGoalThreshold:
+            goalTargetStated && (resolvedGoalTarget.frame === 'level' || isChangeFrame(resolvedGoalTarget.frame)),
           // The base /v2/run request always sends these phases (see
           // toISLRobustnessRequest); path decomposition is a request-gated opt-in.
           //
@@ -7462,6 +7478,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Constraint values must also be normalised so ISL compares normalised
         // samples against normalised thresholds.
         let constraintsForISL: GoalConstraint[] | undefined;
+        // R1 S3 — the raw bounds of each change_rel LIMIT target (the normaliser's one copy per node).
+        let changeRelRawRangeByNodeId = new Map<string, { min: number; max: number }>();
 
         if (activeGoalConstraints && activeGoalConstraints.length > 0) {
           // A3 range-unify: the constraint threshold on a node MUST be normalised
@@ -7536,7 +7554,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             },
           );
 
-          if (gateNeedsNorm || anyNonIdentityScale || anyPercentPointValue || anyPercentTargetFrame) {
+          // R1 S3: a change-frame limit is ALWAYS read on its node's scale (a change is never
+          // "already normalised"), so its presence alone invokes the normaliser. Siblings are read
+          // exactly as before: the gate itself ignores change frames (`constraintsNeedNormalisation`).
+          const anyChangeFrame = activeGoalConstraints.some((c) => isChangeFrame(c.value_frame));
+          if (gateNeedsNorm || anyNonIdentityScale || anyPercentPointValue || anyPercentTargetFrame || anyChangeFrame) {
             const constraintNormResult = normaliseGoalConstraints(
               activeGoalConstraints,
               filteredGraph.nodes,
@@ -7556,6 +7578,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               }
             );
             constraintsForISL = constraintNormResult.constraints;
+            changeRelRawRangeByNodeId = constraintNormResult.raw_range_by_node_id;
 
             // ROADMAP 2.878 — a `delta`-framed constraint whose value
             // normalisation would have changed is REFUSED, not forwarded: it is
@@ -7896,6 +7919,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // ground. Rowed, not silently ignored.
         if (
           effectiveGoalThreshold !== undefined &&
+          // R1 S3: the floor/ceiling test is about a LEVEL on [0,1]. A change of 0 ("maintain") or a
+          // negative change ("cut by 20%") is a real target, not the edge of a scale; ISL bounds a
+          // change itself and refuses by name.
+          !isChangeFrame(resolvedGoalTarget.frame) &&
           (effectiveGoalThreshold <= 0 || effectiveGoalThreshold >= 1)
         ) {
           req.log.warn({
@@ -7988,6 +8015,30 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           if (meta.goal_threshold_cap !== undefined) goalCapByNodeId.set(nodeId, meta.goal_threshold_cap);
         }
         identitiesNotForwarded.push(...attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId, goalCapByNodeId, identityDerivedFrames));
+
+        // R1 S3 (wire R3 #72 5872798858) — a RELATIVE change needs its target's raw bounds (its base
+        // owner rides `observed_state.source`, already on the wire). Targets: every change_rel limit on the wire, plus the goal when its threshold is a
+        // change_rel. The goal's bounds are its producer cap [0, goal_threshold_cap] (CEE normalises
+        // the goal on it); a limit's are the range the normaliser read it on. Two different copies
+        // for one node ⇒ none (fail closed; ISL refuses by name).
+        {
+          const rawRanges = new Map(changeRelRawRangeByNodeId);
+          if (islRequest.goal_threshold !== undefined && islRequest.goal_threshold_frame === 'change_rel') {
+            const goalId = body.goal_node_id;
+            const cap = goalCapByNodeId.get(goalId);
+            const goalRange = typeof cap === 'number' && Number.isFinite(cap) && cap > 0 ? { min: 0, max: cap } : undefined;
+            const limitOnGoal = (islRequest.goal_constraints ?? []).some((c) => c.node_id === goalId && c.value_frame === 'change_rel');
+            const limitRange = rawRanges.get(goalId);
+            const agreed = !limitOnGoal
+              ? goalRange
+              : goalRange !== undefined && limitRange !== undefined && limitRange.min === goalRange.min && limitRange.max === goalRange.max
+                ? goalRange
+                : undefined;
+            if (agreed === undefined) rawRanges.delete(goalId);
+            else rawRanges.set(goalId, agreed);
+          }
+          attachChangeFrameRawRanges(islRequest.graph.nodes, rawRanges);
+        }
 
         req.log.info(
           {

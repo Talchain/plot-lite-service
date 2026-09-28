@@ -432,16 +432,22 @@
             "type": "array"
           },
           "joint_probability": {
-            "description": "P(all constraints satisfied simultaneously)",
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Joint Probability",
-            "type": "number"
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "P(all constraints satisfied simultaneously). ABSENT while any requested constraint is unscored (B5): each refused constraint is named by a CONSTRAINT_NOT_CONVERTIBLE / CONSTRAINT_FRAME_UNSPECIFIED warning and has no row in `constraints`; the scored ones keep theirs. Never computed over the scored subset.",
+            "title": "Joint Probability"
           }
         },
         "required": [
-          "constraints",
-          "joint_probability"
+          "constraints"
         ],
         "title": "ConstraintAnalysis",
         "type": "object"
@@ -476,16 +482,22 @@
             "type": "array"
           },
           "joint_probability": {
-            "description": "P(all constraints satisfied simultaneously)",
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Joint Probability",
-            "type": "number"
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "P(all constraints satisfied simultaneously). ABSENT while any requested constraint is unscored (B5): each refused constraint is named by a CONSTRAINT_NOT_CONVERTIBLE / CONSTRAINT_FRAME_UNSPECIFIED warning and has no row in `constraints`; the scored ones keep theirs. Never computed over the scored subset.",
+            "title": "Joint Probability"
           }
         },
         "required": [
-          "constraints",
-          "joint_probability"
+          "constraints"
         ],
         "title": "ConstraintAnalysisV2",
         "type": "object"
@@ -529,6 +541,16 @@
             "description": "Median distance from threshold when constraint fails",
             "title": "Failure Margin Median"
           },
+          "frame_verdict": {
+            "default": "scored",
+            "description": "R1: 'estimate_only' for a change_rel on a base the user did not state",
+            "enum": [
+              "scored",
+              "estimate_only"
+            ],
+            "title": "Frame Verdict",
+            "type": "string"
+          },
           "label": {
             "anyOf": [
               {
@@ -540,6 +562,20 @@
             ],
             "description": "Human-readable label for coaching",
             "title": "Label"
+          },
+          "level_out_of_domain_fraction": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Share of draws whose level is outside the request's level_domain",
+            "title": "Level Out Of Domain Fraction"
           },
           "near_miss_fraction": {
             "anyOf": [
@@ -630,6 +666,16 @@
             "description": "Median distance from threshold when constraint fails (positive = failing by this amount)",
             "title": "Failure Margin Median"
           },
+          "frame_verdict": {
+            "default": "scored",
+            "description": "R1 (schemas 0.61.0): whether prob_satisfied scores the user's own target. 'estimate_only' only for a 'change_rel' limit measured on a base the user did not state (observed_state.source is not a user class): the relative target was turned into a change on Olumi's estimate of today.",
+            "enum": [
+              "scored",
+              "estimate_only"
+            ],
+            "title": "Frame Verdict",
+            "type": "string"
+          },
           "label": {
             "anyOf": [
               {
@@ -641,6 +687,20 @@
             ],
             "description": "Human-readable label for coaching",
             "title": "Label"
+          },
+          "level_out_of_domain_fraction": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present only when the request stated a level_domain for a 'level' constraint: the share of this option's draws whose level lies outside it. A high share means prob_satisfied rests on levels the quantity cannot take (e.g. a churn rate below 0%).",
+            "title": "Level Out Of Domain Fraction"
           },
           "near_miss_fraction": {
             "anyOf": [
@@ -1116,6 +1176,78 @@
         "title": "CounterfactualResponse",
         "type": "object"
       },
+      "CritiqueIdentityV2": {
+        "description": "R3: the declared identity an ``IDENTITY_NOT_EVALUATED`` critique is about, typed so a\nconsumer never parses the message (PLoT carries this shape; CEE turns it into a typed ask\nnaming the identity and the figures in conflict, AIQ ISL #187 5860770241 item 2).\n\nBuilt from the SAME plan the evaluator withheld (``IdentityPlan``), never re-derived.\n``reconstructed`` / ``stated`` / ``mismatch_share`` are in USER units and non-null only\nwhen the reconciliation was computed (``identity_inconsistent``); a non-finite figure\nis None, never NaN or Infinity (the 422 is rendered as strict JSON).",
+        "properties": {
+          "mismatch_share": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The reconciliation gap as a share (tau = 5%)",
+            "title": "Mismatch Share"
+          },
+          "node_id": {
+            "description": "The node declared as the identity",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "operation": {
+            "description": "'product' | 'sum'",
+            "title": "Operation",
+            "type": "string"
+          },
+          "participants": {
+            "description": "factor_ids then addends, in declaration order",
+            "items": {
+              "type": "string"
+            },
+            "title": "Participants",
+            "type": "array"
+          },
+          "reconstructed": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the identity's inputs give today, user units",
+            "title": "Reconstructed"
+          },
+          "stated": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The node's stated level today, user units",
+            "title": "Stated"
+          },
+          "withheld_reason": {
+            "description": "identity_frame_missing | identity_operand_missing | identity_zero_level | identity_inconsistent | identity_scale_out_of_range",
+            "title": "Withheld Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id",
+          "operation",
+          "participants",
+          "withheld_reason"
+        ],
+        "title": "CritiqueIdentityV2",
+        "type": "object"
+      },
       "CritiqueV2": {
         "description": "Structured critique for UI display.",
         "properties": {
@@ -1158,6 +1290,17 @@
             "description": "Unique identifier for this critique",
             "title": "Id",
             "type": "string"
+          },
+          "identity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CritiqueIdentityV2"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "IDENTITY_NOT_EVALUATED only: the withheld identity, its reason and (identity_inconsistent) both figures. Absent on every other critique."
           },
           "message": {
             "description": "Human-readable message (sanitised)",
@@ -1969,6 +2112,32 @@
         "title": "ErrorResponse",
         "type": "object"
       },
+      "ExecutionFrameV2": {
+        "additionalProperties": false,
+        "description": "R3-8: the node's frame as PLoT resolved it (``resolveNodeFrame``: cap -> scale_frame ->\nthe value/raw_value pair). Runtime metadata for an identity's participants: user units are\n``normalised x frame``. Never persisted; never inferred by ISL.",
+        "properties": {
+          "carrier": {
+            "enum": [
+              "cap",
+              "scale_frame",
+              "pair"
+            ],
+            "title": "Carrier",
+            "type": "string"
+          },
+          "frame": {
+            "exclusiveMinimum": 0.0,
+            "title": "Frame",
+            "type": "number"
+          }
+        },
+        "required": [
+          "frame",
+          "carrier"
+        ],
+        "title": "ExecutionFrameV2",
+        "type": "object"
+      },
       "ExplanationMetadata": {
         "description": "Explanation metadata included in all responses.",
         "example": {
@@ -2342,9 +2511,39 @@
             "title": "Regression Degree",
             "type": "integer"
           },
+          "spread_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "user",
+                  "template"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Spread Source"
+          },
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "status_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "at_or_below_noise_floor",
+                  "decision_gain_not_significant"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status Reason"
           },
           "units": {
             "title": "Units",
@@ -2478,7 +2677,7 @@
             "type": "string"
           },
           "current_value": {
-            "description": "The factor's current value, in the NORMALISED [0, 1] domain of observed_state.value (0.0 when the factor carries only a parameter_uncertainties entry). Denormalisation to user units is PLoT's responsibility \u2014 ISL never mixes a normalised number with a display unit.",
+            "description": "The factor's current value, in the NORMALISED [0, 1] domain of observed_state.value. When the factor carries only a parameter_uncertainties entry, this is the CENTRE OF ITS DECLARED PRIOR (for a uniform prior, the midpoint of [range_min, range_max]) \u2014 the same value the sampler centres it on and the same value the sensitivity probe perturbs around. It was 0.0 until ROADMAP 2.1020, which stated a current value outside the factor's own declared support. 0.0 remains the value only when there is genuinely nothing to go on: no observed value and no prior range. Denormalisation to user units is PLoT's responsibility \u2014 ISL never mixes a normalised number with a display unit.",
             "title": "Current Value",
             "type": "number"
           },
@@ -2945,7 +3144,7 @@
                 "type": "null"
               }
             ],
-            "description": "Factor's current value used in calculation",
+            "description": "The factor's OBSERVED value (observed_state.value), or null when the factor carries only a declared prior. This is deliberately NOT the central value the engine computed with: since ROADMAP 2.1020 a prior-only factor is centred on its prior's midpoint, and publishing that number in a field named 'observed' would present a derived value as a measured one. Use value_defaulted to tell the two apart; the centre itself is published per factor on factor_flip_values.current_value.",
             "title": "Observed Value"
           },
           "rank_flip_rate": {
@@ -2990,7 +3189,7 @@
                 "type": "null"
               }
             ],
-            "description": "True when the factor's value was defaulted (no observed value was provided, so it fell back to 0.0). Omitted when an observed value was supplied. Derived from the same observed-value check as the ROOT_NODE_DEFAULT_VALUE warning.",
+            "description": "True when the factor's value was genuinely defaulted \u2014 no observed value AND no declared prior range to centre on, so it fell back to 0.0. Omitted when an observed value was supplied, and (since ROADMAP 2.1020) also omitted when the factor is centred on its declared prior: that value is derived, not defaulted. Derived from the single central-value resolver, so it cannot drift from the number the engine used.",
             "title": "Value Defaulted"
           },
           "value_extraction_type": {
@@ -3400,6 +3599,17 @@
             "description": "Human-readable label for coaching (e.g., 'Revenue target', 'Budget cap')",
             "title": "Label"
           },
+          "level_domain": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LevelDomain"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The levels the target quantity can physically take, in the frame of `value` (e.g. {min: 0, max: 1} for a percentage): the caller's unit meaning. For a 'level' constraint ISL returns, per option, the share of draws whose level falls outside it (`level_out_of_domain_fraction`, report-only), so the caller can tell a check that rests on impossible levels from a real one. When the target node is ANCHORED (node_levels) and its frame is 100 points, it is also that node's level domain: the levels ISL reports for the node, this limit's included, are clamped to it."
+          },
           "node_id": {
             "description": "ID of the node this constraint applies to (must exist in graph)",
             "pattern": "^[a-z0-9_:-]+$",
@@ -3419,6 +3629,24 @@
             "description": "Threshold value for the constraint (v2.7 contract field name)",
             "title": "Value",
             "type": "number"
+          },
+          "value_frame": {
+            "anyOf": [
+              {
+                "enum": [
+                  "level",
+                  "delta",
+                  "change_abs",
+                  "change_rel"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Declares which frame this constraint's `value` is expressed in. 'delta' = already in the target node's SAMPLE frame (change from the model's origin); compared as-is, on the caller's attestation. 'level' = an absolute level of the target quantity, which MUST share the domain of the graph's observed_state values; ISL recovers the target's level per draw against a status-quo reference before comparing. When absent, or when a 'level' value cannot be converted, the ENTIRE constraint_analysis block is OMITTED and a structured inference warning names what was missing \u2014 ISL never guesses a frame and never emits a fabricated or clamped probability. Mirrors @talchain/schemas 0.38.0 DraftGoalConstraint.value_frame.",
+            "title": "Value Frame"
           }
         },
         "required": [
@@ -3794,6 +4022,21 @@
             "title": "Factor Sensitivity Status",
             "type": "string"
           },
+          "identity_evaluations": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/IdentityEvaluation"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per declared identity: evaluated (with level_source and the reconciliation of its stated level against its inputs) or withheld_reason. Absent when the graph declares none.",
+            "title": "Identity Evaluations"
+          },
           "inference_warnings": {
             "description": "Structured warnings about inference conditions that may affect result reliability",
             "items": {
@@ -3801,6 +4044,32 @@
             },
             "title": "Inference Warnings",
             "type": "array"
+          },
+          "node_levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/NodeLevelFrame"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per non-root node: 'anchored_level' (an attested held level, with its author, domain and per-option level_out_of_domain_share) or 'no_level'. Absent when the graph has no non-root node.",
+            "title": "Node Levels"
+          },
+          "objective_ranking": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ObjectiveRankingV2"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What this response's ranking optimised, and whether the user's objective was actually stated. See ObjectiveRankingV2."
           },
           "options": {
             "anyOf": [
@@ -3972,6 +4241,21 @@
             "description": "Reason for non-computed status",
             "title": "Status Reason"
           },
+          "structural_influence": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/StructuralInfluence"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every factor node's structural influence on the goal: one cohort, one normalisation, an evaluated identity walked at its own partials. Present only when an identity was evaluated; absent otherwise.",
+            "title": "Structural Influence"
+          },
           "timestamp": {
             "description": "Response timestamp in ISO 8601 format",
             "title": "Timestamp",
@@ -4055,6 +4339,128 @@
           "critiques"
         ],
         "title": "ISLV2Error422",
+        "type": "object"
+      },
+      "IdentityEvaluation": {
+        "additionalProperties": false,
+        "description": "One declared identity and what ISL did with it.",
+        "properties": {
+          "addends": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Addends",
+            "type": "array"
+          },
+          "evaluated": {
+            "description": "True only when the numbers rest on the identity",
+            "title": "Evaluated",
+            "type": "boolean"
+          },
+          "factor_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Factor Ids",
+            "type": "array"
+          },
+          "level_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "stated_level",
+                  "identity_inputs"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Evaluated only: anchored at the node's stated level, or (no stated level) the level its inputs give (AIQ 5860087988 item 4)",
+            "title": "Level Source"
+          },
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "operation": {
+            "enum": [
+              "product",
+              "sum"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "reconciliation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IdentityReconciliation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "stated_in_brief": {
+            "title": "Stated In Brief",
+            "type": "boolean"
+          },
+          "withheld_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "identity_frame_missing",
+                  "identity_operand_missing",
+                  "identity_zero_level",
+                  "identity_inconsistent",
+                  "identity_scale_out_of_range"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Withheld Reason"
+          }
+        },
+        "required": [
+          "node_id",
+          "operation",
+          "factor_ids",
+          "stated_in_brief",
+          "evaluated"
+        ],
+        "title": "IdentityEvaluation",
+        "type": "object"
+      },
+      "IdentityReconciliation": {
+        "description": "The stated level against the level the identity's own inputs give today, in USER units\n(AIQ 5860087988 item 1). Above 1% a consumer says it; above 5% the identity is withheld.",
+        "properties": {
+          "mismatch_share": {
+            "description": "|stated - reconstructed| / |stated|",
+            "minimum": 0.0,
+            "title": "Mismatch Share",
+            "type": "number"
+          },
+          "reconstructed": {
+            "description": "term(operands) + addends at today's levels",
+            "title": "Reconstructed",
+            "type": "number"
+          },
+          "stated": {
+            "description": "The node's own stated level today",
+            "title": "Stated",
+            "type": "number"
+          }
+        },
+        "required": [
+          "reconstructed",
+          "stated",
+          "mismatch_share"
+        ],
+        "title": "IdentityReconciliation",
         "type": "object"
       },
       "InferenceWarning": {
@@ -4173,6 +4579,171 @@
         "title": "InterventionRegion",
         "type": "object"
       },
+      "LevelDomain": {
+        "description": "The levels the constraint's target quantity can physically take, in the same\nnormalised frame as its ``value`` (e.g. [0, 1] for a percentage). Supplied by the\ncaller, which owns units; ISL never infers it. At least one bound.",
+        "properties": {
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Highest possible level (inclusive), or None for unbounded above",
+            "title": "Max"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Lowest possible level (inclusive), or None for unbounded below",
+            "title": "Min"
+          }
+        },
+        "title": "LevelDomain",
+        "type": "object"
+      },
+      "NodeLevelFrame": {
+        "description": "One non-root node's evaluation frame.",
+        "properties": {
+          "frame": {
+            "description": "'anchored_level': the node holds an attested level; every level ISL reports for it (the goal band, a limit on it) is that level plus the option's change from the same draw's status quo, so the status quo reproduces the held level. 'no_level': the node is its parents' propagated sum; nothing reported for it is a level and must never be shown as one.",
+            "enum": [
+              "anchored_level",
+              "no_level"
+            ],
+            "title": "Frame",
+            "type": "string"
+          },
+          "level": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present iff frame is 'anchored_level': the held level the status quo reproduces (observed_state.baseline, else observed_state.value), in the node's own frame.",
+            "title": "Level"
+          },
+          "level_anchor_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "user_stated",
+                  "user_ratified",
+                  "olumi_estimate"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present iff frame is 'anchored_level': who authored the held level. 'olumi_estimate' means a band or limit on this node rests on Olumi's own estimate of today's level.",
+            "title": "Level Anchor Source"
+          },
+          "level_domain_max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Anchored nodes only: the highest level, in its own frame, from the UNIT's meaning (AIQ #72 5866289608): the level_domain.max of a 'level' limit on the node (PLoT sends 1 for a '%' limit), and ONLY when the node's frame (execution_frame, else observed_state.cap, else the value/raw_value pair) is 100 points: off a 100-point frame PLoT's {0, 1} means [0, frame], the frame, not 100%, so no ceiling is stated. Absent otherwise (money, counts). ISL does not read observed_state.cap as a ceiling.",
+            "title": "Level Domain Max"
+          },
+          "level_domain_min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Anchored nodes only: the lowest level the quantity can take, in its own frame: the caller's unit meaning when a 'level' limit on the node carries a level_domain; otherwise 0 when the held level is non-negative (AIQ 5855046894 (2)); absent otherwise.",
+            "title": "Level Domain Min"
+          },
+          "level_out_of_domain_share": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "number"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Anchored nodes whose level ISL reports (the goal band, a limit's target) and that have a domain: option_id -> the share of that option's draws whose level lies outside the domain. Reported levels (the goal band's p10/p50/p90, the level-frame probability_of_goal, a level limit's figures) are clamped to the domain; win shares, rankings and differences are computed on the UNCLAMPED draws. A share above 0 means the model's own changes push the quantity somewhere it cannot go, in that share of futures.",
+            "title": "Level Out Of Domain Share"
+          },
+          "no_level_reason": {
+            "anyOf": [
+              {
+                "enum": [
+                  "no_observed_level",
+                  "source_not_attested",
+                  "epsilon_breaks_status_quo_reference"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Present iff frame is 'no_level': 'no_observed_level' (the node states no level), 'source_not_attested' (it states one, but with no source or a source that is not an attested author, so it is never used as an anchor), or 'epsilon_breaks_status_quo_reference' (epsilon noise reaches the node, so a draw cannot be differenced against its status quo without carrying noise no option caused).",
+            "title": "No Level Reason"
+          },
+          "node_id": {
+            "description": "The non-root node this frame describes",
+            "title": "Node Id",
+            "type": "string"
+          },
+          "observed_source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The node's observed_state.source, echoed verbatim when present. Echo only.",
+            "title": "Observed Source"
+          },
+          "parameter_uncertainty_unused": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Anchored nodes only: true when the request carried a parameter_uncertainty for this node. Its draw sits in both an option's sample and the same draw's status quo, so it cancels from every level reported for the node: those levels rest on the held level, not on that distribution. The structural analyses still sample it, as before B1a.",
+            "title": "Parameter Uncertainty Unused"
+          }
+        },
+        "required": [
+          "node_id",
+          "frame"
+        ],
+        "title": "NodeLevelFrame",
+        "type": "object"
+      },
       "NodeV2": {
         "description": "Node in the v2 causal graph.",
         "example": {
@@ -4222,6 +4793,17 @@
             "title": "Epsilon Std",
             "type": "number"
           },
+          "execution_frame": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExecutionFrameV2"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "R3-8: user units = normalised x frame (PLoT-resolved)"
+          },
           "factor_type": {
             "anyOf": [
               {
@@ -4257,6 +4839,17 @@
             "title": "Label",
             "type": "string"
           },
+          "nonlinear_identity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/NonlinearIdentityV2"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "R3: this node is exactly the product/sum of named parents"
+          },
           "observed_state": {
             "anyOf": [
               {
@@ -4267,6 +4860,33 @@
               }
             ],
             "description": "Observed state for quantitative factor nodes (value, baseline, unit, source)"
+          },
+          "quantity_frame": {
+            "anyOf": [
+              {
+                "enum": [
+                  "level",
+                  "change"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the node measures: 'level' | 'change' (R1). Absent = 'level'.",
+            "title": "Quantity Frame"
+          },
+          "raw_range": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RawRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Raw user-unit range of the node's normalisation (R1; read by 'change_rel')."
           }
         },
         "required": [
@@ -4275,6 +4895,154 @@
           "label"
         ],
         "title": "NodeV2",
+        "type": "object"
+      },
+      "NonlinearIdentityV2": {
+        "additionalProperties": false,
+        "description": "R3 slice 1: the node is EXACTLY the product or the sum of named parents (an accounting\nidentity such as MRR = price x paying subscribers), not a guessed straight-line effect.\n\nCEE declares it and is its only minter; PLoT forwards it verbatim. ISL never infers an\nidentity from the graph's shape (AIQ 5859633012). Strict: an unknown operation or key is\nREFUSED (422), never dropped, because a dropped declaration is silently \"declared, not used\".",
+        "properties": {
+          "addends": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parents added EXACTLY to the identity term (AIQ 5860087988 item 5). Only a declared addend is definitional; it is never inferred from an edge.",
+            "title": "Addends"
+          },
+          "factor_ids": {
+            "description": "The parents the node is the product/sum of",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Factor Ids",
+            "type": "array"
+          },
+          "operation": {
+            "description": "product | sum of factor_ids",
+            "enum": [
+              "product",
+              "sum"
+            ],
+            "title": "Operation",
+            "type": "string"
+          },
+          "stated_in_brief": {
+            "description": "True when the brief itself states it",
+            "title": "Stated In Brief",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "operation",
+          "factor_ids",
+          "stated_in_brief"
+        ],
+        "title": "NonlinearIdentityV2",
+        "type": "object"
+      },
+      "ObjectiveRanking": {
+        "description": "WHAT the ranking in this response actually optimised (ROADMAP 2.1192).\n\nTHE FIELD THAT MAKES ``win_probability`` READABLE. That number has always\nbeen \"the fraction of draws on which this option produced the largest\ngoal-node value\". Every surface in the estate rendered it as \"which option\nis best\". Those are different sentences, and nothing on the wire said which\none the number supported \u2014 so a leader could be crowned at 70.67% while\ncarrying ``probability_of_goal = 0.0``, and no consumer had any way to tell.\n\nThis block is not a second score. It is the PROVENANCE of the only score,\nso a surface can say what the ranking answers and, when the aim was never\nstated, ASK for it instead of implying it was honoured.",
+        "properties": {
+          "attested": {
+            "description": "True when the request stated goal_direction. FALSE means no aim was supplied and 'maximise' is this service's DISCLOSED DEFAULT, not a claim about what the team wants. A surface that presents an unattested ranking as 'the best option for your goal' is overstating what was computed; the honest move is to ask.",
+            "title": "Attested",
+            "type": "boolean"
+          },
+          "direction": {
+            "description": "The objective sense the winner rule applied. Always the sense that actually ran \u2014 never the sense that was requested but refused (a refusal sets status='withheld' and reports the sense that was asked for in the accompanying inference warning).",
+            "enum": [
+              "maximise",
+              "minimise",
+              "target"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "status": {
+            "description": "'withheld' means NO ranking was produced: win_probability is omitted for every option and no option is recommended, because the requested objective could not be scored on this graph. It is never a flat or tied ranking \u2014 it is the absence of one.",
+            "enum": [
+              "computed",
+              "withheld"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "withheld_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Machine-readable reason when status='withheld'. Omitted otherwise.",
+            "title": "Withheld Reason"
+          }
+        },
+        "required": [
+          "direction",
+          "attested",
+          "status"
+        ],
+        "title": "ObjectiveRanking",
+        "type": "object"
+      },
+      "ObjectiveRankingV2": {
+        "description": "What the ranking on this response optimised (ROADMAP 2.1192).\n\n``win_probability`` is the fraction of Monte Carlo draws on which an option\nscored best under the request's objective sense. Until 2.1192 that sense was\nhardcoded to \"largest goal-node value\" and nothing on the wire said so, so a\nconsumer rendering \"which option wins\" was making a claim the number did not\nsupport: measured at 28fe0c95, the crowned option could carry\n``probability_of_goal = 0.0``, and supplying the user's target moved the\nranking by exactly nothing.\n\nThis block is the provenance of the single ranking, not a rival to it.",
+        "properties": {
+          "attested": {
+            "description": "True when the caller stated the objective. FALSE means 'maximise' is ISL's disclosed default and the team's aim was never supplied \u2014 a ranking a surface should present as an assumption, or ask about, rather than as the answer to their goal.",
+            "title": "Attested",
+            "type": "boolean"
+          },
+          "direction": {
+            "description": "The objective sense the winner rule applied. Under status='withheld' this is the sense that was REQUESTED and refused, which is what a surface needs in order to say what could not be done.",
+            "enum": [
+              "maximise",
+              "minimise",
+              "target"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "status": {
+            "description": "'withheld' means NO ranking exists in this response: win_probability is omitted on every option and the robustness block (whose confidence IS the recommended option's win share) is omitted too. It is the absence of a ranking, never a flat one.",
+            "enum": [
+              "computed",
+              "withheld"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "withheld_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Machine-readable reason when status='withheld'.",
+            "title": "Withheld Reason"
+          }
+        },
+        "required": [
+          "direction",
+          "attested",
+          "status"
+        ],
+        "title": "ObjectiveRankingV2",
         "type": "object"
       },
       "ObservedState": {
@@ -4898,6 +5666,22 @@
             "description": "Minimum value for uniform distribution",
             "title": "Range Min"
           },
+          "spread_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "user",
+                  "template"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who set this spread: 'user' (the user's own figure or range) or 'template' (Olumi's default spread). Echoed on factor_evppi so advice can say whose range it is (AIQ #72 5867782904). Absent = the caller did not say; ISL never infers it.",
+            "title": "Spread Source"
+          },
           "std": {
             "anyOf": [
               {
@@ -5338,6 +6122,27 @@
           "domain"
         ],
         "title": "RangeFitRefusalPayload",
+        "type": "object"
+      },
+      "RawRange": {
+        "description": "R1 S2 (wire 5872798858): the raw user-unit range a node's normalised values map from,\n``v_n = (v - min) / (max - min)`` (PLoT's intervention normaliser). One copy per NODE, shared by\nthe goal and every limit on it. Read only for a 'change_rel' target, where a relative change is\nrelative to RAW zero: b_raw = b_n * (max - min) + min.",
+        "properties": {
+          "max": {
+            "description": "Raw value that normalises to 1",
+            "title": "Max",
+            "type": "number"
+          },
+          "min": {
+            "description": "Raw value that normalises to 0",
+            "title": "Min",
+            "type": "number"
+          }
+        },
+        "required": [
+          "min",
+          "max"
+        ],
+        "title": "RawRange",
         "type": "object"
       },
       "RecoveryHints": {
@@ -5836,6 +6641,23 @@
             "description": "Multiple goal constraints for joint probability analysis. When provided, computes per-constraint probabilities, joint probability, and conditional probabilities. Requires nodes to exist in graph.",
             "title": "Goal Constraints"
           },
+          "goal_direction": {
+            "anyOf": [
+              {
+                "enum": [
+                  "maximise",
+                  "minimise",
+                  "target"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The user's objective sense for the goal node, which decides what 'this option wins this draw' MEANS. 'maximise' = largest goal value wins (the historical rule). 'minimise' = smallest wins \u2014 required whenever the goal is a quantity to reduce (cost, churn, risk), where the historical rule crowned the worst option. 'target' = closest to goal_threshold wins, which is the only sense under which a moderate option can win at all; it REQUIRES goal_threshold and goal_threshold_frame (a target sense with no target is refused at parse, never silently downgraded to maximise). When absent, the maximiser runs UNATTESTED and the response says so \u2014 ISL never infers the user's aim from a node label.",
+            "title": "Goal Direction"
+          },
           "goal_node_id": {
             "description": "Target outcome node to optimize",
             "title": "Goal Node Id",
@@ -5858,7 +6680,9 @@
               {
                 "enum": [
                   "level",
-                  "delta"
+                  "delta",
+                  "change_abs",
+                  "change_rel"
                 ],
                 "type": "string"
               },
@@ -6179,6 +7003,21 @@
             "title": "Factor Sensitivity",
             "type": "array"
           },
+          "identity_evaluations": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/IdentityEvaluation"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per declared identity: evaluated (with its reconciliation) or the reason it was not. Absent when the graph declares none.",
+            "title": "Identity Evaluations"
+          },
           "inference_warnings": {
             "description": "Structured warnings about inference conditions that may affect result reliability",
             "items": {
@@ -6186,6 +7025,29 @@
             },
             "title": "Inference Warnings",
             "type": "array"
+          },
+          "node_levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/NodeLevelFrame"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per non-root node: anchored at an attested level (with its author, domain and per-option out-of-domain share) or 'no level'. Absent when the graph has no non-root node.",
+            "title": "Node Levels"
+          },
+          "objective_ranking": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/ObjectiveRanking"
+              }
+            ],
+            "description": "What the ranking in this response optimised, and whether the user's aim was actually stated. See ObjectiveRanking."
           },
           "p_win_sensitivity": {
             "anyOf": [
@@ -6279,6 +7141,21 @@
               }
             ],
             "description": "Thresholds used for attribution_stability classification. Provisional \u2014 pending scientific review. NOT included in response_hash."
+          },
+          "structural_influence": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/StructuralInfluence"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Every factor node's structural influence, one cohort and one normalisation. Present only when an identity was evaluated; absent otherwise.",
+            "title": "Structural Influence"
           }
         },
         "required": [
@@ -6287,7 +7164,8 @@
           "recommended_option_id",
           "recommendation_confidence",
           "robustness",
-          "_metadata"
+          "_metadata",
+          "objective_ranking"
         ],
         "title": "RobustnessResponseV2",
         "type": "object"
@@ -7556,6 +8434,48 @@
           "std"
         ],
         "title": "StrengthDistribution",
+        "type": "object"
+      },
+      "StructuralInfluence": {
+        "description": "One factor node's structural influence on the goal, normalised over EVERY factor node.",
+        "properties": {
+          "influence_rank": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rank by influence_score, 1 = highest, over every factor node. None when the walk truncated.",
+            "title": "Influence Rank"
+          },
+          "influence_score": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sum of |path strengths| to the goal, normalised to 0-1 across EVERY factor node (an evaluated identity's operand and addend edges carry its partial at the centre). None for every row when the walk truncated (exact-or-null; STRUCTURAL_INFLUENCE_TRUNCATED).",
+            "title": "Influence Score"
+          },
+          "node_id": {
+            "description": "Factor node ID",
+            "title": "Node Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id"
+        ],
+        "title": "StructuralInfluence",
         "type": "object"
       },
       "StructuralModel": {

@@ -20,6 +20,7 @@ import type {
 import { NON_CAUSAL_NODE_KINDS, ENGINE_CAUSAL_NODE_KINDS } from '../types/engine-v3.js';
 import { DEFAULT_EXISTS_PROBABILITY } from '../constants/limits.js';
 import { REPAIR_CODES } from './repair-codes.js';
+import { QuantityFrame } from '@talchain/schemas';
 
 // -----------------------------------------------------------------------------
 // Error Types
@@ -539,6 +540,13 @@ export function normaliseNode(
   // evaluated case R3-4 must then say, so an unknown operation or a malformed declaration is a 400.
   const nonlinearIdentity = readNonlinearIdentity(node);
 
+  // R1 S3 (DL #72 5871412823; wire R3 5872798858): what the node's value measures. Validated
+  // against the contract's own enum, so a junk token degrades to ABSENT (= level) instead of
+  // reaching ISL's Literal and failing the whole run. PLoT forwards it; it never mints one.
+  const quantityFrame = QuantityFrame.safeParse(
+    (node as any).quantity_frame ?? (node as any).data?.quantity_frame,
+  );
+
   return {
     id: node.id,
     kind,
@@ -552,6 +560,7 @@ export function normaliseNode(
     prior,
     ...ceeConstraintFields,
     ...(nonlinearIdentity ? { nonlinear_identity: nonlinearIdentity } : {}),
+    ...(quantityFrame.success ? { quantity_frame: quantityFrame.data } : {}),
   } as EngineNodeV3;
 }
 

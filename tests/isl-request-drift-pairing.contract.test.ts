@@ -636,6 +636,14 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
 
     /** The producers this row added, by name. */
     const GOAL_STAMPED = ['v2-run-goal-threshold-level', 'v2-run-goal-threshold-delta'];
+    /**
+     * R1 S3 added a THIRD goal-stamped producer (goal_threshold_frame: 'change_rel'), on purpose: it is
+     * the only body that carries the change frames, quantity_frame and raw_range. It is named here
+     * rather than folded into GOAL_STAMPED, because the per-producer PREPIN row above asserts that
+     * `goal_threshold_frame` is the ONLY key undeclared at the 1 Aug pin, and this body also carries
+     * keys that pin predates.
+     */
+    const CHANGE_FRAME_STAMPED = ['v2-run-change-frames'];
 
     const undeclaredIn = (body: unknown, doc: OpenApiDoc): string[] =>
       [...new Set(undeclaredPaths(body, 'RobustnessRequestV2', doc).map((h) => h.normalised))].sort();
@@ -727,8 +735,8 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
       }
       // Exactly the producers this row added — no more, no fewer. A third
       // goal-stamped producer, or the loss of one of these, lands here.
-      expect(emittingFrame.sort()).toEqual([...GOAL_STAMPED].sort());
-      expect(reportingFrameAtPrePin.sort()).toEqual([...GOAL_STAMPED].sort());
+      expect(emittingFrame.sort()).toEqual([...GOAL_STAMPED, ...CHANGE_FRAME_STAMPED].sort());
+      expect(reportingFrameAtPrePin.sort()).toEqual([...GOAL_STAMPED, ...CHANGE_FRAME_STAMPED].sort());
     });
   });
 

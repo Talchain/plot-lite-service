@@ -37,7 +37,7 @@ import { buildAdjacencyList, checkPathToGoal } from '../../validation/path-to-go
 // 0.32.0 ever adds a third frame, this file widens with it instead of silently
 // rejecting the new token — the hand-maintained-mirror defect class (the
 // dominant one in this estate) cannot arise here by construction.
-import { GoalThresholdFrame, type GoalThresholdFrameType } from '@talchain/schemas';
+import { GoalThresholdFrame, type GoalThresholdFrameType, type QuantityFrameType } from '@talchain/schemas';
 
 /**
  * The frame a `goal_threshold` is stated in, as the shared contract defines it.
@@ -153,6 +153,41 @@ export interface ISLNodeV3 {
    * (`identity_frame_missing`), never infers one.
    */
   execution_frame?: { frame: number; carrier: NodeFrameCarrier };
+  /**
+   * R1 S3 (@talchain/schemas 0.61.0): what the node's value measures, forwarded by presence from
+   * the canonical node. Absent = `level`; so a request no producer typed is byte-identical.
+   */
+  quantity_frame?: QuantityFrameType;
+  /**
+   * R1 S3 (wire R3 #72 5872798858): the RAW bounds this node's normalised values are read on —
+   * `v_n = (v − min)/(max − min)`. Sent ONLY on a `change_rel` target whose limits all resolved
+   * the same real range (`attachChangeFrameRawRanges`); ISL needs it to turn `r` into a change
+   * on the sample scale. Absent ⇒ ISL refuses the relative change by name; PLoT never guesses
+   * `min = 0`.
+   */
+  raw_range?: { min: number; max: number };
+}
+
+/**
+ * R1 S3 — attach the raw bounds ISL needs to resolve a `change_rel` target, to THAT target only.
+ *
+ * `rawRangeByNodeId` holds one agreed real range per `change_rel` target (the normaliser's copy for
+ * a limit; `[0, goal_threshold_cap]` for the goal). Every other node is untouched, so a request with
+ * no relative change sends a byte-identical ISL body (the `attachIdentityExecutionFrames` pattern).
+ *
+ * WHOSE base is NOT attached here: it is the target's `observed_state.source`, already on the wire
+ * (`ISL_DECLARED_OBSERVED_STATE_FIELDS`), and ISL derives the owner from it — one carrier on every
+ * hop, no `baseline_owner` field anywhere (DL olumi-schemas #69 5873822541, decision (b)).
+ */
+export function attachChangeFrameRawRanges(
+  islNodes: ISLNodeV3[],
+  rawRangeByNodeId: ReadonlyMap<string, { min: number; max: number }>,
+): void {
+  if (rawRangeByNodeId.size === 0) return;
+  for (const node of islNodes) {
+    const range = rawRangeByNodeId.get(node.id);
+    if (range !== undefined) node.raw_range = { min: range.min, max: range.max };
+  }
 }
 
 /**
@@ -960,6 +995,7 @@ export function toISLNode(node: EngineNodeV3): ISLNodeV3 {
           },
         }
       : {}),
+    ...(node.quantity_frame !== undefined ? { quantity_frame: node.quantity_frame } : {}),
   };
 }
 

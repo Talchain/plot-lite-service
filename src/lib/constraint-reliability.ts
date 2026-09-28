@@ -48,7 +48,7 @@
  */
 
 import type { GoalConstraint } from '../types/engine-v3.js';
-import type { NormalisationRange } from './intervention-normaliser.js';
+import { isChangeFrame, type NormalisationRange } from './intervention-normaliser.js';
 
 /** ISL's open-vocabulary warning code for a constraint target defaulted to base=0.0. */
 export const ISL_CONSTRAINT_NODE_DEFAULT_BASE_CODE = 'CONSTRAINT_NODE_DEFAULT_BASE';
@@ -159,6 +159,9 @@ export function detectUnreliableConstraintTargets(
 
     if (
       defaultedBaseNodeIds.has(gc.node_id) &&
+      // R1 S3: a change-frame limit is compared by ISL on paired draws (the defaulted base cancels)
+      // or refused by ISL by name; the "sampled quantity is fabricated" reason is not about it.
+      !isChangeFrame(gc.value_frame) &&
       !(
         levelPlan !== undefined &&
         isObservedBaselineLevelTarget(
@@ -207,7 +210,16 @@ export type ConstraintSampleFrameAnchor =
    * `detectUnreliableConstraintTargets` — needs the same answer for both. A
    * second code would be a distinction no consumer reads.
    */
-  | 'observed_baseline_level';
+  | 'observed_baseline_level'
+  /**
+   * R1 S3 — the CONSTRAINT is stated as a change from today (`change_abs` / `change_rel`,
+   * @talchain/schemas 0.61.0). ISL's R1 resolver never compares a change target with the raw
+   * samples: it pairs each option's draw with the status-quo draw (the node's base cancels), or
+   * reads a relative change on the node's `raw_range` and base, and refuses BY NAME when it cannot
+   * (`GOAL_BASE_MISSING`, `CHANGE_OF_A_CHANGE`) — R3 #72 5872798858. So PLoT's level-frame gate has
+   * nothing to prove here; suppressing would hide a number ISL computed on the right frame.
+   */
+  | 'isl_resolved_change';
 
 /** Minimal shape of a graph node this module needs. Structural, not nominal. */
 interface AnchorNodeLike {
@@ -455,6 +467,7 @@ export function resolveConstraintSampleFrameAnchor(
   interventionsForwardedAsStated?: ReadonlySet<string>,
 ): ConstraintSampleFrameAnchor | null {
   if (goalThresholdFrameByNodeId?.get(nodeId) === 'delta') return 'attested_delta';
+  if (isChangeFrame(valueFrame)) return 'isl_resolved_change';
 
   // Pinned by EVERY option. An empty option list proves nothing (`[].every()`
   // is vacuously true), so it must not mint an anchor — the same vacuous-true

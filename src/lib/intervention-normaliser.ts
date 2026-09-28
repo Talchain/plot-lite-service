@@ -47,6 +47,20 @@ export type { ConstraintUnitMismatch } from './constraint-units.js';
 export type RangeSource = 'explicit_cap' | 'explicit' | 'extracted' | 'scale_frame' | 'pair_frame' | 'inferred_spread' | 'inferred_baseline' | 'inferred_value' | 'default' | 'goal_threshold_cap' | 'unit_percent';
 
 /**
+ * The range sources whose normalisation is DECISION-GRADE (with `range_unified` and no threshold
+ * clamp). Moved here from routes/v2/run.ts so the normaliser and the route read ONE set (the route
+ * imports it; its doctrine block stays beside `buildConstraintScaleProvenance`).
+ */
+export const DECISION_GRADE_SOURCES: ReadonlySet<RangeSource> = new Set<RangeSource>([
+  'inferred_spread',
+  'explicit', // = state_space.range (spec: "state_space")
+  'explicit_cap',
+  'goal_threshold_cap',
+  'unit_percent',
+  'scale_frame', // the node's own frame (rung 1.6) — DL 5861214582 "(3)"
+]);
+
+/**
  * Range for normalisation.
  */
 export interface NormalisationRange {
@@ -2036,6 +2050,13 @@ export const GOAL_THRESHOLD_CORRESPONDENCE_TOLERANCE = 1e-3;
 export interface ConstraintNormalisationResult {
   /** Normalised constraints */
   constraints: NormalisedGoalConstraint[];
+  /**
+   * R1 S3 — the RAW bounds each `change_rel` target's values are read on, by node id. One copy per
+   * node (R3 #72 5872798858: `raw_range` lives on the NODE). A node whose `change_rel` limits
+   * resolved DIFFERENT ranges, or only the default range, has NO entry: ISL then refuses the
+   * relative change by name, and PLoT never guesses `min = 0`.
+   */
+  raw_range_by_node_id: Map<string, { min: number; max: number }>;
   /** Repair records for auditing */
   repairs: RepairRecord[];
   /** Diagnostics for logging */
@@ -2110,11 +2131,16 @@ export interface ConstraintNormalisationResult {
  *     whose threshold would be PINNED to an end of [0,1] by the resolved
  *     range: the engine would be asked about the edge of the scale, not the
  *     limit stated, so P(meet) is 0 or 1 by arithmetic. Refused, never scored.
+ *   change_frame_scale_unknown — R1 S3 (wire R3 #72 5872798858, AIQ 5872801411).
+ *     A non-zero `change_abs` limit whose node resolved only the DEFAULT range:
+ *     a change is read on the node's scale (c / (max − min)), and there is no
+ *     scale to read it on. (A change of 0 is scale-free and is sent.)
  */
 export type ConstraintRefusalReason =
   | 'delta_frame_value_altered_by_normalisation'
   | 'percent_unit_disagrees_with_target_frame'
-  | 'threshold_clamped';
+  | 'threshold_clamped'
+  | 'change_frame_scale_unknown';
 
 /** ROADMAP 2.878 — see {@link ConstraintRefusalReason}. */
 export const DELTA_FRAME_VALUE_ALTERED: ConstraintRefusalReason =
@@ -2126,6 +2152,17 @@ export const PERCENT_UNIT_DISAGREES_WITH_TARGET_FRAME: ConstraintRefusalReason =
 
 /** A3 round 2, rule 3 — see {@link ConstraintRefusalReason}. */
 export const THRESHOLD_CLAMPED: ConstraintRefusalReason = 'threshold_clamped';
+
+/** R1 S3 — see {@link ConstraintRefusalReason}. */
+export const CHANGE_FRAME_SCALE_UNKNOWN: ConstraintRefusalReason = 'change_frame_scale_unknown';
+
+/**
+ * R1 S3 — the two frames that state a CHANGE FROM TODAY (@talchain/schemas 0.61.0). Legacy
+ * `delta` is NOT one of them: it keeps its meaning (the samples' own frame) and its own rules.
+ */
+export function isChangeFrame(frame: unknown): frame is 'change_abs' | 'change_rel' {
+  return frame === 'change_abs' || frame === 'change_rel';
+}
 
 /**
  * ROADMAP 2.878 — a constraint that PLoT declined to send to ISL, with the
@@ -2200,6 +2237,9 @@ export function normaliseGoalConstraints(
   const normalisedConstraints: NormalisedGoalConstraint[] = [];
   // ROADMAP 2.878 — constraints refused rather than forwarded with an altered value.
   const refused: RefusedConstraintRecord[] = [];
+  // R1 S3 — a change_rel target's raw bounds; a node whose limits disagree is dropped (fail closed).
+  const rawRangeByNodeId = new Map<string, { min: number; max: number }>();
+  const rawRangeConflicted = new Set<string>();
 
   // Build node lookup map
   const nodeMap = new Map<string, EngineNodeV3>();
@@ -2281,6 +2321,9 @@ export function normaliseGoalConstraints(
         : interventionScale;
     } else if (
       !applyChainWithoutScale &&
+      // R1 S3: a CHANGE is never "already in [0,1] on the target's scale" — `r` is a fraction and
+      // `c` is in the node's own unit — so neither may take the forward-raw rung.
+      !isChangeFrame(value_frame) &&
       !isPercentPointValue(unit, value) &&
       // The '%' rung reads a FRAMED target's own frame, so a fractional '%'
       // there is NOT "already in [0,1]" on the target's scale (0.04 = 4% is 0.2
@@ -2437,6 +2480,92 @@ export function normaliseGoalConstraints(
           `the percent scale range=[${range.min},${range.max}] would have sent ${normalised} in place of ${value}, ` +
           `comparing the limit with a quantity other than the one stated.`,
       });
+      continue;
+    }
+
+    // ⭐ R1 S3 — A CHANGE FROM TODAY (design MG #72 5871257542, ruling DL 5871412823, wire R3
+    // 5872798858, meaning AIQ 5872801411). Decided HERE, after the ladder resolved the node's
+    // range and after the '%' refusal, and before every LEVEL rule below (the stamp preference,
+    // the clamp refusal, the level domain) — none of which means anything for a change.
+    //   · change_abs: a DIFFERENCE transforms by the node's scale and never by its offset, so
+    //     value = c / (max − min). A non-zero change on the DEFAULT range has no scale to be read
+    //     on and is refused by name; 0 ("maintain") is scale-free and is sent as 0.
+    //   · change_rel: `r` is a fraction and is forwarded UNTOUCHED. ISL turns it into a change on
+    //     the sample scale from the node's `raw_range` and base, and owns the base-owner verdict.
+    //     The resolved range is recorded as that node's raw range, unless it is the default.
+    if (isChangeFrame(value_frame)) {
+      const span = range.max - range.min;
+      if (value_frame === 'change_rel') {
+        // AIQ #72 5876151887: the raw bounds go to ISL ONLY on a decision-grade, unified range. A
+        // DERIVED guess (e.g. `inferred_value`) sends none, so ISL refuses the relative change by name,
+        // exactly as on the default range — never an estimate scored as decision-grade.
+        // Codex #403 5878770045: `raw_range` rides on the SHARED ISL node, so it is read by EVERY change_rel
+        // limit on that node. One forwarded change_rel without a decision-grade unified range voids the
+        // node's raw range for all of them, in either order; it never inherits a sibling's qualified range.
+        const decisionGrade = DECISION_GRADE_SOURCES.has(range.source) && rangeUnified && Number.isFinite(span) && span > 0;
+        if (!decisionGrade) {
+          rawRangeByNodeId.delete(node_id);
+          rawRangeConflicted.add(node_id);
+        } else if (!rawRangeConflicted.has(node_id)) {
+          const prior = rawRangeByNodeId.get(node_id);
+          if (prior === undefined) {
+            rawRangeByNodeId.set(node_id, { min: range.min, max: range.max });
+          } else if (prior.min !== range.min || prior.max !== range.max) {
+            rawRangeByNodeId.delete(node_id);
+            rawRangeConflicted.add(node_id);
+          }
+        }
+        normalisedConstraints.push({
+          constraint_id, node_id, operator, value, original_value: value, label, weight, value_frame,
+        });
+        continue;
+      }
+      if (value !== 0 && (range.source === 'default' || !Number.isFinite(span) || span <= 0)) {
+        refused.push({
+          constraint_id,
+          node_id,
+          reason: CHANGE_FRAME_SCALE_UNKNOWN,
+          stated_value: value,
+          would_have_sent: value,
+          range,
+        });
+        repairs.push({
+          field: `constraint.value.${constraint_id}`,
+          action: 'removed',
+          from_value: value,
+          to_value: 'refused',
+          reason:
+            `refused (change_frame_scale_unknown): the limit is a change of ${value} from today, and its ` +
+            `node resolved no scale to read a change on (range=[${range.min},${range.max}] ` +
+            `source=${range.source}).`,
+        });
+        continue;
+      }
+      // A stated change of 0 ("maintain") is a MEASURED zero and is scale-free: it is sent as the
+      // stated value itself, never divided by a span that may be the default range's.
+      const scaled = value === 0 ? value : value / span;
+      normalisedConstraints.push({
+        constraint_id, node_id, operator, value: scaled, original_value: value, label, weight, value_frame,
+      });
+      if (value !== 0) {
+        repairs.push({
+          field: `constraint.value.${constraint_id}`,
+          action: 'normalised',
+          from_value: value,
+          to_value: scaled,
+          reason: `change_abs scaled (no offset) by range=[${range.min},${range.max}] source=${range.source}`,
+        });
+        diagnostics.push({
+          constraint_id,
+          node_id,
+          original_value: value,
+          normalised_value: scaled,
+          range,
+          used_heuristic: !(['explicit', 'explicit_cap', 'goal_threshold_cap', 'unit_percent'] as RangeSource[]).includes(range.source),
+          clamped: false,
+          range_unified: rangeUnified,
+        });
+      }
       continue;
     }
 
@@ -2897,6 +3026,7 @@ export function normaliseGoalConstraints(
 
   return {
     constraints: normalisedConstraints,
+    raw_range_by_node_id: rawRangeByNodeId,
     repairs,
     diagnostics,
     refused,
@@ -2913,6 +3043,10 @@ export function normaliseGoalConstraints(
  */
 export function constraintsNeedNormalisation(constraints: GoalConstraint[]): boolean {
   for (const constraint of constraints) {
+    // R1 S3: a change frame is read on its node's scale whatever the gate says (it never takes the
+    // forward-raw rung), so it must not OPEN the gate either — adding one would otherwise change
+    // how every sibling level limit is read (the 2.957 batch-dependence class).
+    if (isChangeFrame(constraint.value_frame)) continue;
     if (constraint.value < 0 || constraint.value > 1) {
       return true;
     }

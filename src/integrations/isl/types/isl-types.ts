@@ -905,6 +905,13 @@ export interface ISLConstraintResult {
    * same defence-in-depth reason as `failure_margin_median`: read via prob01().
    */
   level_out_of_domain_fraction?: number | null;
+  /**
+   * R1 S2 (ISL, R3 SCIENCE; @talchain/schemas 0.61.0 `EnrichmentConstraintResultSchema.frame_verdict`):
+   * ISL's verdict on the FRAME the limit was stated in. `estimate_only` = a `change_rel` read on a
+   * base that is not the user's (the owner derived from `observed_state.source`). Forwarded to CEE
+   * by presence; absent from an ISL that predates R1, never defaulted.
+   */
+  frame_verdict?: 'scored' | 'estimate_only' | null;
 }
 
 /**

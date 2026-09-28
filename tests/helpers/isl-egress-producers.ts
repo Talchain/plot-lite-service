@@ -26,6 +26,7 @@ import { createHash } from 'node:crypto';
 import { ISLClient } from '../../src/integrations/isl/client.js';
 import {
   toISLRobustnessRequest,
+  attachChangeFrameRawRanges,
   type ISLRobustnessRequestV3,
   type GoalThresholdFrameType,
 } from '../../src/integrations/isl/translator-v3.js';
@@ -604,6 +605,68 @@ async function runV2Base(constraints: GoalConstraint[]): Promise<EgressCapture[]
  *     the whole route; and ISL does not MOUNT that path at the pin, so there is
  *     no request model to pair its keys against. See the manifest test.
  */
+/**
+ * ⭐ R1 S3 — the CHANGE-FRAME shape (@talchain/schemas 0.61.0; ISL R1 S2 = ISL #205, pinned here).
+ *
+ * WHY THIS EXISTS. This PR sends four keys ISL's R1 S2 declares and no producer emitted:
+ * `goal_threshold_frame: 'change_rel'`, `goal_constraints[].value_frame: 'change_abs'`,
+ * `nodes[].quantity_frame`, and `nodes[].raw_range`. Without a producer the pairing is
+ * structurally blind to all four, which is exactly how `goal_threshold_frame` rode undeclared
+ * from 1–6 Aug 2026 (the 2.762 block above). Same defect class; refusing to repeat it.
+ *
+ * DERIVED, NOT INVENTED. The body goes through the real translator (`toISLRobustnessRequest`,
+ * which forwards `quantity_frame` by presence in `toISLNode` and `value_frame` at the constraint
+ * projection), then the same post-translator mutations the live /v2/run path applies:
+ * `injectConstraintParameterUncertainties`, and `attachChangeFrameRawRanges` with the goal's
+ * producer bounds `[0, goal_threshold_cap]` for a `change_rel` goal (routes/v2/run.ts, the
+ * "R1 S3 (wire R3 #72 5872798858)" block). The limit value is already on the sample scale, as
+ * `normaliseGoalConstraints` leaves a `change_abs` (c / (max − min), no offset). The goal is a
+ * LEVEL quantity; `fac_market` is typed as a CHANGE, so both `quantity_frame` values ride.
+ */
+const CHANGE_FRAME_GOAL_CAP = 50_000;
+const CHANGE_REL_GOAL = 0.1;
+const CHANGE_ABS_CONSTRAINTS: GoalConstraint[] = [
+  {
+    constraint_id: 'c_change',
+    node_id: 'con_cost_cap',
+    operator: '<=',
+    value: -0.05,
+    label: 'Cost down',
+    value_frame: 'change_abs',
+  },
+] as unknown as GoalConstraint[];
+
+function buildV2ChangeFrameRequest(): ISLRobustnessRequestV3 {
+  const base = buildGraph();
+  const graph: EngineGraphV3 = {
+    ...base,
+    nodes: base.nodes.map((n) =>
+      n.id === 'goal_margin'
+        ? ({ ...n, quantity_frame: 'level' } as EngineNodeV3)
+        : n.id === 'fac_market'
+          ? ({ ...n, quantity_frame: 'change' } as EngineNodeV3)
+          : n,
+    ),
+  };
+  const request = toISLRobustnessRequest(
+    graph,
+    OPTIONS,
+    'goal_margin',
+    'req_slice2_pairing_change',
+    2000,
+    CHANGE_REL_GOAL,
+    CHANGE_ABS_CONSTRAINTS,
+    'seed-slice2',
+    undefined, // includePathDecomposition
+    undefined, // prebuiltParameterUncertainties
+    undefined, // factorCorrelations
+    'change_rel',
+  );
+  injectConstraintParameterUncertainties(request, CHANGE_ABS_CONSTRAINTS, graph.nodes, 'goal_margin');
+  attachChangeFrameRawRanges(request.graph.nodes, new Map([['goal_margin', { min: 0, max: CHANGE_FRAME_GOAL_CAP }]]));
+  return request;
+}
+
 export const PRODUCERS: ProducerSpec[] = [
   {
     name: 'v2-run-base',
@@ -696,6 +759,25 @@ export const PRODUCERS: ProducerSpec[] = [
         endpoint: '/api/v1/robustness/analyze/v2',
         body: buildV2UserStatedRangeRequest(),
         requestId: 'req_slice2_pairing_usr',
+      });
+      return takeCaptured();
+    },
+  },
+  {
+    name: 'v2-run-change-frames',
+    endpoint: '/api/v1/robustness/analyze/v2',
+    site: 'routes/v2/run.ts → islService.callAnalysisEndpoint (a target stated as a change from today, R1 S3)',
+    liveness: 'live',
+    note:
+      'R1 S3. Carries goal_threshold_frame:"change_rel" + the goal node\'s raw_range, a change_abs limit ' +
+      '(value_frame), and quantity_frame on two nodes — the four keys ISL R1 S2 (ISL #205) declares and no ' +
+      'producer emitted. Built through the real translator plus the route\'s post-translator attaches, so ' +
+      'the pairing walks ISL\'s RawRange class and both frame enums against the pin.',
+    run: async () => {
+      await newClient().request({
+        endpoint: '/api/v1/robustness/analyze/v2',
+        body: buildV2ChangeFrameRequest(),
+        requestId: 'req_slice2_pairing_change',
       });
       return takeCaptured();
     },
