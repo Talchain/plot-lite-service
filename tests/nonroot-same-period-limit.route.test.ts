@@ -204,6 +204,26 @@ describe("Paul's churn limit on a non-root, some-pinned target: the same-period 
     return warned[0];
   }
 
+  /**
+   * Withheld for every option AND named — by whichever gate withholds it, never silently. The SPEC (DL 5861214582:
+   * "no-baseline stays withheld") is the outcome, not the gate: on today's staging the post-ISL
+   * CONSTRAINT_TARGET_UNRELIABLE names it; with A3 r2 (#376) merged, a no-baseline '%' limit whose frame is refused
+   * falls back to an INFERRED range and is refused BEFORE ISL as `threshold_clamped` (a typed `_meta` record + a
+   * critique) — AIQ's rule 3, "a clamped threshold is refused, never scored". Found by MG's batch-7 combined-tree run
+   * (#379 + #376 + #381). Either way: no P, no result, and a record that names this limit.
+   */
+  function expectWithheldAndNamed(body: any): void {
+    for (const o of body.option_comparison ?? []) {
+      expect(o.constraint_probabilities?.[CHURN_LIMIT], `${o.option_id} churn P withheld`).toBeUndefined();
+    }
+    expect(churnResult(body)).toBeUndefined();
+    const warned = churnWarnings(body);
+    const filtered = [...(body._meta?.constraints_filtered ?? []), ...(body._meta?.filtered_constraints ?? [])]
+      .filter((f: any) => f?.constraint_id === CHURN_LIMIT);
+    expect(warned.length + filtered.length, JSON.stringify({ warned, filtered })).toBeGreaterThanOrEqual(1);
+    expect(body.joint_withheld?.constraint_ids ?? [], 'the joint names the unscored churn limit').toContain(CHURN_LIMIT);
+  }
+
   // =========================================================================
   // R1 — Paul's own wire (P-a): scored, decision-grade, level_domain sent
   // =========================================================================
@@ -306,9 +326,9 @@ describe("Paul's churn limit on a non-root, some-pinned target: the same-period 
     expectWithheld(body);
   });
 
-  it('R4 (J-bn, not intervened, no baseline): withheld', async () => {
+  it('R4 (J-bn, not intervened, no baseline): withheld, and named (by either gate — see expectWithheldAndNamed)', async () => {
     const { body } = await run(variant('J', 'bn', 4));
-    expectWithheld(body);
+    expectWithheldAndNamed(body);
   });
 
   // =========================================================================
