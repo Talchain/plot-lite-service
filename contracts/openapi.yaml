@@ -5686,6 +5686,31 @@ components:
               type: number
             unit:
               type: string
+        nonlinear_identity:
+          type: object
+          description: 'R3 slice 1 (B2): the node IS an accounting identity of the named parents (MRR = price × subscribers; a spend tally = the sum of its parts). CEE-minted at construction (C46 / A4b); PLoT forwards it verbatim to ISL, which evaluates only what is declared. An unknown operation or a malformed declaration is refused (422), never dropped.'
+          required: [operation, factor_ids, stated_in_brief]
+          additionalProperties: false
+          properties:
+            operation:
+              type: string
+              enum: [product, sum]
+            factor_ids:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              items:
+                type: string
+            stated_in_brief:
+              type: boolean
+              description: 'True only when the brief itself states the identity; otherwise it is Olumi''s reading.'
+            addends:
+              type: array
+              minItems: 1
+              uniqueItems: true
+              description: 'Parents added EXACTLY to the identity term (disjoint from factor_ids). Only a declared addend is definitional; it is never inferred from an edge.'
+              items:
+                type: string
 
     edgeV3:
       type: object
@@ -6379,6 +6404,68 @@ components:
             top-level envelope field; present ONLY when ISL emits it. Shape is
             ISL-owned (typed `unknown` in engine-v3.ts, firm shape pending the S5
             typed surface). Not in response_hash.
+        identity_evaluations:
+          type: array
+          description: |
+            R3 slice 1 (ISL #187 `ISLResponseV2.identity_evaluations`): one
+            entry per accounting identity the graph DECLARED
+            (`nonlinear_identity`), saying whether ISL EVALUATED it (the numbers
+            rest on it) or WITHHELD it, and why. Only `evaluated: true` licenses
+            a numerical claim that rests on the identity; a declaration read as
+            if it were used is the R3-4 defect.
+
+            VERBATIM passthrough of the ISL top-level envelope field — never
+            re-derived, filtered or renamed by PLoT. ABSENT when ISL omits it
+            (the graph declared no identity), so a no-identity response is
+            byte-identical. CEE persists this whole response as `enrichment` and
+            reads `enrichment.identity_evaluations`. The entry shape is ISL's
+            `IdentityEvaluation`; its unset optionals are absent on the live
+            wire (ISL serialises `exclude_none`). Not in response_hash.
+          items:
+            type: object
+            required: [node_id, operation, factor_ids, stated_in_brief, evaluated]
+            properties:
+              node_id:
+                type: string
+              operation:
+                type: string
+                enum: [product, sum]
+              factor_ids:
+                type: array
+                items:
+                  type: string
+              addends:
+                type: array
+                items:
+                  type: string
+              stated_in_brief:
+                type: boolean
+              evaluated:
+                type: boolean
+                description: True only when the numbers rest on the identity.
+              withheld_reason:
+                type: string
+                nullable: true
+                enum: [identity_frame_missing, identity_operand_missing, identity_zero_level, identity_inconsistent]
+                description: Withheld identities only — why it was not evaluated.
+              level_source:
+                type: string
+                nullable: true
+                enum: [stated_level, identity_inputs]
+                description: Evaluated identities only — anchored at the node's stated level, or (no stated level) the level its inputs give.
+              reconciliation:
+                type: object
+                nullable: true
+                description: The stated level against the level the identity's own inputs give today, in USER units.
+                required: [reconstructed, stated, mismatch_share]
+                properties:
+                  reconstructed:
+                    type: number
+                  stated:
+                    type: number
+                  mismatch_share:
+                    type: number
+                    minimum: 0
         factor_sensitivity:
           type: array
           items:
@@ -6871,6 +6958,7 @@ components:
             - GRAPH_CYCLE_DETECTED: Graph contains cycles
             - IDENTIFIABILITY_ISSUE: Causal model cannot be identified
             - ISL_CANNOT_IDENTIFY: ISL layer cannot identify effect
+            - IDENTITY_NOT_EVALUATED: (ISL, R3) a declared identity on the path to the goal or a limit cannot be computed exactly; the run is withheld. Carries `identity`.
             - GRAPH_TOO_COMPLEX: Node×edge product above the analysis complexity cap
             - DUPLICATE_EDGE_CONFLICT: Same-relationship edges with divergent values
             - TOO_MANY_CONSTRAINTS: Constraint count exceeds the limit
@@ -6910,6 +6998,33 @@ components:
             type: string
         blocks_analysis:
           type: boolean
+        identity:
+          type: object
+          description: |
+            R3 slice 1: the typed identity an ISL `IDENTITY_NOT_EVALUATED`
+            critique names. Carried only when it validates (string node_id /
+            operation / withheld_reason, string[] participants); the numeric
+            optionals only when each is a finite number. Absent (no key) on
+            every other critique, and when ISL's identity is malformed.
+          required: [node_id, operation, participants, withheld_reason]
+          additionalProperties: false
+          properties:
+            node_id:
+              type: string
+            operation:
+              type: string
+            participants:
+              type: array
+              items:
+                type: string
+            withheld_reason:
+              type: string
+            reconstructed:
+              type: number
+            stated:
+              type: number
+            mismatch_share:
+              type: number
 
     draftResponse:
       type: object

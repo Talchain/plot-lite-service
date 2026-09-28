@@ -25,6 +25,7 @@ import type {
   RunResponseV3,
   OptionV3,
   CritiqueV3,
+  CritiqueIdentityV3,
   EngineGraphV3,
   PerFeatureStatus,
   TopLevelAnalysisStatus,
@@ -86,7 +87,7 @@ import { filterTemporalConstraints } from '../../normalisation/constraint-filter
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, InternalMetadata } from '../../types/engine-v3.js';
-import { toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
+import { attachIdentityExecutionFrames, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
@@ -107,7 +108,7 @@ import {
 import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js';
 import type { RobustnessDataForCee } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue } from '../../integrations/isl/types/isl-types.js';
-import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures } from '../../integrations/isl/v2-envelope.js';
+import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures, getIslIdentityEvaluations } from '../../integrations/isl/v2-envelope.js';
 import { V2_RUN_ALLOWED_KEYS, islEnrichmentPassthrough } from './run-contract-keys.js';
 import { assessIslWireGeneration, logIslWireGenerationUnverified } from '../../integrations/isl/wire-generation.js';
 import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
@@ -3709,6 +3710,10 @@ function buildResponse(
   // wearing real provenance.
   const rangeFitDisclosures = getIslRangeFitDisclosures(islResult);
 
+  // R3 slice 1 (ISL #187): each DECLARED identity, evaluated or withheld — ISL's finding, forwarded
+  // VERBATIM (the same array; never re-derived, filtered or renamed). Absent ⇒ undefined ⇒ no key.
+  const identityEvaluations = getIslIdentityEvaluations(islResult);
+
   // Normalize robustness edges to consistent object format
   // ISL returns fragile_edges as objects, robust_edges as strings - normalize both
   let robustness: RobustnessAssessmentV3 | undefined;
@@ -4605,6 +4610,14 @@ function buildResponse(
     // different fact from absence. Excluded from response_hash (response_hash
     // canonicalises the REQUEST).
     ...(rangeFitDisclosures !== undefined && { range_fit_disclosures: rangeFitDisclosures }),
+    // ⭐ R3 slice 1 (ISL #187) — `identity_evaluations`: per declared accounting identity, whether
+    // ISL EVALUATED it (the numbers rest on it) or WITHHELD it (and why). TOP-LEVEL, VERBATIM
+    // passthrough of the ISL envelope field. CEE persists this whole body as `enrichment` and reads
+    // `enrichment.identity_evaluations`: without it CEE cannot tell "evaluated" from "declared" and
+    // keeps its C46 withhold on. Without this block buildResponse's field-by-field rebuild would
+    // silently DROP it (the transformEdgeEValues-class hazard). ISL omits the key when the graph
+    // declares no identity, so every no-identity response stays byte-identical. Not in response_hash.
+    ...(identityEvaluations !== undefined && { identity_evaluations: identityEvaluations }),
     // Edge E-values from ISL — enriched with labels. Always emitted ([] when empty
     // or ISL omitted the field) so consumers can distinguish computed-empty from
     // absent; PLoT always requests include_e_values: true. Excluded from response_hash.
@@ -5052,20 +5065,60 @@ function mapISLCritiquesToV2(islCritiques: Array<{
   affected_node_ids?: string[];
   affected_option_ids?: string[];
   affected_nodes?: string[];
+  identity?: unknown;
 }>): CritiqueV3[] {
-  return islCritiques.map((c) => ({
-    id: typeof c.id === 'string' && c.id.length > 0 ? c.id : randomUUID(),
-    code: c.code,
-    severity: c.severity === 'blocker' ? 'blocker' :
-              c.severity === 'error' ? 'error' :
-              c.severity === 'warning' ? 'warning' : 'info',
-    message: c.message,
-    suggestion: c.suggestion,
-    source: 'isl' as const,
-    affected_node_ids: c.affected_node_ids ?? c.affected_nodes,
-    ...(c.affected_option_ids ? { affected_option_ids: c.affected_option_ids } : {}),
-    blocks_analysis: c.severity === 'blocker',
-  }));
+  return islCritiques.map((c) => {
+    const identity = readCritiqueIdentity(c.identity);
+    return {
+      id: typeof c.id === 'string' && c.id.length > 0 ? c.id : randomUUID(),
+      code: c.code,
+      severity: c.severity === 'blocker' ? 'blocker' :
+                c.severity === 'error' ? 'error' :
+                c.severity === 'warning' ? 'warning' : 'info',
+      message: c.message,
+      suggestion: c.suggestion,
+      source: 'isl' as const,
+      affected_node_ids: c.affected_node_ids ?? c.affected_nodes,
+      ...(c.affected_option_ids ? { affected_option_ids: c.affected_option_ids } : {}),
+      // R3 slice 1 (R&C 5860893532): the typed identity ISL's IDENTITY_NOT_EVALUATED critique
+      // names — carried only when it validates; absent or malformed ⇒ no key at all.
+      ...(identity !== undefined && { identity }),
+      blocks_analysis: c.severity === 'blocker',
+    };
+  });
+}
+
+/**
+ * R3 slice 1 — validate the `identity{}` an ISL `IDENTITY_NOT_EVALUATED` critique carries and
+ * rebuild it from its KNOWN keys. `undefined` (⇒ no key on the mapped critique) when it is absent
+ * or malformed: a plain object with string `node_id` / `operation` / `withheld_reason` and a
+ * string[] `participants` is required, otherwise the whole identity is dropped rather than
+ * forwarded as a shape no consumer can read. `reconstructed` / `stated` / `mismatch_share` are
+ * carried only when each is a finite number.
+ *
+ * @internal Exported for unit tests.
+ */
+export function readCritiqueIdentity(raw: unknown): CritiqueIdentityV3 | undefined {
+  if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const proto = Object.getPrototypeOf(raw);
+  if (proto !== Object.prototype && proto !== null) return undefined;
+  const r = raw as Record<string, unknown>;
+  if (typeof r.node_id !== 'string' || typeof r.operation !== 'string' || typeof r.withheld_reason !== 'string') {
+    return undefined;
+  }
+  if (!Array.isArray(r.participants) || !r.participants.every((p) => typeof p === 'string')) {
+    return undefined;
+  }
+  const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  return {
+    node_id: r.node_id,
+    operation: r.operation,
+    participants: [...(r.participants as string[])],
+    withheld_reason: r.withheld_reason,
+    ...(finite(r.reconstructed) && { reconstructed: r.reconstructed }),
+    ...(finite(r.stated) && { stated: r.stated }),
+    ...(finite(r.mismatch_share) && { mismatch_share: r.mismatch_share }),
+  };
 }
 
 // -----------------------------------------------------------------------------
@@ -7861,6 +7914,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           body.user_stated_ranges,  // ROADMAP 2.720 (P4): the user's own stated ranges, projected onto ISL's declared members inside the translator (request-gated omit)
           parseGoalDirection(body.goal_direction)  // ROADMAP 2.920: attested objective sense; unrecognised ⇒ undefined ⇒ today's unattested maximiser
         );
+
+        // R3-8: each declared identity's participants carry the frame PLoT resolved (runtime
+        // metadata; ISL withholds an identity any of whose frames is absent — never infers one).
+        // Only identity participants are touched, so a request declaring none is byte-identical.
+        attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId);
 
         req.log.info(
           {

@@ -16,6 +16,7 @@ import type {
   GoalConstraint,
   ConstraintLevelDomain,
   FactorCorrelation,
+  NonlinearIdentity,
 } from '../../types/engine-v3.js';
 import {
   DEFAULT_STD_FLOOR,
@@ -25,6 +26,7 @@ import {
   resolveUserSuppliedStd,
 } from './parameter-uncertainty-bounds.js';
 import { sha8 } from '../../util/pii-redact.js';
+import { resolveNodeFrame, type NodeFrameCarrier } from '../../lib/intervention-normaliser.js';
 // ROADMAP 2.258. DERIVED from the shared contract, never hand-mirrored.
 //
 // `GoalThresholdFrame` is the Zod enum itself, so `parseGoalThresholdFrame`
@@ -135,6 +137,44 @@ export interface ISLNodeV3 {
   };
   intercept?: number;
   epsilon_std?: number;
+  /**
+   * R3 slice 1 (B2): the node is exactly `operation` of `factor_ids`. Forwarded VERBATIM only when
+   * the node declares one (validated at ingress by `readNonlinearIdentity`), so every other
+   * request's ISL body — and its response_hash — is byte-identical.
+   */
+  nonlinear_identity?: NonlinearIdentity;
+  /**
+   * R3-8: the node's frame (user units = normalised × frame), resolved by THE node-frame reader
+   * (`resolveNodeFrame`: cap → scale_frame → pair). Runtime metadata, attached ONLY to a declared
+   * identity's own nodes (`attachIdentityExecutionFrames`); never persisted, never written into
+   * `nonlinear_identity`. Absent when no frame resolves — ISL then withholds the identity
+   * (`identity_frame_missing`), never infers one.
+   */
+  execution_frame?: { frame: number; carrier: NodeFrameCarrier };
+}
+
+/**
+ * R3-8: attach each declared identity's participants' execution frames (the node, its factor_ids
+ * and its addends) to the ISL nodes, in place. Every node that is not an identity participant is
+ * untouched, so a request that declares no identity sends a byte-identical ISL body.
+ */
+export function attachIdentityExecutionFrames(
+  islNodes: ISLNodeV3[],
+  engineNodes: readonly EngineNodeV3[],
+  scaleFrameByNodeId: ReadonlyMap<string, number>,
+): void {
+  const engineById = new Map(engineNodes.map((node) => [node.id, node]));
+  const islById = new Map(islNodes.map((node) => [node.id, node]));
+  for (const node of islNodes) {
+    const identity = node.nonlinear_identity;
+    if (!identity) continue;
+    for (const id of [node.id, ...identity.factor_ids, ...(identity.addends ?? [])]) {
+      const participant = islById.get(id);
+      if (!participant || participant.execution_frame) continue;
+      const resolved = resolveNodeFrame(engineById.get(id)?.observed_state, scaleFrameByNodeId.get(id));
+      if (resolved) participant.execution_frame = { frame: resolved.frame, carrier: resolved.carrier };
+    }
+  }
 }
 
 /**
@@ -721,6 +761,18 @@ export function toISLNode(node: EngineNodeV3): ISLNodeV3 {
     observed_state: toISLObservedState(node.observed_state),
     intercept: node.intercept ?? 0.0,
     epsilon_std: node.epsilon_std ?? 0.0,
+    ...(node.nonlinear_identity
+      ? {
+          nonlinear_identity: {
+            operation: node.nonlinear_identity.operation,
+            factor_ids: [...node.nonlinear_identity.factor_ids],
+            stated_in_brief: node.nonlinear_identity.stated_in_brief,
+            ...(node.nonlinear_identity.addends
+              ? { addends: [...node.nonlinear_identity.addends] }
+              : {}),
+          },
+        }
+      : {}),
   };
 }
 
