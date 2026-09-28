@@ -1134,8 +1134,9 @@ export function correlatedFactorIdsOf(
  *       × the largest |level| any of `options` sets for it (never below
  *       MIN_USER_STD, NOT floored by DEFAULT_STD_FLOOR);
  *    b. otherwise (no option intervenes on it, or — for a factor that cannot be
- *       pinned — options set it only to 0) → FALLBACK_STD, floored: the BASE
- *       behaviour, byte-identical to aac1970.
+ *       pinned — options set it only to 0) → HELD at 0: point_mass (a normal at
+ *       MIN_USER_STD if `factor_correlations` names it), and NAMED to the user
+ *       (`zeroFactorsHeldExact` → ZERO_FACTOR_HELD_EXACT). AIQ #72 5869679096.
  *
  * ⭐ PINNED LEVERS COME FIRST, ahead of priority 1 (T7b amended rule, AIQ #72
  * 5867934055; see `pinnedLeverIds`): a controllable lever that an option sets
@@ -1161,10 +1162,11 @@ export function correlatedFactorIdsOf(
  * 0.15 × (the largest raw level) / frame: its RAW spread (±£3,000 on journey C)
  * does not move with the frame. DEFAULT_STD_FLOOR (0.1 = a tenth of the frame)
  * is deliberately NOT applied to it, for the same reason.
- * ⛔ NO SILENT HOLD (Verifier FIX_FIRST, HIGH): a zero factor NO option touches
- * has no option scale, and holding it at MIN_USER_STD pinned it without saying
- * so (golden `fac_hiring_cost`: 0.5 → 1e-4). It keeps the base FALLBACK_STD
- * path instead; only a PINNED lever is held, and that is the named rule above.
+ * ⛔ NO SILENT HOLD, AND NO FRAME-SIZED SPREAD (Verifier FIX_FIRST, then AIQ #72
+ * 5869679096, measured): a zero factor NO option touches has no option scale.
+ * FALLBACK_STD (0.5 of the frame) made the answer depend on the frame (served
+ * journey E: doubling a frame moved the goal sd +30%); a bare hold hid it. It
+ * is held at 0 AND said: one ZERO_FACTOR_HELD_EXACT warning per factor.
  *
  * Non-finite, zero, and negative `observed_state.std` are treated as missing
  * and fall through to default synthesis.
