@@ -112,9 +112,6 @@ describe('R3-5 (A) — an incomplete list never mixes bases: the walk stays and 
     kept(adoptIslStructuralInfluence(walk(), list(FIVE_ROW_COHORT)));
   });
 
-  it('no list at all (an ISL build before it) → walk + graph_walk', () => {
-    kept(adoptIslStructuralInfluence(walk(), undefined));
-  });
 
   it('a withheld (truncated) list — every score null → walk + graph_walk', () => {
     const withheld = Object.fromEntries(Object.keys(ISL_EVERY).map((id) => [id, null]));
@@ -164,8 +161,16 @@ describe('ONE influence algorithm (AIQ 5872951506) — without an identity a com
     expect(byId(walk()).pro_plan_price.influence_rank).toBe(1);
   });
 
-  it('C0 with no list (an ISL build before the every-graph emit): the walk stays and says graph_walk', () => {
-    const out = adoptIslStructuralInfluence(walk(), undefined);
+  it('no list at all (ISL did not run the phase, or an older ISL): the SAME array back, untouched, no basis key', () => {
+    const rows = walk();
+    const out = adoptIslStructuralInfluence(rows, undefined);
+    expect(out).toBe(rows);
+    expect(out).toEqual(walk());
+    expect(out.some((r) => 'influence_basis' in r)).toBe(false);
+  });
+
+  it('an EMPTY list is a list that covers nothing → walk + graph_walk (not the untouched path)', () => {
+    const out = adoptIslStructuralInfluence(walk(), []);
     expect(out.map((r) => r.influence_score)).toEqual(walk().map((r) => r.influence_score));
     expect(out.every((r) => r.influence_basis === 'graph_walk')).toBe(true);
   });

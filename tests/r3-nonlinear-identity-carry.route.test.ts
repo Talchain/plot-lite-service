@@ -1130,10 +1130,10 @@ describe('R3-5 route — an evaluated identity puts ISL\'s every-factor influenc
     expect(Object.values(rows).every((r: any) => r.influence_basis === 'graph_walk')).toBe(true);
   });
 
-  it('C0 with NO list (an ISL build before the every-graph emit): the walk stays, and every row says graph_walk', async () => {
+  it('C0 with NO list (ISL did not emit one): the walk stays, byte-identical — no basis key on any row', async () => {
     const rows = rowsOf(await bodyOf(await post(paulRequest())));
     expect(rows.pro_plan_price.influence_score).toBe(1);
-    expect(Object.values(rows).every((r: any) => r.influence_basis === 'graph_walk')).toBe(true);
+    expect(Object.values(rows).some((r: any) => 'influence_basis' in r)).toBe(false);
   });
 
   it('ONE ALGORITHM: an identity ISL WITHHELD no longer gates — its complete list is adopted', async () => {

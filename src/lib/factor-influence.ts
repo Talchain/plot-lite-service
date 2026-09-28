@@ -1154,9 +1154,12 @@ export function mergeIslConfidenceIntoGraphFactors(
  *   graph stage gives (driver-order rule 1: the order IS influence_score descending). The lever partition
  *   that follows (`applyLeverAwareImportanceOrder`) therefore ranks on ISL's order, so `importance_rank`,
  *   `driver_order`, the 'biggest' crown and `key_drivers` follow ISL — never the walk (DL CR 5873896531).
- * - Otherwise (list absent — an ISL build before it —, partial, or withheld on truncation): the walk's
- *   numbers stay and every row says `influence_basis: 'graph_walk'`. Bases are never mixed: a UI shows
- *   producer influence only when EVERY factor carries one (DGAI `useResultsSectionData.ts:2958`).
+ * - No list at all (ISL did not run the phase, or an ISL build before the every-graph emit): returns
+ *   `factors` itself, the SAME array, untouched — byte-identical to the walk-only response (the
+ *   `/v2/run` golden pin and `response_hash` stay put).
+ * - A list that cannot cover every row (partial, or withheld on truncation): the walk's numbers stay and
+ *   every row says `influence_basis: 'graph_walk'`. Bases are never mixed: a UI shows producer influence
+ *   only when EVERY factor carries one (DGAI `useResultsSectionData.ts:2958`).
  *
  * Nothing else moves per factor: `elasticity`, `sensitivity_score`, `value_of_information`,
  * `zero_reason`, `source`. Never mutates its input.
@@ -1165,6 +1168,8 @@ export function adoptIslStructuralInfluence(
   factors: FactorSensitivityResultV3[],
   structuralInfluence: ReadonlyArray<ISLStructuralInfluenceEntry> | undefined,
 ): FactorSensitivityResultV3[] {
+  if (structuralInfluence === undefined) return factors;
+
   const islScore = new Map<string, number>();
   for (const row of structuralInfluence ?? []) {
     const score = row?.influence_score;
