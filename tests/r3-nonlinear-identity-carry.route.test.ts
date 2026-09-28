@@ -119,6 +119,7 @@ import { createServer } from '../src/createServer.js';
 
 import { NormalisationError, normaliseNode, readNonlinearIdentity } from '../src/normalisation/graph-normaliser.js';
 import { attachIdentityExecutionFrames, toISLNode } from '../src/integrations/isl/translator-v3.js';
+import { computeResponseContentHash } from '../src/util/response-content-hash.js';
 
 const FIXTURE_DIR = resolve(__dirname, 'fixtures/paul-own-a295e4a1-20260927');
 const PRODUCT = { operation: 'product', factor_ids: ['pro_plan_price', 'pro_paying_subscribers'], stated_in_brief: true };
@@ -727,6 +728,24 @@ describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the R
     ]);
   });
 
+  it('⭐ RED (verifier FIX_FIRST): a withdrawn variant-(a) carrier takes its Olumi-derived frame out of _meta too — no claim of a frame the retry never sent', async () => {
+    const req = JSON.parse(readFileSync(resolve(__dirname, 'fixtures/r3-intermediate-carrier-dl-a15.request.json'), 'utf8'));
+    islSeq = [reject(islCritique('crit-a15-operand', {
+      affected_node_ids: ['pro_plan_mrr', 'pro_plan_monthly_price', 'pro_paying_subscribers'],
+      identity: { node_id: 'pro_plan_mrr', operation: 'product', participants: ['pro_plan_monthly_price', 'pro_paying_subscribers'], withheld_reason: 'identity_operand_missing' },
+    }))];
+    const res = await post(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(islBodies).toHaveLength(2);
+    // Precondition: the first call carried the Olumi-derived frame; the retry carries neither it nor the identity.
+    expect(islBodies[0].graph.nodes.find((n: any) => n.id === 'pro_plan_mrr')?.execution_frame).toBeDefined();
+    expect(islBodies[1].graph.nodes.find((n: any) => n.id === 'pro_plan_mrr')?.execution_frame).toBeUndefined();
+    expect(body._meta?.identities_not_forwarded?.map((w: any) => [w.node_id, w.reason])).toEqual([['pro_plan_mrr', 'inferred_identity_operand_missing']]);
+    // The claim goes with the frame: nothing names a derived frame for the withdrawn carrier.
+    expect((body._meta?.identity_derived_frames ?? []).map((d: any) => d.node_id)).not.toContain('pro_plan_mrr');
+  });
+
   it('CONTRAST: a STATED identity ISL finds inconsistent keeps ISL\'s refusal — one call, 422 (the user\'s own figures conflict)', async () => {
     islSeq = [reject(inconsistent)];
     const res = await post(paulRequest(PRODUCT));
@@ -734,11 +753,15 @@ describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the R
     expect(islBodies).toHaveLength(1);
   });
 
-  it('CONTRAST: an inferred identity withheld for ANOTHER reason keeps the refusal — one call, 422', async () => {
+  // Superseded by R3-A1 (AIQ RESULT + RULING #72 5867263914): this row pinned "another reason keeps the refusal". An
+  // INFERRED identity ISL cannot evaluate for ANY of its reasons is now withdrawn; only a STATED one refuses the Run.
+  it('R3-A1: an inferred identity withheld for ANOTHER of ISL\'s reasons is withdrawn too — two calls, 200, named', async () => {
     islSeq = [reject(islCritique('crit-operand', { identity: { ...CRITIQUE_IDENTITY, withheld_reason: 'identity_operand_missing' } }))];
     const res = await post(paulRequest(INFERRED));
-    expect(res.status).toBe(422);
-    expect(islBodies).toHaveLength(1);
+    expect(res.status).toBe(200);
+    expect(islBodies).toHaveLength(2);
+    expect((await res.json())._meta?.identities_not_forwarded)
+      .toEqual([{ node_id: 'mrr', reason: 'inferred_identity_operand_missing', frameless_node_ids: [] }]);
   });
 
   it('CONTRAST: any OTHER blocker beside it keeps the refusal — one call, 422', async () => {
@@ -755,5 +778,249 @@ describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the R
     expect(res.status).toBe(422);
     expect(islBodies).toHaveLength(2);
     expect(((await res.json()).critiques as any[]).map((c) => c.id)).toContain('crit-after');
+  });
+});
+
+// ⛔ R3-A1 (AIQ RESULT + RULING #72 5867263914, HIGH → DL): an INFERRED identity ISL cannot evaluate for ANY reason is
+// withdrawn and the Run proceeds additively — not only an inconsistent one (#385). Served on PLoT aac1970 · ISL 14f1a3a
+// (Paul's a6ed1bff request, 0 LLM calls): A1of (inferred, operand level MISSING) and A1zf (inferred, operand level ZERO)
+// were refused 422 for the whole Run. ONLY a STATED identity refuses the Run. The rows below replay AIQ's served requests
+// VERBATIM (tests/fixtures/r3-a1-served-20260928: byte copies of quality-evidence/r3-served-20260928/product/raw) and
+// ISL's own 422 critique from each served response (the `source: 'isl'` critique, less the keys PLoT's mapper adds).
+describe('R3-A1 — an INFERRED identity ISL cannot evaluate for ANY reason is withdrawn; only a STATED one refuses the Run', () => {
+  let app: FastifyInstance;
+  let baseUrl: string;
+  const SERVED_DIR = resolve(__dirname, 'fixtures/r3-a1-served-20260928');
+  const served = (file: string): any => JSON.parse(readFileSync(resolve(SERVED_DIR, `${file}.json`), 'utf8'));
+  const A1OF = 'A1of-20260928T092621Z';
+  const A1O = 'A1o-20260928T092621Z';
+  const A1ZF = 'A1zf-20260928T092953Z';
+  const A1ZS = 'A1zs-20260928T092953Z';
+  const A1IS = 'A1is-20260928T092856Z';
+  const A1IF = 'A1if-20260928T092856Z';
+  /** ISL's own critiques of a served 422, as ISL sent them (PLoT's mapper adds `source` / `blocks_analysis` / `user_message`). */
+  const islCritiquesOf = (row: any): any[] => (row.response.critiques as any[])
+    .filter((c) => c.source === 'isl')
+    .map(({ source: _s, blocks_analysis: _b, user_message: _u, ...isl }) => isl);
+  /** ISL's served 422 for that row, as `callAnalysisEndpoint` hands it to the route (the no-throw contract's shape). */
+  const servedReject = (row: any, critiques: any[] = islCritiquesOf(row)) => ({
+    error: { code: 'ISL_REJECTED', message: row.response.status_reason, retryable: false, status: 422, critiques },
+  });
+  /** C0: the SAME request with no identity declared (the ruling's control for "effects byte-identical"). */
+  const withoutIdentity = (request: any): any => {
+    const c0 = structuredClone(request);
+    for (const n of c0.graph.nodes) delete n.nonlinear_identity;
+    return c0;
+  };
+  const withReason = (critique: any, withheld_reason: string) => ({ ...critique, identity: { ...critique.identity, withheld_reason } });
+
+  async function post(payload: any) {
+    islBodies = [];
+    return fetch(`${baseUrl}/v2/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  }
+  beforeAll(async () => {
+    process.env.RATE_LIMIT_ENABLED = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
+    app = await createServer();
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const addr = app.server.address();
+    baseUrl = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
+  }, 60_000);
+  afterAll(async () => { await app?.close(); });
+  afterEach(() => { islNext = null; islSeq = []; });
+
+  it('PRECONDITION — the served rows: each inferred row is its stated control but for stated_in_brief; ISL named ONE blocker, typed', () => {
+    const strip = (r: any) => {
+      const c = structuredClone(r.request);
+      delete c.request_id;
+      for (const n of c.graph.nodes) if (n.nonlinear_identity) delete n.nonlinear_identity.stated_in_brief;
+      return c;
+    };
+    for (const [inferred, stated] of [[A1OF, A1O], [A1ZF, A1ZS], [A1IF, A1IS]]) {
+      const i = served(inferred);
+      const s = served(stated);
+      expect(i.request.graph.nodes.find((n: any) => n.id === 'mrr').nonlinear_identity.stated_in_brief).toBe(false);
+      expect(s.request.graph.nodes.find((n: any) => n.id === 'mrr').nonlinear_identity.stated_in_brief).toBe(true);
+      expect(strip(i)).toEqual(strip(s));
+    }
+    const reasons = Object.fromEntries([A1OF, A1O, A1ZF, A1ZS, A1IS].map((f) => {
+      const row = served(f);
+      expect(row.http_status).toBe(422);
+      const blockers = islCritiquesOf(row).filter((c) => c.severity === 'blocker');
+      expect(blockers).toHaveLength(1);
+      expect(blockers[0].code).toBe('IDENTITY_NOT_EVALUATED');
+      expect(blockers[0].identity.node_id).toBe('mrr');
+      return [f.split('-')[0], blockers[0].identity.withheld_reason];
+    }));
+    expect(reasons).toEqual({
+      A1of: 'identity_operand_missing', A1o: 'identity_operand_missing',
+      A1zf: 'identity_zero_level', A1zs: 'identity_zero_level', A1is: 'identity_inconsistent',
+    });
+  });
+
+  // ⭐ RED at base (aac1970): 422, one ISL call — #385 withdrew only `identity_inconsistent`.
+  for (const [label, file, reason] of [
+    ['A1of (inferred, operand level MISSING)', A1OF, 'inferred_identity_operand_missing'],
+    ['A1zf (inferred, operand level ZERO)', A1ZF, 'inferred_identity_zero_level'],
+  ] as const) {
+    it(`⭐ ${label}: 422 → 200 — withdrawn, asked ONCE more, named ${reason}, and the retry is byte-identical to C0`, async () => {
+      const row = served(file);
+      islSeq = [servedReject(row)];
+      const res = await post(row.request);
+      expect(res.status).toBe(200);
+      const body = await res.json();
+      expect(body.analysis_status).not.toBe('blocked');
+      expect(islBodies).toHaveLength(2);
+      expect(occurrences(islBodies[0])).toBe(1);
+      expect(occurrences(islBodies[1])).toBe(0);
+      expect(JSON.stringify(islBodies[1])).not.toContain('"execution_frame"');
+      expect(body._meta?.identities_not_forwarded).toEqual([{ node_id: 'mrr', reason, frameless_node_ids: [] }]);
+      const retried = islBodies[1];
+
+      // C0 — the same request with no identity: the Run PLoT asks ISL for after the withdrawal IS C0's, byte for byte.
+      const c0 = await post(withoutIdentity(row.request));
+      expect(c0.status).toBe(200);
+      expect(islBodies).toHaveLength(1);
+      expect(JSON.stringify(retried)).toBe(JSON.stringify(islBodies[0]));
+      const c0Body = await c0.json();
+      expect(c0Body._meta?.identities_not_forwarded).toBeUndefined();
+      // Effects: PLoT's own content hash — the public surface less `_meta` and the per-run volatile set (critique UUIDs,
+      // timestamps, `fact_objects`) — recomputed here, and the effect blocks themselves, byte for byte.
+      expect(computeResponseContentHash(body)).toBe(computeResponseContentHash(c0Body));
+      expect(body._meta?.response_content_hash).toBe(c0Body._meta?.response_content_hash);
+      for (const block of ['option_comparison', 'factor_sensitivity', 'driver_order', 'edge_sensitivity', 'robustness', 'flip_thresholds', 'constraint_results']) {
+        expect(body[block], block).toBeDefined();
+        expect(JSON.stringify(body[block]), block).toBe(JSON.stringify(c0Body[block]));
+      }
+    });
+  }
+
+  it('A1if (inferred, INCONSISTENT) — #385\'s row unchanged: withdrawn with ISL\'s own figures, exactly as served', async () => {
+    // A1if's first-call 422 never surfaced (#385 withdrew it); ISL's critique for the same graph is A1is's (PRECONDITION).
+    islSeq = [servedReject(served(A1IS))];
+    const res = await post(served(A1IF).request);
+    expect(res.status).toBe(200);
+    expect(islBodies).toHaveLength(2);
+    expect((await res.json())._meta?.identities_not_forwarded).toEqual(served(A1IF).response._meta.identities_not_forwarded);
+    expect(served(A1IF).response._meta.identities_not_forwarded).toEqual([{
+      node_id: 'mrr', reason: 'inferred_identity_inconsistent', frameless_node_ids: [],
+      reconciliation: { reconstructed: 74500, stated: 93125, mismatch_share: 0.2 },
+    }]);
+  });
+
+  // CONTROLS — a STATED identity keeps ISL's refusal: one call, 422, ISL's critique carried, nothing withdrawn.
+  for (const [label, file] of [
+    ['A1o (stated, operand level MISSING)', A1O],
+    ['A1zs (stated, operand level ZERO)', A1ZS],
+    ['A1is (stated, INCONSISTENT)', A1IS],
+  ] as const) {
+    it(`CONTROL ${label}: stays 422 — one ISL call, ISL's own critique returned, nothing withdrawn`, async () => {
+      const row = served(file);
+      islSeq = [servedReject(row)];
+      const res = await post(row.request);
+      expect(res.status).toBe(422);
+      expect(islBodies).toHaveLength(1);
+      const body = await res.json();
+      const blocker = (body.critiques as any[]).find((c) => c.code === 'IDENTITY_NOT_EVALUATED');
+      expect(blocker?.id).toBe(islCritiquesOf(row)[0].id);
+      expect(blocker?.identity).toEqual(islCritiquesOf(row)[0].identity);
+      expect(body._meta?.identities_not_forwarded).toBeUndefined();
+    });
+  }
+
+  // "Must not withdraw a STATED identity under ANY reason" — every reason in ISL's enum (14f1a3a identity_evaluation.py).
+  for (const reason of ['identity_frame_missing', 'identity_operand_missing', 'identity_zero_level', 'identity_inconsistent']) {
+    it(`CONTROL a STATED identity withheld as ${reason} keeps the refusal — one call, 422`, async () => {
+      const row = served(A1O);
+      islSeq = [servedReject(row, islCritiquesOf(row).map((c) => withReason(c, reason)))];
+      const res = await post(row.request);
+      expect(res.status).toBe(422);
+      expect(islBodies).toHaveLength(1);
+      expect(occurrences(islBodies[0])).toBe(1);
+    });
+  }
+
+  it('ANY reason: an inferred identity ISL withheld as identity_frame_missing is withdrawn too, named inferred_identity_frame_missing', async () => {
+    const row = served(A1OF);
+    islSeq = [servedReject(row, islCritiquesOf(row).map((c) => withReason(c, 'identity_frame_missing')))];
+    const res = await post(row.request);
+    expect(res.status).toBe(200);
+    expect(islBodies).toHaveLength(2);
+    expect((await res.json())._meta?.identities_not_forwarded)
+      .toEqual([{ node_id: 'mrr', reason: 'inferred_identity_frame_missing', frameless_node_ids: [] }]);
+  });
+
+  // AIQ #72 5869104258 (merge-order condition on ISL #199): ANY ISL withheld reason withdraws an INFERRED identity —
+  // matched by shape, not a list — so a reason ISL adds later can never refuse a Run over an identity nobody stated.
+  for (const reason of ['identity_scale_out_of_range', 'identity_unknown_future_reason']) {
+    it(`⭐ RED (AIQ 5869104258): an inferred identity ISL withholds as "${reason}" is withdrawn and named, 2 calls, 200`, async () => {
+      const row = served(A1OF);
+      islSeq = [servedReject(row, islCritiquesOf(row).map((c) => withReason(c, reason)))];
+      const res = await post(row.request);
+      expect(res.status).toBe(200);
+      expect(islBodies).toHaveLength(2);
+      expect((await res.json())._meta?.identities_not_forwarded)
+        .toEqual([{ node_id: 'mrr', reason: `inferred_${reason}`, frameless_node_ids: [] }]);
+    });
+  }
+
+  it('CONTROL: the same new reason on a STATED identity keeps ISL\'s refusal — 1 call, 422', async () => {
+    const row = served(A1OF);
+    const request = structuredClone(row.request);
+    request.graph.nodes.find((n: any) => n.id === 'mrr').nonlinear_identity.stated_in_brief = true;
+    islSeq = [servedReject(row, islCritiquesOf(row).map((c) => withReason(c, 'identity_scale_out_of_range')))];
+    const res = await post(request);
+    expect(res.status).toBe(422);
+    expect(islBodies).toHaveLength(1);
+  });
+
+  for (const bad of [undefined, '', 'Identity Scale Out Of Range', 'scale_out_of_range']) {
+    it(`CONTRAST: a critique with no ISL-typed reason (${JSON.stringify(bad)}) keeps the refusal — 1 call, 422`, async () => {
+      const row = served(A1OF);
+      islSeq = [servedReject(row, islCritiquesOf(row).map((c) => withReason(c, bad as string)))];
+      const res = await post(row.request);
+      expect(res.status).toBe(422);
+      expect(islBodies).toHaveLength(1);
+    });
+  }
+
+  /** A1of plus a SECOND identity, on `pro_paying_subscribers` (monthly_new × monthly_churn — every participant framed). */
+  const twoIdentities = (secondStated: boolean): any => {
+    const request = structuredClone(served(A1OF).request);
+    request.graph.nodes.find((n: any) => n.id === 'pro_paying_subscribers').nonlinear_identity = {
+      operation: 'product', factor_ids: ['monthly_new_pro_subscribers', 'monthly_churn'], stated_in_brief: secondStated,
+    };
+    return request;
+  };
+  const secondCritique = (withheld_reason: string) => ({
+    ...islCritiquesOf(served(A1OF))[0],
+    id: 'critique_second_identity',
+    affected_node_ids: ['pro_paying_subscribers', 'monthly_new_pro_subscribers', 'monthly_churn'],
+    identity: { node_id: 'pro_paying_subscribers', operation: 'product', participants: ['monthly_new_pro_subscribers', 'monthly_churn'], withheld_reason },
+  });
+
+  it('PRECONDITION — both identities of the two-identity request reach ISL (every participant framed)', async () => {
+    const res = await post(twoIdentities(false));
+    expect(res.status).toBe(200);
+    expect(occurrences(islBodies[0])).toBe(2);
+  });
+
+  it('ONE retry, never a loop: the retry refused over a STILL-declared inferred identity returns that refusal — 2 calls, 422', async () => {
+    const row = served(A1OF);
+    islSeq = [servedReject(row), servedReject(row, [secondCritique('identity_zero_level')])];
+    const res = await post(twoIdentities(false));
+    expect(res.status).toBe(422);
+    expect(islBodies).toHaveLength(2);
+    expect(occurrences(islBodies[1])).toBe(1);
+    expect(((await res.json()).critiques as any[]).map((c) => c.id)).toContain('critique_second_identity');
+  });
+
+  it('CONTROL: an inferred identity beside a STATED one, both withheld in one 422 — nothing is withdrawn; one call, 422', async () => {
+    const row = served(A1OF);
+    islSeq = [servedReject(row, [...islCritiquesOf(row), secondCritique('identity_operand_missing')])];
+    const res = await post(twoIdentities(true));
+    expect(res.status).toBe(422);
+    expect(islBodies).toHaveLength(1);
+    expect(occurrences(islBodies[0])).toBe(2);
   });
 });
