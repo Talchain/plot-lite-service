@@ -253,31 +253,50 @@ function hasFiniteLevel(observed: unknown): boolean {
 /** An inferred identity PLoT did not forward to ISL, and why (`_meta.identities_not_forwarded`). */
 export interface IdentityNotForwarded {
   node_id: string;
-  reason: 'inferred_identity_frame_unresolved' | 'inferred_identity_inconsistent';
-  /** The identity's own nodes that had no frame — the node, a factor or an addend (empty when inconsistent). */
+  reason:
+    | 'inferred_identity_frame_unresolved'
+    | 'inferred_identity_frame_missing'
+    | 'inferred_identity_operand_missing'
+    | 'inferred_identity_zero_level'
+    | 'inferred_identity_inconsistent';
+  /** The identity's own nodes that had no frame — the node, a factor or an addend (empty when ISL withheld it). */
   frameless_node_ids: string[];
   /** `inferred_identity_inconsistent` only: ISL's own reconciliation, verbatim from its critique. */
   reconciliation?: { reconstructed?: number; stated?: number; mismatch_share?: number };
 }
 
 /**
- * ⛔ Variant (c) (DL #72 5864468829, HIGH): an INFERRED identity (`stated_in_brief: false`) that ISL itself finds
- * INCONSISTENT is withdrawn and the Run asked again, once — exactly as variant (b) withdraws a frameless one.
+ * How PLoT names an INFERRED identity it withdraws, for each reason ISL withholds one (ISL `IdentityWithheldReason`,
+ * 14f1a3a `src/models/identity_evaluation.py`: exactly these four). A reason outside this table is not withdrawn.
+ */
+const INFERRED_WITHDRAWAL_REASON: Readonly<Record<string, IdentityNotForwarded['reason']>> = {
+  identity_frame_missing: 'inferred_identity_frame_missing',
+  identity_operand_missing: 'inferred_identity_operand_missing',
+  identity_zero_level: 'inferred_identity_zero_level',
+  identity_inconsistent: 'inferred_identity_inconsistent',
+};
+
+/**
+ * ⛔ Variant (c) (DL #72 5864468829, HIGH), widened by R3-A1 (AIQ RESULT + RULING #72 5867263914, HIGH): an INFERRED
+ * identity (`stated_in_brief: false`) that ISL cannot evaluate — for ANY of its reasons — is withdrawn and the Run asked
+ * again, once — exactly as variant (b) withdraws a frameless one. ONLY a STATED identity refuses the Run.
  *
  * Served journey C since #383 (3 of 6 final Runs refused, 0 before): Olumi's reading "MRR = Pro price × Pro paying
  * subscribers" held Olumi's OWN estimate of subscribers (1,000); the user then said "our current MRR is £72,000";
  * £49 × 1,000 ≠ £72,000, so ISL withheld the identity (`identity_inconsistent`, share > 5%) and — by its R3 rule, a
  * declared identity the decision depends on that is not evaluated is a blocker — refused the whole Run. The user was
- * refused over a contradiction Olumi's own guess created.
+ * refused over a contradiction Olumi's own guess created. R3-A1 (served PLoT aac1970 · ISL 14f1a3a, Paul's a6ed1bff
+ * request): the same inferred identity with an operand level MISSING (`identity_operand_missing`) or ZERO
+ * (`identity_zero_level`) still refused the whole Run, because only `identity_inconsistent` was withdrawn.
  *
- * ISL stays the ONE judge of consistency: PLoT re-derives nothing. It reads ISL's 422 and acts only when EVERY blocker
- * is an `IDENTITY_NOT_EVALUATED` critique whose typed identity is `identity_inconsistent` on a node PLoT forwarded as
- * INFERRED. Then those declarations (and the frames only they needed) are removed, the node stays linear as before
- * #383, and each is said with ISL's own figures. Anything else — a STATED identity (the user's own figures conflict:
- * AIQ's rule stands), another withheld reason, or any other blocker — returns `null`: ISL's refusal stands. Mutates
- * `islNodes` only when it returns a non-empty list.
+ * ISL stays the ONE judge: PLoT re-derives nothing. It reads ISL's 422 and acts only when EVERY blocker is an
+ * `IDENTITY_NOT_EVALUATED` critique whose typed identity names one of ISL's withheld reasons on a node PLoT forwarded
+ * as INFERRED. Then those declarations (and the frames only they needed) are removed, the node stays linear as before
+ * #383, and each is said with its reason (`inferred_<ISL reason>`; an inconsistent one with ISL's own figures).
+ * Anything else — a STATED identity (the user's own figures: AIQ's rule stands), a reason outside ISL's enum, or any
+ * other blocker — returns `null`: ISL's refusal stands. Mutates `islNodes` only when it returns a non-empty list.
  */
-export function withdrawInferredInconsistentIdentities(
+export function withdrawInferredUnevaluatedIdentities(
   islNodes: ISLNodeV3[],
   critiques: ReadonlyArray<{ code?: unknown; severity?: unknown; identity?: unknown }> | undefined,
 ): IdentityNotForwarded[] | null {
@@ -288,19 +307,25 @@ export function withdrawInferredInconsistentIdentities(
   for (const c of blockers) {
     const identity = (c.identity ?? null) as Record<string, unknown> | null;
     const nodeId = identity?.node_id;
-    if (c.code !== 'IDENTITY_NOT_EVALUATED' || identity === null || identity.withheld_reason !== 'identity_inconsistent'
-      || typeof nodeId !== 'string') return null;
+    const withheldReason = identity?.withheld_reason;
+    const reason = typeof withheldReason === 'string' && Object.hasOwn(INFERRED_WITHDRAWAL_REASON, withheldReason)
+      ? INFERRED_WITHDRAWAL_REASON[withheldReason]
+      : undefined;
+    if (c.code !== 'IDENTITY_NOT_EVALUATED' || identity === null || reason === undefined || typeof nodeId !== 'string') return null;
     const declared = byId.get(nodeId)?.nonlinear_identity;
     if (!declared || declared.stated_in_brief !== false) return null;
+    if (withdrawn.some((w) => w.node_id === nodeId)) continue;
+    if (reason !== 'inferred_identity_inconsistent') {
+      withdrawn.push({ node_id: nodeId, reason, frameless_node_ids: [] });
+      continue;
+    }
     const finite = (v: unknown): number | undefined => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
     const reconciliation = {
       ...(finite(identity.reconstructed) !== undefined && { reconstructed: finite(identity.reconstructed) }),
       ...(finite(identity.stated) !== undefined && { stated: finite(identity.stated) }),
       ...(finite(identity.mismatch_share) !== undefined && { mismatch_share: finite(identity.mismatch_share) }),
     };
-    if (!withdrawn.some((w) => w.node_id === nodeId)) {
-      withdrawn.push({ node_id: nodeId, reason: 'inferred_identity_inconsistent', frameless_node_ids: [], reconciliation });
-    }
+    withdrawn.push({ node_id: nodeId, reason, frameless_node_ids: [], reconciliation });
   }
   const participantsOf = (node: ISLNodeV3): string[] => {
     const identity = node.nonlinear_identity!;

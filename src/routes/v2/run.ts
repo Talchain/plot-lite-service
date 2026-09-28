@@ -87,7 +87,7 @@ import { filterTemporalConstraints } from '../../normalisation/constraint-filter
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, InternalMetadata } from '../../types/engine-v3.js';
-import { withdrawInferredInconsistentIdentities, attachIdentityExecutionFrames, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
+import { withdrawInferredUnevaluatedIdentities, attachIdentityExecutionFrames, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
@@ -8147,17 +8147,18 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             undefined,
             baseCallBudget
           );
-          // ⛔ Variant (c) (DL #72 5864468829): an INFERRED identity ISL itself found inconsistent is withdrawn and the Run
-          // asked again ONCE (`withdrawInferredInconsistentIdentities`: ISL stays the one judge; a stated identity, another
-          // reason or any other blocker keeps ISL's refusal). Said in `_meta.identities_not_forwarded`.
+          // ⛔ Variant (c) (DL #72 5864468829), widened by R3-A1 (#72 5867263914): an INFERRED identity ISL cannot evaluate,
+          // for ANY of its reasons, is withdrawn and the Run asked again ONCE — an `if`, never a loop
+          // (`withdrawInferredUnevaluatedIdentities`: ISL stays the one judge; a STATED identity, a reason outside ISL's
+          // enum or any other blocker keeps ISL's refusal). Said in `_meta.identities_not_forwarded`.
           if (!response.data && (response.error as { status?: unknown } | null)?.status === 422) {
-            const withdrawn = withdrawInferredInconsistentIdentities(
+            const withdrawn = withdrawInferredUnevaluatedIdentities(
               islRequest.graph.nodes,
               (response.error as { critiques?: Array<{ code?: unknown; severity?: unknown; identity?: unknown }> }).critiques,
             );
             if (withdrawn !== null && withdrawn.length > 0) {
               identitiesNotForwarded.push(...withdrawn);
-              req.log.info({ event: 'isl_inferred_identity_withdrawn', request_id: requestId, node_ids: withdrawn.map((w) => w.node_id) });
+              req.log.info({ event: 'isl_inferred_identity_withdrawn', request_id: requestId, node_ids: withdrawn.map((w) => w.node_id), reasons: withdrawn.map((w) => w.reason) });
               response = await islService.callAnalysisEndpoint<any>(
                 '/api/v1/robustness/analyze/v2',
                 islRequest,
