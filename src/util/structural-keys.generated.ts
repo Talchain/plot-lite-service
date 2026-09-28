@@ -238,6 +238,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "goal_node_exists",
   "goal_node_id",
   "goal_threshold",
+  "goal_threshold_strict",
   "graph",
   "hash_version",
   "headline",

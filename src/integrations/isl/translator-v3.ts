@@ -615,6 +615,13 @@ export interface ISLRobustnessRequestV3 {
    */
   goal_direction?: GoalDirectionType;
 
+  /**
+   * R1 S4 (B) (R3 #72 5879133964; ISL #209): the goal must be strictly PAST `goal_threshold` ("above £85k";
+   * "below" when minimising), so a draw exactly on the threshold is NOT met. Sent only as `true` and only beside a
+   * `goal_threshold` (ISL refuses `true` without one with a 422 that fails the whole analysis); absent = "at least".
+   */
+  goal_threshold_strict?: boolean;
+
   // CIL 0.1: forward seed to ISL for deterministic Monte Carlo runs
   seed?: string | number;
 
@@ -1678,7 +1685,9 @@ export function toISLRobustnessRequest(
   // ROADMAP 2.920: the user's attested objective sense. Appended for the same
   // reason as `goalThresholdFrame` and `userStatedRanges` above — the call sites
   // pass these positionally and reshuffling them is a mis-wire waiting to happen.
-  goalDirection?: GoalDirectionType
+  goalDirection?: GoalDirectionType,
+  // R1 S4 (B): the producer's attested strict comparator. Appended last for the same positional-call reason.
+  goalThresholdStrict?: boolean
 ): ISLRobustnessRequestV3 {
   // Bidirected edges are trust-layer only (identifiability + warnings).
   // ISL operates on directed edges only. Phase 3A-inference will add inference semantics.
@@ -1773,6 +1782,14 @@ export function toISLRobustnessRequest(
     if (goalDirection !== 'target' || targetIsSatisfiable) {
       request.goal_direction = goalDirection;
     }
+  }
+
+  // R1 S4 (B) — a STRICT goal, request-gated and verbatim. Forwarded only as `true` and only when this request
+  // carries the threshold it qualifies: ISL #209 refuses `goal_threshold_strict: true` with no `goal_threshold` (a 422
+  // that fails the WHOLE analysis), and PLoT's frame/domain safeguards can clear the threshold. Absent or false is
+  // omitted, so the request is byte-identical to today's. PLoT never infers strictness.
+  if (goalThresholdStrict === true && request.goal_threshold !== undefined) {
+    request.goal_threshold_strict = true;
   }
 
   // CIL 0.1: forward seed to ISL for deterministic Monte Carlo runs
