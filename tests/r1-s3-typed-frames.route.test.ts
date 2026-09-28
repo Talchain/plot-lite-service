@@ -257,4 +257,23 @@ describe('R1 S3 route — the goal channel carries a change from today', () => {
     ], [{ from: 'code_quality_change', to: 'monthly_cloud_bill', strength: { mean: 0.1, std: 0.05 } }])));
     expect(nodeOf(isl, 'code_quality_change')?.quantity_frame).toBe('change');
   });
+
+  it('SR-9 MIXED GRADE on one node, on the real ISL egress: no raw_range when one change_rel limit on it is not decision-grade (Codex #403 5878770045)', async () => {
+    // Churn with no cap: the bare limit can only derive its range; the '%' limit reads the percent rung.
+    const churn = { id: 'churn', kind: 'factor', label: 'Monthly churn', observed_state: { value: 0.035, unit: '%', source: 'brief_extraction' } };
+    const edge = { from: 'churn', to: 'monthly_cloud_bill', strength: { mean: 0.2, std: 0.05 } };
+    const bare = { constraint_id: 'churn_bare', node_id: 'churn', operator: '<=', value: -0.2, value_frame: 'change_rel' };
+    // A two-sided band: the route keeps only the tighter of two same-operator limits on one node, so both
+    // reach ISL only as a band (<= and >=), which is where the shared raw_range leaked.
+    const pct = { constraint_id: 'churn_pct', node_id: 'churn', operator: '>=', value: -0.3, value_frame: 'change_rel', unit: '%' };
+    // CONTROL: the '%' limit alone qualifies, so the egress probe can see a raw_range on this node.
+    const alone = await run(payload(cloudGraph({}, [churn], [edge]), { goal_constraints: [pct] }));
+    expect(nodeOf(alone.isl, 'churn')?.raw_range).toEqual({ min: 0, max: 1 });
+    for (const constraints of [[bare, pct], [pct, bare]]) {
+      const { isl } = await run(payload(cloudGraph({}, [churn], [edge]), { goal_constraints: constraints }));
+      const sent = (isl.goal_constraints ?? []).map((c: any) => c.constraint_id).sort();
+      expect(sent).toEqual(['churn_bare', 'churn_pct']);
+      expect('raw_range' in nodeOf(isl, 'churn'), constraints.map((c) => c.constraint_id).join(',')).toBe(false);
+    }
+  });
 });

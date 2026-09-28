@@ -176,9 +176,26 @@ describe('R1 S3 — change_rel is a fraction: forwarded as r, with the node raw 
       [spend({ unit: '%', cap: 50 })],
       { unitsByConstraintId: new Map([['c_b', '%']]) },
     );
-    const a = conflicted.raw_range_by_node_id.get('monthly_cloud_spend');
-    // c_a reads the node cap [0, 50]; c_b reads the '%' rung. If they differ, the node carries none.
-    if (a !== undefined) expect(a).toEqual({ min: 0, max: 50 });
+    // c_a reads the node cap [0, 50]; c_b reads the '%' rung [0, 100]. They differ, so the node carries none.
+    expect(conflicted.raw_range_by_node_id.has('monthly_cloud_spend')).toBe(false);
+  });
+
+  it('S3-10b MIXED GRADE on one node: a sibling without a decision-grade range voids the node\'s raw range, in either order (Codex #403 5878770045)', () => {
+    // No cap on the node: a limit with no unit can only DERIVE its range (not decision-grade), while its '%'
+    // sibling reads the percent rung (decision-grade). `raw_range` rides on the SHARED ISL node, so if either
+    // wrote it the other would be scored on a range it never qualified to use.
+    const churn = { id: 'churn', kind: 'factor', label: 'Monthly churn', observed_state: { value: 0.035, unit: '%', source: 'brief_extraction' } } as EngineNodeV3;
+    const bare = limit({ constraint_id: 'c_bare', node_id: 'churn', value: -0.2, value_frame: 'change_rel' });
+    const pct = limit({ constraint_id: 'c_pct', node_id: 'churn', operator: '>=', value: -0.3, value_frame: 'change_rel', unit: '%' } as never);
+    const units = { unitsByConstraintId: new Map([['c_pct', '%']]) };
+    // CONTROLS: each alone. The '%' limit qualifies (so the probe can see a range); the bare one does not.
+    expect(normaliseGoalConstraints([pct], [churn], units).raw_range_by_node_id.get('churn')).toEqual({ min: 0, max: 1 });
+    expect(normaliseGoalConstraints([bare], [churn], units).raw_range_by_node_id.has('churn')).toBe(false);
+    for (const order of [[bare, pct], [pct, bare]]) {
+      const res = normaliseGoalConstraints(order, [churn], units);
+      expect(res.constraints.map((c) => c.constraint_id).sort()).toEqual(['c_bare', 'c_pct']); // both still forwarded
+      expect(res.raw_range_by_node_id.has('churn'), order.map((c) => c.constraint_id).join(',')).toBe(false);
+    }
   });
 
   it('S3-11 the gate ignores change frames: adding one never changes how a sibling level limit is read', () => {

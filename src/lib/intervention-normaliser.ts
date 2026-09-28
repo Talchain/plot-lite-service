@@ -2499,7 +2499,14 @@ export function normaliseGoalConstraints(
         // AIQ #72 5876151887: the raw bounds go to ISL ONLY on a decision-grade, unified range. A
         // DERIVED guess (e.g. `inferred_value`) sends none, so ISL refuses the relative change by name,
         // exactly as on the default range — never an estimate scored as decision-grade.
-        if (DECISION_GRADE_SOURCES.has(range.source) && rangeUnified && Number.isFinite(span) && span > 0 && !rawRangeConflicted.has(node_id)) {
+        // Codex #403 5878770045: `raw_range` rides on the SHARED ISL node, so it is read by EVERY change_rel
+        // limit on that node. One forwarded change_rel without a decision-grade unified range voids the
+        // node's raw range for all of them, in either order; it never inherits a sibling's qualified range.
+        const decisionGrade = DECISION_GRADE_SOURCES.has(range.source) && rangeUnified && Number.isFinite(span) && span > 0;
+        if (!decisionGrade) {
+          rawRangeByNodeId.delete(node_id);
+          rawRangeConflicted.add(node_id);
+        } else if (!rawRangeConflicted.has(node_id)) {
           const prior = rawRangeByNodeId.get(node_id);
           if (prior === undefined) {
             rawRangeByNodeId.set(node_id, { min: range.min, max: range.max });
