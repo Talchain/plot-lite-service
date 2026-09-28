@@ -575,7 +575,9 @@ export interface GoalConstraint {
  * The levels a constraint's target can take, in the constraint's normalised
  * frame. Mirrors ISL #181's `LevelDomain` (`src/models/robustness_v2.py`):
  * inclusive, finite, `min <= max`, at least one bound (ISL answers 422
- * otherwise). PLoT mints only `{min: 0, max: 1}` today (see `level_domain`).
+ * otherwise). PLoT mints only `{min: 0, max: 100/extent}` today — a '%' limit's
+ * 0–100% in the target's normalised units, `{0, 1}` on a 100-point frame
+ * (see `level_domain` and `levelDomainFor`).
  */
 export interface ConstraintLevelDomain {
   min?: number;

@@ -11,10 +11,18 @@
  *
  * THE CONTRACT (5844820853):
  *   · PLoT sends `level_domain` on a '%' level limit (`levelDomainFor`, the one
- *     writer, in `lib/intervention-normaliser.ts`);
+ *     writer, in `lib/intervention-normaliser.ts`): 0–100% in the target's own
+ *     normalised units, `{0, 100/extent}` (`{0, 1}` on a 100-point frame);
  *   · ISL returns, per option and per limit, `level_out_of_domain_fraction` —
  *     the share of that option's draws whose LEVEL is outside the domain, over
- *     the same population as `prob_satisfied`. Report-only: no probability moves;
+ *     the same population as `prob_satisfied`, computed by ISL against the
+ *     domain exactly as sent. The FRACTION is report-only. The DOMAIN is not
+ *     any more: from ISL #196 on, when the target node is ANCHORED and ISL reads
+ *     its frame as 100 points (`node_level_frame`: execution_frame, else cap,
+ *     else the pair), the domain is also that node's level domain, and ISL
+ *     clamps the levels it reports for the node, this limit's included — so
+ *     `prob_satisfied` can move. Off a 100-point frame ISL #196 does not apply
+ *     it (no ceiling; floor 0 by the held level's sign);
  *   · judged on the LEADER's row, epsilon 0.05. Why 0.05 (AI Quality): an
  *     impossible draw can inflate P(meets) by at most its own share, so epsilon
  *     bounds that inflation at 5 points.
