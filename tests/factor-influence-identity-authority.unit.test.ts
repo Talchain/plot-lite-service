@@ -124,15 +124,15 @@ describe('R3-5 (A) — an incomplete list never mixes bases: the walk stays and 
 });
 
 // ISL's own walk over the six factor nodes of the SAME served wire WITHOUT the identity (C0), from ISL
-// `_compute_structural_influence` at ISL `r3b/one-influence-algorithm` 2f8e8ae (staging 8ce4ae75 + the
-// every-graph emit), `repr` values copied from the run. P1's values at that head reproduce ISL_EVERY exactly.
+// `_compute_structural_influence` at ISL #206 b1113de — the EXPECTED NET effect (AIQ #72 5875853496:
+// |Σ paths ∏(mean × exists_probability)|) — `repr` values copied from the run.
 const ISL_C0: Record<string, number> = {
-  pro_plan_price: 0.993460567823344,
-  pro_paying_subscribers: 0.29574132492113564,
-  monthly_churn: 0.03548895899053628,
-  monthly_new_pro_subscribers: 0.023659305993690854,
-  other_mrr_growth: 0.7886435331230284,
-  fac_existing_customers_grandfathered: 1.0,
+  pro_plan_price: 1.0,
+  pro_paying_subscribers: 0.3023481567243842,
+  monthly_churn: 0.0362817788069261,
+  monthly_new_pro_subscribers: 0.02418785253795074,
+  other_mrr_growth: 0.8062617512650246,
+  fac_existing_customers_grandfathered: 0.9933144775585104,
 };
 
 describe('ONE influence algorithm (AIQ 5872951506) — without an identity a complete list is adopted too', () => {
@@ -146,19 +146,20 @@ describe('ONE influence algorithm (AIQ 5872951506) — without an identity a com
       expect(out[id].influence_score).toBe(score);
       expect(out[id].influence_basis).toBe('isl_structural');
     }
-    // the discriminating bar: the walk gives price 1; ISL's C0 walk gives 0.99346
-    expect(out.pro_plan_price.influence_score).not.toBe(1);
+    // the discriminating bar: the walk gives grandfathered 0.98954; ISL's net C0 walk gives 0.99331
+    expect(out.fac_existing_customers_grandfathered.influence_score).not.toBe(byId(walk()).fac_existing_customers_grandfathered.influence_score);
   });
 
-  it('C0: the rows re-order by ISL\'s C0 score — grandfathered 1st, price 2nd (the walk had price 1st)', () => {
+  it('C0: the rows re-order by ISL\'s net C0 score — price 1st, grandfathered 2nd; ranks = position', () => {
     const out = adoptIslStructuralInfluence(walk(), list(ISL_C0));
     expect(out.map((r) => r.factor_id)).toEqual([
-      'fac_existing_customers_grandfathered', 'pro_plan_price', 'other_mrr_growth',
+      'pro_plan_price', 'fac_existing_customers_grandfathered', 'other_mrr_growth',
       'pro_paying_subscribers', 'monthly_churn', 'monthly_new_pro_subscribers',
     ]);
     expect(out.map((r) => r.influence_rank)).toEqual([1, 2, 3, 4, 5, 6]);
     expect(out.map((r) => r.importance_rank)).toEqual([1, 2, 3, 4, 5, 6]);
-    expect(byId(walk()).pro_plan_price.influence_rank).toBe(1);
+    // the input came in the walk's importance order (grandfathered first; the lever price 4th)
+    expect(walk()[0].factor_id).toBe('fac_existing_customers_grandfathered');
   });
 
   it('no list at all (ISL did not run the phase, or an older ISL): the SAME array back, untouched, no basis key', () => {

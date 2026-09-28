@@ -1047,14 +1047,15 @@ const r35List = (scores: Record<string, number>) => Object.entries(scores)
   .map(([node_id, influence_score], i) => ({ node_id, influence_score, influence_rank: i + 1 }));
 const R35_FIVE = Object.fromEntries(Object.entries(R35_EVERY).filter(([id]) => id !== 'fac_existing_customers_grandfathered'));
 // ONE influence algorithm (AIQ #72 5872951506): ISL's own walk over the six factor nodes of the SAME wire
-// WITHOUT the identity (C0), `_compute_structural_influence` at ISL r3b/one-influence-algorithm 2f8e8ae.
+// WITHOUT the identity (C0), `_compute_structural_influence` at ISL #206 b1113de — the expected NET effect
+// (AIQ 5875853496).
 const R35_C0: Record<string, number> = {
-  pro_plan_price: 0.993460567823344,
-  pro_paying_subscribers: 0.29574132492113564,
-  monthly_churn: 0.03548895899053628,
-  monthly_new_pro_subscribers: 0.023659305993690854,
-  other_mrr_growth: 0.7886435331230284,
-  fac_existing_customers_grandfathered: 1.0,
+  pro_plan_price: 1.0,
+  pro_paying_subscribers: 0.3023481567243842,
+  monthly_churn: 0.0362817788069261,
+  monthly_new_pro_subscribers: 0.02418785253795074,
+  other_mrr_growth: 0.8062617512650246,
+  fac_existing_customers_grandfathered: 0.9933144775585104,
 };
 
 describe('R3-5 route — an evaluated identity puts ISL\'s every-factor influence on the Model tab', () => {
@@ -1109,7 +1110,7 @@ describe('R3-5 route — an evaluated identity puts ISL\'s every-factor influenc
     expect(rowsOf(body).pro_paying_subscribers.importance_rank).toBe(1);
   });
 
-  it('ONE ALGORITHM, C0 — no identity: every row shows ISL\'s C0 score; price\'s bar is ISL\'s 0.99346, not the walk\'s 1', async () => {
+  it('ONE ALGORITHM, C0 — no identity: every row shows ISL\'s net C0 score; grandfathered\'s bar is ISL\'s 0.99331, not the walk\'s 0.98954', async () => {
     islNext = { extra: { structural_influence: r35List(R35_C0) } };
     const body = await bodyOf(await post(paulRequest()));
     const rows = rowsOf(body);
@@ -1117,8 +1118,9 @@ describe('R3-5 route — an evaluated identity puts ISL\'s every-factor influenc
       expect(rows[id].influence_score).toBe(score);
       expect(rows[id].influence_basis).toBe('isl_structural');
     }
-    expect(rows.pro_plan_price.influence_score).not.toBe(1);
-    expect(rows.fac_existing_customers_grandfathered.influence_rank).toBe(1);
+    expect(rows.fac_existing_customers_grandfathered.influence_score).not.toBe(0.9895414829202863);
+    expect(rows.pro_plan_price.influence_rank).toBe(1);
+    expect(rows.fac_existing_customers_grandfathered.influence_rank).toBe(2);
     expect(body.driver_order.ranked_factor_ids[0]).toBe('fac_existing_customers_grandfathered');
     expect(body.m1_coaching.key_drivers[0].factor_id).toBe('fac_existing_customers_grandfathered');
   });
