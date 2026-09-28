@@ -1791,6 +1791,8 @@ interface MetaParams {
   withheldOptions?: import('../../types/engine-v3.js').WithheldOptionRecord[];
   /** Variant (b): inferred identities not forwarded to ISL (frameless) — _meta.identities_not_forwarded */
   identitiesNotForwarded?: import('../../integrations/isl/translator-v3.js').IdentityNotForwarded[];
+  /** Variant (a): frames PLoT derived for frameless inferred intermediate carriers — _meta.identity_derived_frames */
+  identityDerivedFrames?: import('../../integrations/isl/translator-v3.js').IdentityDerivedFrame[];
   /** Per-factor range derivation source (maps factor_id → derivation tier) */
   rangeDerivationSources?: Record<string, string>;
 }
@@ -4859,6 +4861,11 @@ function buildResponse(
         (baseMeta as any).identities_not_forwarded = meta.identitiesNotForwarded;
       }
 
+      // Variant (a): each frame PLoT derived (Olumi's ruler, never the user's), and from what (absent when none).
+      if (meta.identityDerivedFrames && meta.identityDerivedFrames.length > 0) {
+        (baseMeta as any).identity_derived_frames = meta.identityDerivedFrames;
+      }
+
       // Per-factor range derivation sources (diagnostic — shows which tier each factor used)
       if (meta.rangeDerivationSources && Object.keys(meta.rangeDerivationSources).length > 0) {
         baseMeta.range_derivation_sources = meta.rangeDerivationSources;
@@ -6346,6 +6353,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const withheldOptionRecords: import('../../types/engine-v3.js').WithheldOptionRecord[] = [];
         // Variant (b): inferred identities PLoT did not forward (frameless) — `_meta.identities_not_forwarded`.
         const identitiesNotForwarded: import('../../integrations/isl/translator-v3.js').IdentityNotForwarded[] = [];
+        // Variant (a): frames PLoT derived for frameless inferred intermediate carriers — `_meta.identity_derived_frames`.
+        const identityDerivedFrames: import('../../integrations/isl/translator-v3.js').IdentityDerivedFrame[] = [];
 
         if (filteredConstraintRecords.length > 0) {
           req.log.info({
@@ -7932,7 +7941,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         for (const [nodeId, meta] of goalThresholdMetaByNodeId) {
           if (meta.goal_threshold_cap !== undefined) goalCapByNodeId.set(nodeId, meta.goal_threshold_cap);
         }
-        identitiesNotForwarded.push(...attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId, goalCapByNodeId));
+        identitiesNotForwarded.push(...attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId, goalCapByNodeId, identityDerivedFrames));
 
         req.log.info(
           {
@@ -9552,6 +9561,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             ],
             withheldOptions: withheldOptionRecords,
             identitiesNotForwarded,
+            identityDerivedFrames,
             rangeDerivationSources: normalisationContext
               ? Object.fromEntries([...normalisationContext.factors].map(([id, ctx]) => [id, ctx.range.source]))
               : buildDefaultRangeDerivationSources(normalizedOptions),

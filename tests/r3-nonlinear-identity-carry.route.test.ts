@@ -316,6 +316,77 @@ describe('R3-3 unit — normaliseNode / toISLNode carry the declaration or refus
   });
 });
 
+// ⭐ Variant (a) (DL #72 5865205478; Canonical ruler gate): an INFERRED product whose carrier is a NON-GOAL OUTCOME with
+// no level and no frame, every factor framed, takes the product of its factors' frames as Olumi's derived ruler, carrier
+// `cap`, disclosed. Everything else (a goal, a stated identity, a carrier with a level, a frameless factor, addends)
+// falls through to today's rules byte-for-byte.
+describe('R3 variant (a) — a frameless inferred INTERMEDIATE product carrier takes the product of its factors\' frames', () => {
+  const MRR_ID = 'pro_plan_mrr';
+  function intermediate(opts: { identity?: Record<string, unknown>; carrier?: Record<string, unknown>; subsFramed?: boolean } = {}) {
+    const derived: any[] = [];
+    const engine = [
+      normaliseNode({ id: MRR_ID, kind: 'outcome', label: 'Pro MRR', ...(opts.carrier ?? {}),
+        nonlinear_identity: { ...PRODUCT, stated_in_brief: false, ...(opts.identity ?? {}) } } as any),
+      normaliseNode({ id: 'pro_plan_price', kind: 'factor', label: 'Price', observed_state: { value: 0.245, cap: 200 } } as any),
+      normaliseNode({ id: 'pro_paying_subscribers', kind: 'factor', label: 'Subs', observed_state: { value: 0.15 } } as any),
+      normaliseNode({ id: 'mrr', kind: 'goal', label: 'MRR' } as any),
+    ];
+    const isl = engine.map(toISLNode);
+    const scale = opts.subsFramed === false ? new Map<string, number>() : new Map([['pro_paying_subscribers', 2000]]);
+    const notForwarded = attachIdentityExecutionFrames(isl, engine, scale, new Map(), derived);
+    return { isl, derived, notForwarded, carrier: isl.find((n) => n.id === MRR_ID)! };
+  }
+
+  it('(a) RED: the carrier is framed by price × subscribers frames (200 × 2000), forwarded, and the ruler is disclosed as Olumi\'s', () => {
+    const { derived, notForwarded, carrier } = intermediate();
+    expect(carrier.nonlinear_identity).toEqual({ ...PRODUCT, stated_in_brief: false });
+    expect(carrier.execution_frame).toEqual({ frame: 400000, carrier: 'cap' });
+    expect(notForwarded).toEqual([]);
+    expect(derived).toEqual([{
+      node_id: MRR_ID, frame: 400000, source: 'olumi_derived_product_of_factor_frames',
+      factor_frames: [{ node_id: 'pro_plan_price', frame: 200 }, { node_id: 'pro_paying_subscribers', frame: 2000 }],
+    }]);
+  });
+
+  it('(a) CONTRAST — a STATED identity is untouched: forwarded frameless, no derived ruler (ISL refuses: AIQ\'s rule)', () => {
+    const { derived, notForwarded, carrier } = intermediate({ identity: { stated_in_brief: true } });
+    expect(carrier.execution_frame).toBeUndefined();
+    expect(derived).toEqual([]);
+    expect(notForwarded).toEqual([]);
+  });
+
+  it('(a) CONTRAST — one frameless FACTOR: no derived ruler; not forwarded, exactly as (b)', () => {
+    const { derived, notForwarded, carrier } = intermediate({ subsFramed: false });
+    expect(derived).toEqual([]);
+    expect(carrier).not.toHaveProperty('nonlinear_identity');
+    expect(notForwarded.map((n) => n.node_id)).toEqual([MRR_ID]);
+  });
+
+  it('(a) CONTRAST — a carrier WITH a level (no frame): its ruler is not ours to choose; not forwarded, exactly as (b)', () => {
+    const { derived, notForwarded } = intermediate({ carrier: { observed_state: { value: 0.3 } } });
+    expect(derived).toEqual([]);
+    expect(notForwarded.map((n) => n.node_id)).toEqual([MRR_ID]);
+  });
+
+  it('(a) CONTRAST — addends: no derived ruler (the product bound is not the carrier\'s bound)', () => {
+    const engineAddend = intermediate({ identity: { addends: ['other_mrr'] } });
+    expect(engineAddend.derived).toEqual([]);
+  });
+
+  it('(a) CONTRAST — a GOAL carrier with no cap is untouched: no derived ruler; not forwarded, exactly as (b)', () => {
+    const derived: any[] = [];
+    const engine = [
+      normaliseNode({ id: 'mrr', kind: 'goal', label: 'MRR', nonlinear_identity: { ...PRODUCT, stated_in_brief: false } } as any),
+      normaliseNode({ id: 'pro_plan_price', kind: 'factor', label: 'Price', observed_state: { value: 0.245, cap: 200 } } as any),
+      normaliseNode({ id: 'pro_paying_subscribers', kind: 'factor', label: 'Subs', observed_state: { value: 0.15 } } as any),
+    ];
+    const isl = engine.map(toISLNode);
+    const notForwarded = attachIdentityExecutionFrames(isl, engine, new Map([['pro_paying_subscribers', 2000]]), new Map(), derived);
+    expect(derived).toEqual([]);
+    expect(notForwarded.map((n) => n.node_id)).toEqual(['mrr']);
+  });
+});
+
 describe("R3-3 route — Paul's request: the declaration reaches ISL exactly once, or the run is refused", () => {
   let app: FastifyInstance;
   let baseUrl: string;
@@ -407,6 +478,23 @@ describe("R3-3 route — Paul's request: the declaration reaches ISL exactly onc
       });
       expect(frameMissing(body)).toEqual([]);
     }
+  });
+
+  it('(a) SERVED — DL A15 (pj-20260928T023301Z): the intermediate pro_plan_mrr reaches ISL framed by 200 × 5000, disclosed, nothing withdrawn', async () => {
+    const req = JSON.parse(readFileSync(resolve(__dirname, 'fixtures/r3-intermediate-carrier-dl-a15.request.json'), 'utf8'));
+    const res = await post(req);
+    expect(res.status).toBe(200);
+    const out = await res.json();
+    expect(islBodies.length).toBeGreaterThan(0);
+    for (const body of islBodies) {
+      const carrier = body.graph.nodes.find((n: any) => n.id === 'pro_plan_mrr');
+      expect(carrier.nonlinear_identity?.stated_in_brief).toBe(false);
+      expect(carrier.execution_frame).toEqual({ frame: 1000000, carrier: 'cap' });
+      expect(frameMissing(body)).toEqual([]);
+    }
+    expect(out._meta?.identity_derived_frames?.map((d: any) => [d.node_id, d.frame, d.source]))
+      .toEqual([['pro_plan_mrr', 1000000, 'olumi_derived_product_of_factor_frames']]);
+    expect(out._meta?.identities_not_forwarded).toBeUndefined();
   });
 
   it('an UNKNOWN KEY is refused too (422): the carrier is rebuilt from known keys, so it would otherwise vanish', async () => {
