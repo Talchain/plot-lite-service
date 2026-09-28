@@ -264,8 +264,78 @@ describe('R3-3 unit — normaliseNode / toISLNode carry the declaration or refus
     ['negative', new Map([['mrr', -25000]])],
     ['NaN', new Map([['mrr', Number.NaN]])],
     ['infinite', new Map([['mrr', Number.POSITIVE_INFINITY]])],
-  ])('R3-8 — a goal cap that is %s frames nothing (ISL withholds; PLoT never invents one)', (_label, caps) => {
-    expect(goalCarrier({}, caps).mrr).toBeUndefined();
+  ])('R3-8 — a goal cap that is %s is never the frame: the goal falls to (a), Π of its factors\' frames', (_label, caps) => {
+    expect(goalCarrier({}, caps).mrr).toEqual({ frame: 200 * 2000, carrier: 'cap' });
+  });
+
+  // AIQ ruling (a) (#72 5862337197): a frameless PRODUCT carrier takes Π of its factors' frames.
+  function framedCarrier(
+    carrier: Record<string, unknown>,
+    identity: Record<string, unknown>,
+    factors: Record<string, number | undefined>,
+    extra: Array<Record<string, unknown>> = [],
+  ) {
+    const raw = [
+      { id: 'car', kind: 'outcome', label: 'Carrier', nonlinear_identity: identity, ...carrier },
+      ...Object.keys(factors).map((id) => ({ id, kind: 'factor', label: id })),
+      ...extra,
+    ];
+    const engine = raw.map((n) => normaliseNode(n as any));
+    const isl = engine.map(toISLNode);
+    const scale = new Map(Object.entries(factors).filter(([, f]) => f !== undefined) as Array<[string, number]>);
+    attachIdentityExecutionFrames(isl, engine, scale);
+    return Object.fromEntries(isl.map((n) => [n.id, n.execution_frame]));
+  }
+  const P2 = { operation: 'product', factor_ids: ['p', 's'], stated_in_brief: false };
+
+  it('(a) a frameless product carrier (an OUTCOME, as DL A15) takes Π of its factors\' frames, as carrier `cap`', () => {
+    expect(framedCarrier({}, P2, { p: 200, s: 5000 }).car).toEqual({ frame: 1_000_000, carrier: 'cap' });
+  });
+
+  it('(a) a frameless no-target GOAL (Canonical b1) is framed the same way', () => {
+    expect(framedCarrier({ kind: 'goal' }, P2, { p: 200, s: 2000 }).car).toEqual({ frame: 400_000, carrier: 'cap' });
+  });
+
+  it('(a) never overrides a carrier\'s own frame (the goal cap still wins)', () => {
+    const raw = [
+      { id: 'car', kind: 'goal', label: 'MRR', nonlinear_identity: P2 },
+      { id: 'p', kind: 'factor', label: 'p' },
+      { id: 's', kind: 'factor', label: 's' },
+    ];
+    const engine = raw.map((n) => normaliseNode(n as any));
+    const isl = engine.map(toISLNode);
+    attachIdentityExecutionFrames(isl, engine, new Map([['p', 200], ['s', 2000]]), new Map([['car', 25000]]));
+    expect(isl[0].execution_frame).toEqual({ frame: 25000, carrier: 'cap' });
+  });
+
+  it.each([
+    ['a factor has no frame', P2, { p: 200, s: undefined }],
+    ['it is a sum', { ...P2, operation: 'sum' }, { p: 200, s: 5000 }],
+    ['it has addends', { ...P2, addends: ['a'] }, { p: 200, s: 5000, a: 10 }],
+  ])('(a) CONTRAST: no frame is derived when %s', (_label, identity, factors) => {
+    expect(framedCarrier({}, identity, factors).car).toBeUndefined();
+  });
+
+  it('(a) a nested carrier is framed before the carrier that needs it (any node order)', () => {
+    const outer = { operation: 'product', factor_ids: ['car', 'q'], stated_in_brief: false };
+    const frames = framedCarrier({}, P2, { p: 200, s: 5000 }, [
+      { id: 'top', kind: 'goal', label: 'Top', nonlinear_identity: outer },
+      { id: 'q', kind: 'factor', label: 'q' },
+    ]);
+    expect(frames.car).toEqual({ frame: 1_000_000, carrier: 'cap' });
+    expect(frames.top).toBeUndefined(); // q has no frame
+    const withQ = (() => {
+      const raw = [
+        { id: 'top', kind: 'goal', label: 'Top', nonlinear_identity: outer },
+        { id: 'car', kind: 'outcome', label: 'Carrier', nonlinear_identity: P2 },
+        { id: 'p', kind: 'factor', label: 'p' }, { id: 's', kind: 'factor', label: 's' }, { id: 'q', kind: 'factor', label: 'q' },
+      ];
+      const engine = raw.map((n) => normaliseNode(n as any));
+      const isl = engine.map(toISLNode);
+      attachIdentityExecutionFrames(isl, engine, new Map([['p', 200], ['s', 5000], ['q', 3]]));
+      return Object.fromEntries(isl.map((n) => [n.id, n.execution_frame]));
+    })();
+    expect(withQ.top).toEqual({ frame: 3_000_000, carrier: 'cap' });
   });
 
   it('`sum` is admitted (AIQ 5859633012: CEE widens the carrier to product | sum)', () => {
@@ -362,6 +432,21 @@ describe("R3-3 route — Paul's request: the declaration reaches ISL exactly onc
         pro_plan_price: { frame: 200, carrier: 'cap' },
         pro_paying_subscribers: { frame: 2000, carrier: 'scale_frame' },
       });
+      expect(frameMissing(body)).toEqual([]);
+    }
+  });
+
+  it.each([
+    ['DL A15: an OUTCOME carrier', 'dl-a15-outcome-carrier', 'pro_plan_mrr', 1_000_000],
+    ['Canonical b1: a no-target GOAL', 'b1-no-target', 'mrr', 400_000],
+    ['Canonical b2: a no-target GOAL', 'b2-no-target', 'monthly_recurring_revenue', 400_000],
+    ['Canonical b3: a no-target GOAL', 'b3-no-target', 'monthly_recurring_revenue', 1_000_000],
+  ])('(a) served %s: framed by Π of its factors\' frames, so ISL has no identity_frame_missing', async (_label, file, carrier, frame) => {
+    const res = await post(JSON.parse(readFileSync(resolve(__dirname, `fixtures/r3-frameless-carrier/${file}.request.json`), 'utf8')));
+    expect(res.status).toBe(200);
+    expect(islBodies.length).toBeGreaterThan(0);
+    for (const body of islBodies) {
+      expect(body.graph.nodes.find((n: any) => n.id === carrier)?.execution_frame).toEqual({ frame, carrier: 'cap' });
       expect(frameMissing(body)).toEqual([]);
     }
   });

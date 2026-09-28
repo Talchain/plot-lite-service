@@ -182,6 +182,29 @@ export function attachIdentityExecutionFrames(
       if (resolved) participant.execution_frame = { frame: resolved.frame, carrier: resolved.carrier };
     }
   }
+  // A carrier can be another identity's factor, so each pass may frame one that the next pass needs.
+  for (let pass = 0; pass < islNodes.length; pass += 1) {
+    if (!islNodes.some((node) => frameProductCarrier(node, islById))) break;
+  }
+}
+
+/**
+ * ⚠ AIQ RULING (a) — A FRAMELESS PRODUCT CARRIER TAKES THE PRODUCT OF ITS FACTORS' FRAMES (#72 5862337197).
+ * Served shapes with no frame of the carrier's own: a no-target MRR goal (Canonical b1–b3) and an intermediate outcome
+ * (DL A15). `carrier = Π factors` in user units, so with frame Π(factor frames) the carrier's normalised level IS the
+ * product of its factors' normalised levels: the one ruler the identity itself implies (a true ceiling only where every
+ * factor frame is a cap; a `scale_frame` is not a bound). Only a `product` with no addends, only when every factor is
+ * framed and the carrier is not; carried as `cap` (ISL's carrier enum). Returns whether it framed one.
+ */
+function frameProductCarrier(node: ISLNodeV3, islById: ReadonlyMap<string, ISLNodeV3>): boolean {
+  const identity = node.nonlinear_identity;
+  if (!identity || node.execution_frame || identity.operation !== 'product' || (identity.addends ?? []).length > 0) return false;
+  const frames = identity.factor_ids.map((id) => islById.get(id)?.execution_frame?.frame);
+  if (frames.length === 0 || frames.some((f) => typeof f !== 'number' || !Number.isFinite(f) || f <= 0)) return false;
+  const frame = (frames as number[]).reduce((a, b) => a * b, 1);
+  if (!Number.isFinite(frame)) return false;
+  node.execution_frame = { frame, carrier: 'cap' };
+  return true;
 }
 
 /**

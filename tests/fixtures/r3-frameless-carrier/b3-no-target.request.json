@@ -1,0 +1,355 @@
+{
+  "graph": {
+    "nodes": [
+      {
+        "id": "should_we_raise_our_pro_price_from_49_to_59_to_increase_monthly_recurring_revenue_over_the_next_year",
+        "kind": "decision",
+        "label": "Should we raise our Pro price\u2026",
+        "provenance": "from_brief",
+        "description": "Should we raise our Pro price from \u00a349 to \u00a359 to increase monthly recurring revenue over the next year?"
+      },
+      {
+        "id": "monthly_recurring_revenue",
+        "kind": "goal",
+        "label": "monthly recurring revenue",
+        "provenance": "from_brief",
+        "nonlinear_identity": {
+          "operation": "product",
+          "factor_ids": [
+            "pro_price",
+            "pro_paying_subscribers"
+          ],
+          "stated_in_brief": false
+        },
+        "goal_horizon_months": 12,
+        "goal_threshold_unit": "GBP per month",
+        "goal_threshold_frame": "level"
+      },
+      {
+        "id": "raise_pro_price_to_59",
+        "kind": "option",
+        "label": "Raise Pro price to \u00a359",
+        "provenance": "from_brief",
+        "interventions": {
+          "pro_price": {
+            "unit": "GBP per month",
+            "value": 0.295,
+            "source": "brief_extraction",
+            "raw_value": 59,
+            "target_match": {
+              "node_id": "pro_price",
+              "confidence": "high",
+              "match_type": "exact_id"
+            }
+          }
+        }
+      },
+      {
+        "id": "keep_pro_price_at_49",
+        "kind": "option",
+        "label": "Keep Pro price at \u00a349",
+        "provenance": "ai_inferred",
+        "is_baseline": true
+      },
+      {
+        "id": "raise_pro_price_to_54",
+        "kind": "option",
+        "label": "Raise Pro price to \u00a354",
+        "provenance": "ai_inferred",
+        "interventions": {
+          "pro_price": {
+            "unit": "GBP per month",
+            "value": 0.27,
+            "source": "cee_hypothesis",
+            "raw_value": 54,
+            "target_match": {
+              "node_id": "pro_price",
+              "confidence": "high",
+              "match_type": "exact_id"
+            }
+          }
+        }
+      },
+      {
+        "id": "pro_price",
+        "kind": "factor",
+        "label": "Pro price",
+        "category": "controllable",
+        "provenance": "from_brief",
+        "observed_state": {
+          "cap": 200,
+          "unit": "GBP per month",
+          "value": 0.245,
+          "source": "brief_extraction",
+          "raw_value": 49,
+          "declared_scale": "unit_interval"
+        }
+      },
+      {
+        "id": "monthly_pro_churn_rate",
+        "kind": "factor",
+        "label": "Monthly Pro churn rate",
+        "category": "observable",
+        "provenance": "user_set",
+        "scale_frame": 100,
+        "display_value": "3 % per month",
+        "observed_state": {
+          "unit": "% per month",
+          "value": 0.03,
+          "source": "user_assumption",
+          "raw_value": 3
+        }
+      },
+      {
+        "id": "new_pro_subscribers_per_month",
+        "kind": "factor",
+        "label": "New Pro subscribers per month",
+        "category": "observable",
+        "provenance": "user_set",
+        "scale_frame": 1000,
+        "display_value": "50 subscribers per month",
+        "observed_state": {
+          "unit": "subscribers per month",
+          "value": 0.05,
+          "source": "user_assumption",
+          "raw_value": 50
+        }
+      },
+      {
+        "id": "pro_paying_subscribers",
+        "kind": "factor",
+        "label": "Pro paying subscribers",
+        "category": "observable",
+        "provenance": "user_set",
+        "scale_frame": 5000,
+        "display_value": "1,000 subscribers",
+        "observed_state": {
+          "unit": "subscribers",
+          "value": 0.2,
+          "source": "user_assumption",
+          "raw_value": 1000
+        }
+      },
+      {
+        "id": "pro_price_sensitivity",
+        "kind": "risk",
+        "label": "Pro price sensitivity",
+        "provenance": "ai_inferred"
+      }
+    ],
+    "edges": [
+      {
+        "to": "raise_pro_price_to_59",
+        "from": "should_we_raise_our_pro_price_from_49_to_59_to_increase_monthly_recurring_revenue_over_the_next_year",
+        "strength": {
+          "std": 0.01,
+          "mean": 1
+        },
+        "provenance": {
+          "source": "cee_hypothesis"
+        },
+        "effect_direction": "positive",
+        "exists_probability": 1
+      },
+      {
+        "to": "keep_pro_price_at_49",
+        "from": "should_we_raise_our_pro_price_from_49_to_59_to_increase_monthly_recurring_revenue_over_the_next_year",
+        "strength": {
+          "std": 0.01,
+          "mean": 1
+        },
+        "provenance": {
+          "source": "cee_hypothesis"
+        },
+        "effect_direction": "positive",
+        "exists_probability": 1
+      },
+      {
+        "to": "raise_pro_price_to_54",
+        "from": "should_we_raise_our_pro_price_from_49_to_59_to_increase_monthly_recurring_revenue_over_the_next_year",
+        "strength": {
+          "std": 0.01,
+          "mean": 1
+        },
+        "provenance": {
+          "source": "cee_hypothesis"
+        },
+        "effect_direction": "positive",
+        "exists_probability": 1
+      },
+      {
+        "to": "pro_price",
+        "from": "raise_pro_price_to_59",
+        "strength": {
+          "std": 0.01,
+          "mean": 1
+        },
+        "provenance": {
+          "source": "cee_hypothesis"
+        },
+        "effect_direction": "positive",
+        "exists_probability": 1
+      },
+      {
+        "to": "pro_price",
+        "from": "raise_pro_price_to_54",
+        "strength": {
+          "std": 0.01,
+          "mean": 1
+        },
+        "provenance": {
+          "source": "cee_hypothesis"
+        },
+        "effect_direction": "positive",
+        "exists_probability": 1
+      },
+      {
+        "to": "pro_price",
+        "from": "keep_pro_price_at_49",
+        "origin": "repair",
+        "strength": {
+          "std": 0.01,
+          "mean": 1
+        },
+        "provenance": {
+          "source": "cee_hypothesis",
+          "reasoning": "Connectivity repair wired this option to a factor another option targets; no effect value is implied"
+        },
+        "effect_direction": "positive",
+        "exists_probability": 1
+      },
+      {
+        "to": "pro_price_sensitivity",
+        "from": "pro_price",
+        "strength": {
+          "std": 0.125,
+          "mean": 0.5
+        },
+        "defaulted": true,
+        "provenance": {
+          "source": "cee_hypothesis"
+        },
+        "effect_direction": "positive",
+        "exists_probability": 0.8
+      },
+      {
+        "to": "monthly_pro_churn_rate",
+        "from": "pro_price_sensitivity",
+        "strength": {
+          "std": 0.00375,
+          "mean": 0.0075
+        },
+        "defaulted": true,
+        "provenance": {
+          "source": "cee_hypothesis",
+          "magnitude": "olumi_placeholder"
+        },
+        "effect_direction": "positive",
+        "exists_probability": 0.8
+      },
+      {
+        "to": "new_pro_subscribers_per_month",
+        "from": "pro_price_sensitivity",
+        "strength": {
+          "std": 0.125,
+          "mean": -0.5
+        },
+        "defaulted": true,
+        "provenance": {
+          "source": "cee_hypothesis"
+        },
+        "effect_direction": "negative",
+        "exists_probability": 0.8
+      },
+      {
+        "to": "pro_paying_subscribers",
+        "from": "monthly_pro_churn_rate",
+        "strength": {
+          "std": 0.125,
+          "mean": -0.5
+        },
+        "defaulted": true,
+        "provenance": {
+          "source": "cee_hypothesis"
+        },
+        "effect_direction": "negative",
+        "exists_probability": 0.8
+      },
+      {
+        "to": "pro_paying_subscribers",
+        "from": "new_pro_subscribers_per_month",
+        "strength": {
+          "std": 0.125,
+          "mean": 0.5
+        },
+        "defaulted": true,
+        "provenance": {
+          "source": "cee_hypothesis"
+        },
+        "effect_direction": "positive",
+        "exists_probability": 0.8
+      },
+      {
+        "to": "monthly_recurring_revenue",
+        "from": "pro_paying_subscribers",
+        "strength": {
+          "std": 0.125,
+          "mean": 0.5
+        },
+        "defaulted": true,
+        "provenance": {
+          "source": "cee_hypothesis"
+        },
+        "effect_direction": "positive",
+        "exists_probability": 0.8
+      },
+      {
+        "to": "monthly_recurring_revenue",
+        "from": "pro_price",
+        "strength": {
+          "std": 0.125,
+          "mean": 0.5
+        },
+        "defaulted": true,
+        "provenance": {
+          "source": "cee_hypothesis"
+        },
+        "effect_direction": "positive",
+        "exists_probability": 0.8
+      }
+    ],
+    "goal_constraints": []
+  },
+  "options": [
+    {
+      "id": "raise_pro_price_to_59",
+      "option_id": "raise_pro_price_to_59",
+      "label": "Raise Pro price to \u00a359",
+      "interventions": {
+        "pro_price": 59
+      },
+      "is_baseline": false
+    },
+    {
+      "id": "keep_pro_price_at_49",
+      "option_id": "keep_pro_price_at_49",
+      "label": "Keep Pro price at \u00a349",
+      "interventions": {
+        "pro_price": 49
+      },
+      "is_baseline": true
+    },
+    {
+      "id": "raise_pro_price_to_54",
+      "option_id": "raise_pro_price_to_54",
+      "label": "Raise Pro price to \u00a354",
+      "interventions": {
+        "pro_price": 54
+      },
+      "is_baseline": false
+    }
+  ],
+  "goal_node_id": "monthly_recurring_revenue",
+  "request_id": "mg-r3-frameless-b3-20260928",
+  "goal_constraints": []
+}
