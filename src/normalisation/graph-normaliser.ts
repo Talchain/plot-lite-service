@@ -88,7 +88,10 @@ export function cleanLabelAnnotation(label: string): string {
   return label.replace(LABEL_ANNOTATION_PATTERN, '').trim();
 }
 const DEFAULT_WEIGHT = 0.5;
-const MIN_STD = 0.001;           // ISL minimum (technical requirement)
+// ISL's `StrengthDistribution.std` is `Field(gt=0.001)`: STRICTLY greater than 0.001. A floor of exactly 0.001 was
+// refused with a 422 and failed the whole Run (a draft's 0.001 / 0.0005 effect, journey C, 28 Sep 09:20Z), so the
+// floor sits just above ISL's bound.
+const MIN_STD = 0.0011;          // ISL minimum (technical requirement): the smallest floor ISL accepts
 const STD_RANGE_MIN = 0.05;      // Causal edge floor (epistemic uncertainty)
 const STRUCTURAL_STD_MIN = 0.01; // Structural edge floor (definitional edges)
 const STD_RANGE_MAX = 0.4;
