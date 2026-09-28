@@ -7,7 +7,7 @@
  * so we never issue an imperative the evidence does not support.
  */
 
-import type { CoachingInputs, Critique, NextAction, Readiness, HeadlineType, EvidenceGap } from './types.js';
+import { evidenceAdviceMayName, type CoachingInputs, type Critique, type NextAction, type Readiness, type HeadlineType, type EvidenceGap } from './types.js';
 import { getThresholds } from './thresholds.js';
 import { computeKeyDrivers } from './key-drivers.js';
 import { deriveReadinessTone, type ReadinessToneReason, type ReadinessToneResult } from './readiness-tone.js';
@@ -24,7 +24,7 @@ export function generateNextActions(
   const thresholds = getThresholds();
 
   // Compute readiness (unchanged semantics — downstream consumers depend on it).
-  const readiness = computeReadiness(headlineType, critiques, evidenceGaps, thresholds);
+  const readiness = computeReadiness(headlineType, critiques, evidenceGaps, thresholds, inputs);
 
   // A1c: the P3 "Validate the {edge} assumption" action must not name an edge
   // SOURCED from an option-pinned lever; pick the top non-lever fragile edge
@@ -59,7 +59,8 @@ export function generateNextActions(
   }
 
   // Priority 2: Evidence gaps
-  if (readiness === 'needs_evidence' && evidenceGaps.length > 0 && actions.length < 3) {
+  // AIQ 5866850180: "Gather evidence on X" names X only when X's EVPPI was MEASURED above resolution.
+  if (readiness === 'needs_evidence' && evidenceGaps.length > 0 && actions.length < 3 && evidenceAdviceMayName(inputs, context.topGap.factor_id)) {
     actions.push({
       priority: 2,
       action: `Gather evidence on ${context.topGap.factor_label}`,
@@ -177,7 +178,9 @@ export function computeReadiness(
   headlineType: HeadlineType,
   critiques: Critique[],
   evidenceGaps: EvidenceGap[],
-  thresholds: ReturnType<typeof getThresholds>
+  thresholds: ReturnType<typeof getThresholds>,
+  /** AIQ 5866850180: the gap branch fires only on a gap whose EVPPI was measured (`evidenceAdviceMayName`). */
+  inputs?: Pick<CoachingInputs, 'resolvedEvppiFactorIds'>,
 ): Readiness {
   // Framing issues take priority
   if (critiques.some((c) => c.type === 'NARROW_FRAMING')) {
@@ -185,7 +188,8 @@ export function computeReadiness(
   }
 
   // High evidence gaps
-  if (evidenceGaps.length >= thresholds.readiness_high_evidence_gap_count && evidenceGaps[0] && evidenceGaps[0].voi_score > thresholds.readiness_high_voi_threshold) {
+  if (evidenceGaps.length >= thresholds.readiness_high_evidence_gap_count && evidenceGaps[0] && evidenceGaps[0].voi_score > thresholds.readiness_high_voi_threshold
+    && evidenceAdviceMayName(inputs, evidenceGaps[0].factor_id)) {
     return 'needs_evidence';
   }
 

@@ -9,7 +9,7 @@
  * when robustness / fragility / evidence signals all support it.
  */
 
-import type { CoachingInputs, Readiness, HeadlineType } from './types.js';
+import { evidenceAdviceMayName, type CoachingInputs, type Readiness, type HeadlineType } from './types.js';
 import type { KeyDriver } from './key-drivers.js';
 import type { EvidenceGap } from './types.js';
 import { deriveReadinessTone, type ReadinessTone, type ReadinessToneResult } from './readiness-tone.js';
@@ -142,7 +142,8 @@ function generateKeyQualifier(
       return 'However, the outcome is within model uncertainty, so the ranking could shift with new information.';
 
     case 'needs_evidence':
-      if (topGap) {
+      // AIQ 5866850180: name a gap only when its EVPPI was MEASURED above resolution.
+      if (topGap && evidenceAdviceMayName(inputs, topGap.factor_id)) {
         return `Key uncertainty: ${topGap.factor_label} has high impact but low evidence quality.`;
       }
       return 'Significant evidence gaps remain.';
@@ -178,7 +179,8 @@ function generateActionImplication(
       return 'Define tie-breaker criteria or gather additional evidence.';
 
     case 'needs_evidence':
-      if (evidenceGaps.length > 0) {
+      // AIQ 5866850180: "Gather evidence on X before deciding" only when X's EVPPI was MEASURED above resolution.
+      if (evidenceGaps.length > 0 && evidenceAdviceMayName(_inputs, evidenceGaps[0].factor_id)) {
         const topGap = evidenceGaps[0];
         return `Gather evidence on ${topGap.factor_label} before deciding.`;
       }
