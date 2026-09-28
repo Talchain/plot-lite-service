@@ -14,6 +14,7 @@ import type { KeyDriver } from './key-drivers.js';
 import type { EvidenceGap } from './types.js';
 import { deriveReadinessTone, type ReadinessTone, type ReadinessToneResult } from './readiness-tone.js';
 import { getThresholds } from './thresholds.js';
+import { NEAR_TIE_THRESHOLD } from '../trust/result-coherence.js';
 
 export interface ExecutiveSummary {
   summary: string;
@@ -44,16 +45,27 @@ export function generateExecutiveSummary(
     getThresholds(),
   );
 
-  const decisionStatement = generateDecisionStatement(winner, runnerUp, headlineType, toneResult.tone);
+  // ⭐ R13 (AI Quality #72 5872888088; the rule #398 applied to `headline_banded`): inside the near-tie band the gap
+  // is within Monte Carlo noise, so this summary names no leader. It is RENDERED (the UI's results section reads
+  // `m1_coaching.executive_summary`) and it is `decision_brief.headline`. Served eh4 (gap 0.0175) read "Continue as now
+  // currently leads, but the outcome is highly uncertain." The same threshold `near_tie` publishes.
+  const nearTie = winner !== undefined && runnerUp !== undefined
+    && winner.winProbability - runnerUp.winProbability < NEAR_TIE_THRESHOLD;
+  const decisionStatement = nearTie
+    ? `Too close to call: ${winner!.label} and ${runnerUp!.label}.`
+    : generateDecisionStatement(winner, runnerUp, headlineType, toneResult.tone);
+  // A `ready` qualifier or action presumes a leader ("this option leads", "move forward"); on a near tie they are
+  // said as the close call they are.
+  const phrasingReadiness: Readiness = nearTie && readiness === 'ready' ? 'close_call' : readiness;
   const keyQualifier = generateKeyQualifier(
-    readiness,
+    phrasingReadiness,
     headlineType,
     inputs,
     keyDrivers,
     evidenceGaps,
     toneResult.tone,
   );
-  const actionImplication = generateActionImplication(readiness, evidenceGaps, inputs, toneResult.tone);
+  const actionImplication = generateActionImplication(phrasingReadiness, evidenceGaps, inputs, toneResult.tone);
 
   const summary = `${decisionStatement} ${keyQualifier} ${actionImplication}`;
 
