@@ -633,6 +633,9 @@ export interface ISLRobustnessRequestV3 {
         node_id: string;
         distribution: 'normal';
         std: number;
+        /** ISL `ParameterUncertainty.spread_source`: whose spread `std` is. Sent only for a real `observed_state.std`
+         *  whose `std_source` says so (see `spreadSourceOf`); absent = not stated, and ISL never infers it. */
+        spread_source?: 'user' | 'template';
       }
     | {
         node_id: string;
@@ -1493,6 +1496,18 @@ export function exactInputOptionIds(
   return out;
 }
 
+/**
+ * R3-B #72 5895208669 (frames, AIQ 5895140735): map the upstream claim `observed_state.std_source` onto ISL's
+ * `ParameterUncertainty.spread_source`. `'user'` → `'user'`; `'olumi'` → `'template'` (Olumi's spread, e.g. one
+ * carried across a frame move). Anything else, or absent → undefined: fail closed — a spread is never called the
+ * user's unless upstream says so, and ISL echoes `null` ("not stated").
+ */
+export function spreadSourceOf(stdSource: unknown): 'user' | 'template' | undefined {
+  if (stdSource === 'user') return 'user';
+  if (stdSource === 'olumi') return 'template';
+  return undefined;
+}
+
 export function buildParameterUncertaintiesV3(
   nodes: EngineNodeV3[],
   options: readonly OptionV3[] = [],
@@ -1560,10 +1575,13 @@ export function buildParameterUncertaintiesV3(
 
       // Slice 6: no `mean` — ISL samples Normal(observed_state.value, std) and
       // reads the centre from the graph node, not from this entry.
+      // Whose spread this is — only for a REAL observed_state.std (priority 1), never for a spread PLoT synthesised.
+      const spreadSource = userStd !== null ? spreadSourceOf(node.observed_state.std_source) : undefined;
       uncertainties.push({
         node_id: node.id,
         distribution: 'normal',
         std,
+        ...(spreadSource !== undefined && { spread_source: spreadSource }),
       });
     }
   }
