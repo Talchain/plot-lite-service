@@ -109,6 +109,7 @@ import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js'
 import type { RobustnessDataForCee } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue } from '../../integrations/isl/types/isl-types.js';
 import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures, getIslIdentityEvaluations, getIslStructuralInfluence } from '../../integrations/isl/v2-envelope.js';
+import { goalIdentitiesNotEvaluated, goalIdentityWithheldMessage } from '../../lib/goal-identity-withhold.js';
 import { V2_RUN_ALLOWED_KEYS, islEnrichmentPassthrough } from './run-contract-keys.js';
 import { assessIslWireGeneration, logIslWireGenerationUnverified } from '../../integrations/isl/wire-generation.js';
 import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
@@ -3263,6 +3264,15 @@ function buildResponse(
   // (#378) this is carried by `unscoredConstraintIds` above: it takes EVERY
   // `_meta.filtered_constraints` record, `threshold_clamped` among them, so the
   // joint is omitted on every option and `joint_withheld` names the limit.
+  // ⛔ A declared identity on the goal's own path that ISL did not evaluate: the goal's chance would come from the
+  // additive walk, so it is withheld on every option and said (GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED below).
+  // AI Quality #72 5884802000 / DL 5884931550; `src/lib/goal-identity-withhold.ts`.
+  const goalIdentityWithheld = goalIdentitiesNotEvaluated(
+    graph,
+    getIslIdentityEvaluations(islResult),
+    (meta.identitiesNotForwarded ?? []).map((w) => w.node_id),
+  );
+  let goalProbabilityWithheld = false;
   const optionComparison = islOptionData?.map((r: any) => {
     const optionId = r.option_id ?? r.id;
     const option = options?.find((o) => o.id === optionId);
@@ -3362,7 +3372,9 @@ function buildResponse(
     // probability). A non-finite value would otherwise serialise to a fabricated
     // `null` on this declared-numeric probability field; honest absence is correct.
     const probGoal = prob01(r.probability_of_goal);
-    if (probGoal !== undefined) {
+    if (probGoal !== undefined && goalIdentityWithheld.length > 0) {
+      goalProbabilityWithheld = true;
+    } else if (probGoal !== undefined) {
       result.probability_of_goal = probGoal;
     }
 
@@ -4050,6 +4062,15 @@ function buildResponse(
   // Extract stability_thresholds and detect diagnostic warnings
   const stabilityThresholdsExtracted = extractStabilityThresholds(islResult);
   const inferenceWarnings: InferenceWarning[] = [];
+
+  if (goalProbabilityWithheld) {
+    inferenceWarnings.push({
+      code: INFERENCE_WARNING_CODES.GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED,
+      message: goalIdentityWithheldMessage(goalIdentityWithheld),
+      severity: 'warning',
+      node_ids: goalIdentityWithheld.map((n) => n.node_id),
+    });
+  }
 
   // Emit warning when ISL returned factor-level 3C fields but stability_thresholds
   // was absent or malformed — helps diagnose missing threshold classification context.
