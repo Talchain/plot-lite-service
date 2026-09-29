@@ -318,17 +318,19 @@ const NOT_A_COUNT = /%|percent|proportion|share|fraction|ratio/i;
  * Do a money RATE and a COUNT compose to the goal's money-per-period unit? The card domain's unit half, read
  * conservatively from the typed units PLoT receives: the goal's currency sits on exactly one factor (the rate), the
  * other is a plain count (no currency, no percentage, no period), and the rate's period — when it names one — is the
- * goal's. A rate with no period is the card's "confirm" case (CEE #2296), so it composes. Pure.
+ * goal's. A rate with no period is the card's "confirm" case (CEE #2296), so it composes. A goal unit that names NO
+ * period composes too: CEE also reads the goal's period from its label, which PLoT does not parse, so PLoT fails closed
+ * and withholds (AIQ 5892025855 on MG 5892012494: unit "GBP", label "Monthly recurring revenue"). Pure.
  */
 function composesToGoal(goalUnit: string, unitA: string, unitB: string): boolean {
   const currency = currencyOf(goalUnit);
   const goalPeriods = periodsOf(goalUnit);
-  if (currency === undefined || goalPeriods.length !== 1) return false;
+  if (currency === undefined || goalPeriods.length > 1) return false;
   const [rate, count] = currencyOf(unitA) !== undefined ? [unitA, unitB] : [unitB, unitA];
   if (currencyOf(rate) !== currency || currencyOf(count) !== undefined) return false;
   if (NOT_A_COUNT.test(count) || periodsOf(count).length > 0 || count.trim() === '') return false;
   const ratePeriods = periodsOf(rate);
-  return ratePeriods.length === 0 || (ratePeriods.length === 1 && ratePeriods[0] === goalPeriods[0]);
+  return goalPeriods.length === 0 || ratePeriods.length === 0 || (ratePeriods.length === 1 && ratePeriods[0] === goalPeriods[0]);
 }
 
 /**

@@ -356,6 +356,8 @@ describe('R3-3 unit — normaliseNode / toISLNode carry the declaration or refus
     it('QUALIFIES as the sole parent too', () => expect(carriers({ secondParent: false })).toEqual(['c']));
     it('QUALIFIES with no denominator on the rate (the card\'s confirm case: "GBP/month")', () => expect(carriers({ rate: lvl(49, 'GBP/month') })).toEqual(['c']));
     it('QUALIFIES on a goal written "GBP MRR" (MRR names the month)', () => expect(carriers({ goal: lvl(75000, 'GBP MRR') })).toEqual(['c']));
+    it('QUALIFIES when the goal\'s unit names NO period — fail closed (AIQ 5892025855 on MG 5892012494: "GBP", named "Monthly recurring revenue")', () =>
+      expect(carriers({ goal: { ...lvl(75000, 'GBP'), label: 'Monthly recurring revenue' } })).toEqual(['c']));
     it.each([
       ['a sole parent with an OLUMI level (the count is cee_inference)', { secondParent: false, count: lvl(1500, 'subscribers', 'cee_inference') }],
       ['the goal\'s level is Olumi\'s', { goal: lvl(75000, 'GBP/month', 'cee_inference') }],
@@ -366,7 +368,6 @@ describe('R3-3 unit — normaliseNode / toISLNode carry the declaration or refus
       ['the count has a period (new subscribers per month)', { count: lvl(1500, 'subscribers/month') }],
       ['another currency (USD rate, GBP goal)', { rate: lvl(49, 'USD/subscriber/month') }],
       ['a period mismatch (a yearly rate, a monthly goal)', { rate: lvl(49, 'GBP/subscriber/year') }],
-      ['the goal names no period', { goal: lvl(75000, 'GBP') }],
       ['the product is STATED (the user\'s own — forwarded, evaluated)', { stated: true }],
     ])('does NOT qualify: %s', (_label, o) => expect(carriers(o as any)).toEqual([]));
   });
@@ -851,8 +852,13 @@ describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the R
    * the goal `mrr`. `secondParent` keeps `other_mrr_growth → mrr` beside it (run 4's shape); `usersCount` makes the
    * 1,500 subscribers the user's (as served) — the fixture's own count is Olumi's (`cee_inference`).
    */
-  const carrierRequest = (o: { secondParent: boolean; usersCount: boolean }): any => {
+  const carrierRequest = (o: { secondParent: boolean; usersCount: boolean; goal?: { unit: string; label: string } }): any => {
     const d = paulRequest();
+    if (o.goal) {
+      const mrr = d.graph.nodes.find((n: any) => n.id === 'mrr');
+      mrr.label = o.goal.label;
+      mrr.observed_state.unit = o.goal.unit;
+    }
     d.graph.nodes.push({ id: 'pro_plan_mrr', kind: 'factor', label: 'Pro plan MRR',
       nonlinear_identity: { operation: 'product', factor_ids: ['pro_plan_price', 'pro_paying_subscribers'], stated_in_brief: false } });
     if (o.usersCount) d.graph.nodes.find((n: any) => n.id === 'pro_paying_subscribers').observed_state.source = 'brief_extraction';
@@ -901,6 +907,16 @@ describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the R
   it('(d) SCOPE CONTRAST — NON-QUALIFYING carrier beside another parent (the count is Olumi\'s): not (d)\'s', async () => {
     const body = await (await post(carrierRequest({ secondParent: true, usersCount: false }))).json();
     expect(unconfirmedOn(body)).toEqual([]);
+  });
+
+  // MG 5892012494: CEE reads the goal's period from its unit OR its label; PLoT read the unit only (fail-open split).
+  // AIQ 5892025855: a goal unit with NO period composes (fail closed).
+  it('⭐ (d) SCOPE — a goal unit with NO period (typed "GBP", named "Monthly recurring revenue"): not sent, withheld', async () => {
+    const body = await (await post(carrierRequest({ secondParent: true, usersCount: true, goal: { unit: 'GBP', label: 'Monthly recurring revenue' } }))).json();
+    expect(occurrences(islBodies[0])).toBe(0);
+    expect(unconfirmedOn(body)).toEqual(['pro_plan_mrr']);
+    const withheld = (body.inference_warnings ?? []).filter((w: any) => w.code === 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED');
+    expect(withheld.map((w: any) => w.message)).toEqual(["Not shown: Olumi reads 'Pro plan MRR' as 'Pro plan price' × 'Pro paying subscribers', but that hasn't been confirmed, so this run gives no chance of reaching the target for 'Monthly recurring revenue'."]);
   });
 
   it('(d) CONTRAST: the same request with the goal\'s product STATED is sent to ISL once, evaluated, and nothing is withheld', async () => {
