@@ -206,6 +206,8 @@ export function attachIdentityExecutionFrames(
   goalCapByNodeId: ReadonlyMap<string, number> = new Map(),
   /** Variant (a): OUT — each frame PLoT derived for a frameless inferred intermediate carrier (`_meta.identity_derived_frames`). */
   derivedFrames: IdentityDerivedFrame[] = [],
+  /** Variant (d): each goal's ONLY non-option parent (`goalSoleParentIds`). Empty → (d) reads the goal alone. */
+  goalSoleParents: ReadonlySet<string> = new Set(),
 ): IdentityNotForwarded[] {
   const engineById = new Map(engineNodes.map((node) => [node.id, node]));
   const islById = new Map(islNodes.map((node) => [node.id, node]));
@@ -231,11 +233,14 @@ export function attachIdentityExecutionFrames(
   // `goalIdentitiesNotEvaluated` withholds every goal figure under its own code — never a chance through an unconfirmed
   // product (served: "reaches above £85k MRR in 99.8%"), never one from the linear walk. Sums, stated identities and
   // non-goal carriers fall through to the variants below untouched.
+  // The card domain decides, not the node kind (AIQ 5891608873; DL 5891633125): the goal's ONLY non-option parent IS the
+  // goal but for a name (served `ed49d44` run 2: `pro_plan_mrr` → `mrr`, nothing else), so a product there is a reading
+  // of the goal too. A carrier that shares the goal with another parent (DL A15: + `other_plan_mrr`) is not (d)'s.
   const notForwarded: IdentityNotForwarded[] = [];
   for (const node of islNodes) {
     const identity = node.nonlinear_identity;
     if (!identity || identity.stated_in_brief !== false || identity.operation !== 'product') continue;
-    if (engineById.get(node.id)?.kind !== 'goal') continue;
+    if (engineById.get(node.id)?.kind !== 'goal' && !goalSoleParents.has(node.id)) continue;
     delete node.nonlinear_identity;
     notForwarded.push({ node_id: node.id, reason: 'inferred_identity_unconfirmed', frameless_node_ids: [] });
   }
@@ -282,6 +287,24 @@ export function attachIdentityExecutionFrames(
     for (const node of islNodes) if (node.execution_frame && !kept.has(node.id)) delete node.execution_frame;
   }
   return notForwarded;
+}
+
+/**
+ * Variant (d)'s card-domain carrier: for each goal, its ONLY parent that is not an option or the decision — that node IS
+ * the goal but for a name. A goal with two or more such parents has none. Pure.
+ */
+export function goalSoleParentIds(
+  nodes: readonly { id: string; kind?: unknown }[],
+  edges: readonly { from?: unknown; to?: unknown }[],
+): Set<string> {
+  const kindOf = new Map(nodes.map((n) => [n.id, n.kind]));
+  const sole = new Set<string>();
+  for (const goal of nodes.filter((n) => n.kind === 'goal')) {
+    const parents = [...new Set(edges.filter((e) => e.to === goal.id && typeof e.from === 'string').map((e) => e.from as string))]
+      .filter((id) => kindOf.get(id) !== 'option' && kindOf.get(id) !== 'decision');
+    if (parents.length === 1) sole.add(parents[0]!);
+  }
+  return sole;
 }
 
 /**

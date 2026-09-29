@@ -128,6 +128,8 @@ export function goalIdentityWithheldMessage(
    * `inferred_identity_unconfirmed`). Their words say what is missing — the user's confirmation — not a failed calculation.
    */
   unconfirmedNodeIds: ReadonlySet<string> = new Set(),
+  /** The goal's own label: an unconfirmed product on the goal's sole carrier still names the GOAL's target. */
+  goalLabel?: string,
 ): string {
   const first = nodes[0]!;
   const joiner = first.operation === 'sum' ? ' + ' : ' × ';
@@ -137,7 +139,7 @@ export function goalIdentityWithheldMessage(
     // AI Quality #72 5891608873, the words WITHOUT the card: no ask the user cannot answer here, labels from the graph.
     const quoted = first.parts.length > 0 ? first.parts.map((p) => `'${p}'`).join(joiner) : 'other figures in the model';
     return `Not shown: Olumi reads '${first.label}' as ${quoted}${more}, but that hasn't been confirmed, `
-      + `so this run gives no chance of reaching the target for '${first.label}'.`;
+      + `so this run gives no chance of reaching the target for '${goalLabel ?? first.label}'.`;
   }
   return `Not shown. '${first.label}' depends on ${parts}${more}, but this run couldn't calculate it that way, `
     + 'so the figures for each option would be wrong.';

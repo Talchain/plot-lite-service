@@ -87,7 +87,7 @@ import { filterTemporalConstraints } from '../../normalisation/constraint-filter
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, InternalMetadata } from '../../types/engine-v3.js';
-import { withdrawInferredUnevaluatedIdentities, attachIdentityExecutionFrames, attachChangeFrameRawRanges, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, correlatedFactorIdsOf, zeroFactorsHeldExact, zeroFactorHeldWarnings, exactInputOptionIds, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
+import { withdrawInferredUnevaluatedIdentities, attachIdentityExecutionFrames, goalSoleParentIds, attachChangeFrameRawRanges, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, correlatedFactorIdsOf, zeroFactorsHeldExact, zeroFactorHeldWarnings, exactInputOptionIds, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
@@ -4130,7 +4130,8 @@ function buildResponse(
     inferenceWarnings.push({
       code: INFERENCE_WARNING_CODES.GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED,
       message: goalIdentityWithheldMessage(goalIdentityWithheld, new Set((meta.identitiesNotForwarded ?? [])
-        .filter((w) => w.reason === 'inferred_identity_unconfirmed').map((w) => w.node_id))),
+        .filter((w) => w.reason === 'inferred_identity_unconfirmed').map((w) => w.node_id)),
+        graph?.nodes?.find((n) => n.kind === 'goal')?.label),
       severity: 'warning',
       node_ids: goalIdentityWithheld.map((n) => n.node_id),
     });
@@ -8115,7 +8116,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         for (const [nodeId, meta] of goalThresholdMetaByNodeId) {
           if (meta.goal_threshold_cap !== undefined) goalCapByNodeId.set(nodeId, meta.goal_threshold_cap);
         }
-        identitiesNotForwarded.push(...attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId, goalCapByNodeId, identityDerivedFrames));
+        identitiesNotForwarded.push(...attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId, goalCapByNodeId, identityDerivedFrames, goalSoleParentIds(filteredGraph.nodes, filteredGraph.edges ?? [])));
 
         // R1 S3 (wire R3 #72 5872798858) — a RELATIVE change needs its target's raw bounds (its base
         // owner rides `observed_state.source`, already on the wire). Targets: every change_rel limit on the wire, plus the goal when its threshold is a
