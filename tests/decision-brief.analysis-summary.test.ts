@@ -2,7 +2,8 @@
  * decision_brief.analysis_summary — the decision-record capture surface
  * (ROADMAP 3.1, Platform lane; seam ratified by the orchestrator
  * 2026-07-10: leading_option = rank-1 label · win_probability = rank-1 ·
- * goal_fit = leader's probability_of_joint_goal, omitted when absent ·
+ * goal_fit = leader's probability_of_GOAL, omitted when absent — never the limits-only probability_of_joint_goal
+ * (DL #72 5887546998 / AIQ 5887531086, superseding the 2026-07-10 joint mapping) ·
  * robustness_band = robustness.display_verdict).
  *
  * Flag-gated DEFAULT-OFF behind BRIEF_DECISION_RECORD_SUMMARY_ENABLE:
@@ -37,12 +38,14 @@ function baseInput(overrides: Partial<BriefAssemblyInput> = {}): BriefAssemblyIn
         option_id: 'opt_a',
         option_label: 'Option A',
         win_probability: 0.66,
+        probability_of_goal: 0.37,
         probability_of_joint_goal: 0.41,
       },
       {
         option_id: 'opt_b',
         option_label: 'Option B',
         win_probability: 0.34,
+        probability_of_goal: 0.08,
         probability_of_joint_goal: 0.12,
       },
     ] as any,
@@ -85,7 +88,7 @@ describe('decision_brief.analysis_summary — flag on', () => {
     expect(brief?.analysis_summary).toEqual({
       leading_option: 'Option A',
       win_probability: 0.66,
-      goal_fit: 0.41,
+      goal_fit: 0.37,
       robustness_band: 'robust',
     });
   });
@@ -99,10 +102,12 @@ describe('decision_brief.analysis_summary — flag on', () => {
     ).toBe(true);
   });
 
-  it('OMITS goal_fit when the leader has no probability_of_joint_goal (never invents)', () => {
+  it('⭐ NEGATIVE: P(goal) absent while the limits are scored — goal_fit is OMITTED, never the limits-only joint', () => {
     const input = baseInput();
     const [leader, runnerUp] = input.option_comparison as any[];
-    delete leader.probability_of_joint_goal;
+    delete leader.probability_of_goal;
+    // Precondition: the leader still carries a SCORED limits-only joint (0.41) that must not refill the goal chance.
+    expect(leader.probability_of_joint_goal).toBe(0.41);
     const brief = assembleBrief({ ...input, option_comparison: [leader, runnerUp] as any });
     expect(brief?.analysis_summary).toBeDefined();
     expect(brief?.analysis_summary).not.toHaveProperty('goal_fit');
@@ -110,6 +115,14 @@ describe('decision_brief.analysis_summary — flag on', () => {
     expect(
       DecisionRecordAnalysisSummarySchema.safeParse(brief?.analysis_summary).success,
     ).toBe(true);
+  });
+
+  it('goal_fit is the goal chance even when no limit was scored (joint absent)', () => {
+    const input = baseInput();
+    const [leader, runnerUp] = input.option_comparison as any[];
+    delete leader.probability_of_joint_goal;
+    const brief = assembleBrief({ ...input, option_comparison: [leader, runnerUp] as any });
+    expect(brief?.analysis_summary?.goal_fit).toBe(0.37);
   });
 
   it('robustness_band mirrors display_verdict verbatim — including not_assessed', () => {
