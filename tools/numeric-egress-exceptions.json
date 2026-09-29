@@ -30,11 +30,11 @@
     "A MEASURED ZERO IS NOT AN ABSENCE — the guards test finiteness and range, never truthiness."
   ],
   "generated_at_commit": "236e82d6641b87e282dcfc5f8673904aec6678e7",
-  "count": 53,
+  "count": 49,
   "by_class": {
     "fabricated-certainty": 3,
     "fabricated-confidence": 2,
-    "fabricated-distribution": 17,
+    "fabricated-distribution": 13,
     "fabricated-formula-input": 2,
     "fabricated-latency": 4,
     "fabricated-measurement": 10,
@@ -170,42 +170,6 @@
       "fallback": "0.5",
       "class": "fabricated-probability",
       "why": "Asserts 50% confidence for a factor whose confidence was never computed."
-    },
-    {
-      "file": "src/facts/mapper.ts",
-      "key": "mean",
-      "snippet": "mean: o.outcome!.mean ?? o.outcome!.p50 ?? 0",
-      "line": 144,
-      "fallback": "0",
-      "class": "fabricated-distribution",
-      "why": "An unmeasured mean is published as a point value; 0.5/0 is a fabricated prior, not a measurement."
-    },
-    {
-      "file": "src/facts/mapper.ts",
-      "key": "p10",
-      "snippet": "p10: o.outcome!.p10 ?? 0",
-      "line": 141,
-      "fallback": "0",
-      "class": "fabricated-distribution",
-      "why": "An option with no interval is described downstream as a degenerate zero distribution."
-    },
-    {
-      "file": "src/facts/mapper.ts",
-      "key": "p50",
-      "snippet": "p50: o.outcome!.p50 ?? 0",
-      "line": 142,
-      "fallback": "0",
-      "class": "fabricated-distribution",
-      "why": "An option with no interval is described downstream as a degenerate zero distribution."
-    },
-    {
-      "file": "src/facts/mapper.ts",
-      "key": "p90",
-      "snippet": "p90: o.outcome!.p90 ?? 0",
-      "line": 143,
-      "fallback": "0",
-      "class": "fabricated-distribution",
-      "why": "An option with no interval is described downstream as a degenerate zero distribution."
     },
     {
       "file": "src/integrations/isl/index.ts",

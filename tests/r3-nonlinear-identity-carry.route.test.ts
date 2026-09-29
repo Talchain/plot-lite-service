@@ -863,7 +863,7 @@ describe('R3-A1 — an INFERRED identity ISL cannot evaluate for ANY reason is w
     ['A1of (inferred, operand level MISSING)', A1OF, 'inferred_identity_operand_missing'],
     ['A1zf (inferred, operand level ZERO)', A1ZF, 'inferred_identity_zero_level'],
   ] as const) {
-    it(`⭐ ${label}: 422 → 200 — withdrawn, asked ONCE more, named ${reason}, and the retry is byte-identical to C0`, async () => {
+    it(`⭐ ${label}: 422 → 200 — withdrawn, asked ONCE more, named ${reason}; the retry is C0 on the wire, its goal figures withheld`, async () => {
       const row = served(file);
       islSeq = [servedReject(row)];
       const res = await post(row.request);
@@ -884,11 +884,24 @@ describe('R3-A1 — an INFERRED identity ISL cannot evaluate for ANY reason is w
       expect(JSON.stringify(retried)).toBe(JSON.stringify(islBodies[0]));
       const c0Body = await c0.json();
       expect(c0Body._meta?.identities_not_forwarded).toBeUndefined();
-      // Effects: PLoT's own content hash — the public surface less `_meta` and the per-run volatile set (critique UUIDs,
-      // timestamps, `fact_objects`) — recomputed here, and the effect blocks themselves, byte for byte.
-      expect(computeResponseContentHash(body)).toBe(computeResponseContentHash(c0Body));
-      expect(body._meta?.response_content_hash).toBe(c0Body._meta?.response_content_hash);
-      for (const block of ['option_comparison', 'factor_sensitivity', 'driver_order', 'edge_sensitivity', 'robustness', 'flip_thresholds', 'constraint_results']) {
+      // Effects — "C0 on the wire, figures withheld on display" (R3 SCIENCE ruling #72 5886502169; AIQ 5886183999): the
+      // withdrawn identity was DECLARED definitional but not computed, so the links-only walk's per-option figures of
+      // the goal are withheld with #416's typed reason. Each option row is C0's row less exactly those figures; every
+      // other effect block is C0's, byte for byte.
+      const GOAL_FIGURES = ['win_probability', 'probability_of_goal', 'downside'] as const;
+      const OUTCOME_FIGURES = ['mean', 'std', 'p10', 'p50', 'p90'] as const;
+      const lessGoalFigures = (row: any) => {
+        const r = structuredClone(row);
+        for (const k of GOAL_FIGURES) delete r[k];
+        if (r.outcome) for (const k of OUTCOME_FIGURES) delete r.outcome[k];
+        return r;
+      };
+      // Discriminating precondition: C0 publishes goal figures (this harness's ISL answers outcome statistics).
+      expect(c0Body.option_comparison.every((o: any) => typeof o.outcome?.mean === 'number')).toBe(true);
+      expect(body.option_comparison).toEqual(c0Body.option_comparison.map(lessGoalFigures));
+      expect((body.inference_warnings ?? []).filter((w: any) => w.code === 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED')
+        .map((w: any) => w.node_ids)).toEqual([['mrr']]);
+      for (const block of ['factor_sensitivity', 'driver_order', 'edge_sensitivity', 'robustness', 'flip_thresholds', 'constraint_results']) {
         expect(body[block], block).toBeDefined();
         expect(JSON.stringify(body[block]), block).toBe(JSON.stringify(c0Body[block]));
       }

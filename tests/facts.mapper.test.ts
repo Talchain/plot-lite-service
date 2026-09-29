@@ -227,6 +227,30 @@ describe('assembleFactObjects', () => {
     expect(types).not.toContain('robustness');
   });
 
+  // ⛔ ABSENT IS NOT ZERO (R3-B, PLoT #417): an option whose figures were withheld keeps its outcome's sample counts
+  // and nothing else. A probability fact states the option's figures, so none is emitted, rather than p10/p50/p90/mean 0.
+  it('an outcome without its figures (sample counts only) emits no probability fact, never zeros', () => {
+    const counts = { n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1 } as Record<string, number>;
+    const result = assembleFactObjects({
+      analysis_status: 'computed',
+      options: [
+        { option_id: 'opt_a', label: 'A', outcome: counts },
+        { option_id: 'opt_b', label: 'B', outcome: { p50: 70 } },
+      ],
+    }, LINEAGE);
+    expect(result.facts.filter((f) => f.fact_type === 'probability')).toEqual([]);
+  });
+
+  it('CONTROL — a real zero is a figure: an outcome of 0 / 0 / 0 is stated as 0, and mean falls back to p50', () => {
+    const result = assembleFactObjects({
+      analysis_status: 'computed',
+      options: [{ option_id: 'opt_z', label: 'Z', outcome: { p10: 0, p50: 0, p90: 0 } }],
+    }, LINEAGE);
+    const probs = result.facts.filter((f) => f.fact_type === 'probability');
+    expect(probs).toHaveLength(1);
+    expect(probs[0].data).toMatchObject({ option_id: 'opt_z', p10: 0, p50: 0, p90: 0, mean: 0 });
+  });
+
   it('empty inputs: no crash, empty facts array', () => {
     const input: ISLResponseInput = {
       analysis_status: 'computed',
