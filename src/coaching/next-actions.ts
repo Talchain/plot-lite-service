@@ -227,7 +227,7 @@ const REASON_PHRASES: Record<Exclude<ReadinessToneReason, 'EVIDENCE_GAPS'>, stri
   LOW_ROBUSTNESS: 'robustness is below the confident threshold',
   LOW_STABILITY: 'stability is below the confident threshold',
   MATERIAL_FRAGILE_EDGE: 'a fragile edge could flip the result',
-  LOW_DRIVER_CONFIDENCE: 'the top driver has low confidence',
+  LOW_DRIVER_CONFIDENCE: "the top driver's effect on the result is not steady",
   NEAR_TIE: 'the margin is near a tie',
   INSUFFICIENT_SIGNALS: 'key signals are not yet available',
   TOP_DRIVER_UNMEASURED: "the top driver's stability has not been measured",
