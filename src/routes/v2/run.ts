@@ -109,7 +109,7 @@ import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js'
 import type { RobustnessDataForCee } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue } from '../../integrations/isl/types/isl-types.js';
 import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures, getIslIdentityEvaluations, getIslStructuralInfluence } from '../../integrations/isl/v2-envelope.js';
-import { goalIdentitiesNotEvaluated, goalIdentityWithheldMessage, limitsOnUnevaluatedIdentityPath, limitIdentityWithheldMessage, withoutGoalDerivedVoi, factorRowWithoutWalk, driverOrderUnderWithhold, coachingWithoutWalk } from '../../lib/goal-identity-withhold.js';
+import { goalIdentitiesNotEvaluated, goalIdentityWithheldMessage, limitsOnUnevaluatedIdentityPath, limitIdentityWithheldMessage, withoutGoalDerivedVoi, factorRowWithoutWalk, driverOrderUnderWithhold, coachingWithoutWalk, clampedEffects, clampedEffectWithheldMessage, clampedEffectDisclosedMessage } from '../../lib/goal-identity-withhold.js';
 import { V2_RUN_ALLOWED_KEYS, islEnrichmentPassthrough } from './run-contract-keys.js';
 import { assessIslWireGeneration, logIslWireGenerationUnverified } from '../../integrations/isl/wire-generation.js';
 import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
@@ -1803,6 +1803,8 @@ interface MetaParams {
    * Absent only on paths that decide nothing earlier (then `buildResponse` decides it from its own inputs).
    */
   goalIdentityWithheld?: import('../../lib/goal-identity-withhold.js').GoalIdentityNotEvaluated[];
+  /** AI Quality #72 5893355501: link sizes cut to the model's scale, decided ONCE by the route from the graph as sent. */
+  clampedEffects?: ReturnType<typeof import('../../lib/goal-identity-withhold.js').clampedEffects>;
   /** Variant (a): frames PLoT derived for frameless inferred intermediate carriers — _meta.identity_derived_frames */
   identityDerivedFrames?: import('../../integrations/isl/translator-v3.js').IdentityDerivedFrame[];
   /** T7b 4b (AIQ #72 5869679096): zero factors held at 0 with no uncertainty — each named in inference_warnings */
@@ -3293,7 +3295,10 @@ function buildResponse(
   // chance of leading and the outcome's centre and spread are as wrong as P(goal) (AI Quality #72 5886183999
   // follow-up; R3-B census 5886351619). Withheld on every option by the SAME predicate; the sample counts stay (they
   // are not claims about the goal). `decision_brief.options[]` / its leader follow, built from this published list.
-  const optionFiguresInvalid = goalIdentityWithheld.length > 0;
+  // ⛔ AI Quality #72 5893355501: a USER-STATED link size on the goal's path that was cut to the model's scale — the
+  // goal figures would rest on a cut version of the user's number: the SAME carrier withholds them.
+  const clampedEffectsFound = meta.clampedEffects ?? { withhold: [], disclose: [] };
+  const optionFiguresInvalid = goalIdentityWithheld.length > 0 || clampedEffectsFound.withhold.length > 0;
   const optionComparison = islOptionData?.map((r: any) => {
     const optionId = r.option_id ?? r.id;
     const option = options?.find((o) => o.id === optionId);
@@ -3398,8 +3403,8 @@ function buildResponse(
     // probability). A non-finite value would otherwise serialise to a fabricated
     // `null` on this declared-numeric probability field; honest absence is correct.
     const probGoal = prob01(r.probability_of_goal);
-    if (probGoal !== undefined && goalIdentityWithheld.length > 0) {
-      goalProbabilityWithheld = true;
+    if (probGoal !== undefined && optionFiguresInvalid) {
+      goalProbabilityWithheld = true; // said once below, by the reason that applies
     } else if (probGoal !== undefined) {
       result.probability_of_goal = probGoal;
     }
@@ -4126,7 +4131,25 @@ function buildResponse(
     });
   }
 
-  if (goalProbabilityWithheld) {
+  if (clampedEffectsFound.withhold.length > 0 && (optionComparison?.length ?? 0) > 0) {
+    inferenceWarnings.push({
+      code: INFERENCE_WARNING_CODES.GOAL_FIGURES_USER_EFFECT_CLAMPED,
+      message: clampedEffectWithheldMessage(clampedEffectsFound.withhold),
+      severity: 'warning',
+      node_ids: [...new Set(clampedEffectsFound.withhold.flatMap((c) => [c.from, c.to]))],
+    });
+  }
+  if (clampedEffectsFound.disclose.length > 0) {
+    inferenceWarnings.push({
+      code: INFERENCE_WARNING_CODES.EDGE_STRENGTH_CLAMPED,
+      message: clampedEffectDisclosedMessage(clampedEffectsFound.disclose),
+      severity: 'info',
+      node_ids: [...new Set(clampedEffectsFound.disclose.flatMap((c) => [c.from, c.to]))],
+    });
+  }
+
+  // #416's sentence only when an unevaluated identity is the reason (a cut user size says its own, above).
+  if (goalProbabilityWithheld && goalIdentityWithheld.length > 0) {
     inferenceWarnings.push({
       code: INFERENCE_WARNING_CODES.GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED,
       message: goalIdentityWithheldMessage(goalIdentityWithheld, new Set((meta.identitiesNotForwarded ?? [])
@@ -6004,13 +6027,21 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           nodesNormalised = normResult.nodesNormalised;
           edgesNormalised = normResult.edgesNormalised;
           normWarnings = normResult.warnings;
-          // Convert canonical RepairEntry[] → RepairRecord[] for _meta compatibility
+          // Convert canonical RepairEntry[] → RepairRecord[] for _meta compatibility — KEEPING the canonical code,
+          // layer, path and severity. Dropping them made `normaliseRepairsForMeta` stamp every normaliser repair
+          // `LEGACY_REPAIR`, so a cut user size (CLAMP_STRENGTH_MEAN) reached no one by name (AIQ #72 5893355501).
           repairs = normResult.repairs.map(r => ({
             field: r.field_path,
             action: r.action,
             from_value: r.before as number | string | null,
             to_value: r.after as number | string,
             reason: r.reason,
+            code: r.code,
+            layer: r.layer,
+            field_path: r.field_path,
+            before: r.before as number | string | null,
+            after: r.after as number | string | null,
+            severity: r.severity,
           }));
         } catch (err) {
           if (err instanceof NormalisationError) {
@@ -9205,7 +9236,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const goalIdentityWithheld = goalIdentitiesNotEvaluated(
           filteredGraph, getIslIdentityEvaluations(processedIslResult), identitiesNotForwarded.map((w) => w.node_id),
         );
-        const goalFiguresWithheld = goalIdentityWithheld.length > 0;
+        // AI Quality #72 5893355501: a user-stated link size on the goal's path that the normaliser cut — read from the
+        // graph AS SENT (the normalised graph holds the cut ±1), decided once here with the identity predicate.
+        const clampedEffectsFound = clampedEffects(body.graph);
+        const goalFiguresWithheld = goalIdentityWithheld.length > 0 || clampedEffectsFound.withhold.length > 0;
         const legacyCeeGoalFiguresWithheld: CeeOrchestrationResult = {
           ...legacyCeeSkipped,
           ceeTrace: {
@@ -9213,7 +9247,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             degraded: false,
             timestamp: new Date().toISOString(),
             source: 'orchestrator',
-            reason: 'Legacy CEE review skipped: the goal figures are withheld (a declared identity on the goal path was not evaluated)',
+            reason: 'Legacy CEE review skipped: the goal figures are withheld (see inference_warnings for why)',
           },
         };
 
@@ -9820,6 +9854,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             withheldOptions: withheldOptionRecords,
             identitiesNotForwarded,
             goalIdentityWithheld,
+            clampedEffects: clampedEffectsFound,
             identityDerivedFrames,
             zeroFactorsHeldExact: zeroFactorsHeld,
             exactInputOptionIds: exactInputOptions,
