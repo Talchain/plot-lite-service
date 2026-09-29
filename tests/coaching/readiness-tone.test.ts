@@ -276,7 +276,7 @@ describe('the driver-confidence reasons skip an option-set lever', () => {
   const tone = (inputs: CoachingInputs) =>
     deriveReadinessTone(inputs, 'ready', 'clear_winner', drivers, [], getThresholds());
 
-  it('a low-stability LEVER at the top does not by itself produce a driver-confidence reason', () => {
+  it('a low-stability LEVER at the top (and NO fragile lever link) produces no driver-confidence reason', () => {
     const result = tone(twoDrivers(0.3, 0.9, ['f1']));
     expect(result.reasons).not.toContain('LOW_DRIVER_CONFIDENCE');
     expect(result.tone).toBe('confident');
@@ -284,6 +284,22 @@ describe('the driver-confidence reasons skip an option-set lever', () => {
 
   it('control: the same factor, not a lever, does', () => {
     expect(tone(twoDrivers(0.3, 0.9, [])).reasons).toContain('LOW_DRIVER_CONFIDENCE');
+  });
+
+  // AIQ 5884284990: the lever's VALUE is the user's choice, but how much it moves the goal can still be uncertain.
+  // That uncertainty is carried by the ROBUSTNESS reasons on the lever's links, which the skip must never touch.
+  it('control: a lever top driver whose OWN outgoing link is fragile still fires the robustness reason', () => {
+    const inputs = {
+      ...twoDrivers(0.3, 0.9, ['f1']),
+      fragileEdges: [{
+        edgeId: 'f1->goal', fromId: 'f1', toId: 'goal', fromLabel: 'Price', toLabel: 'Goal',
+        displayLabel: 'Price → Goal', switchProb: 0.5, altWinnerLabel: 'Option B', altWinnerId: 'opt2',
+      }],
+    } as CoachingInputs;
+    const result = tone(inputs);
+    expect(result.reasons).toContain('MATERIAL_FRAGILE_EDGE');
+    expect(result.reasons).not.toContain('LOW_DRIVER_CONFIDENCE');
+    expect(result.tone).not.toBe('confident');
   });
 
   it('the NEXT non-lever driver is read: its low confidence counts, its absence caps the tone', () => {
