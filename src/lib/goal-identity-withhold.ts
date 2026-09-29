@@ -207,9 +207,15 @@ export function driverOrderUnderWithhold<T extends { basis?: unknown }>(order: T
  */
 const COACHING_STRUCTURAL_FIELDS = ['coaching_version', 'computed_at', 'thresholds_used', 'key_drivers', 'model_critiques', 'assumptions_ledger'] as const;
 
-export function coachingWithoutWalk<T extends object>(coaching: T): T {
+export function coachingWithoutWalk<T extends object>(
+  coaching: T,
+  factorRows: ReadonlyArray<{ importance_basis?: unknown }> | undefined,
+): T {
   const src = coaching as Record<string, unknown>;
   const out: Record<string, unknown> = {};
   for (const k of COACHING_STRUCTURAL_FIELDS) if (k in src) out[k] = src[k];
+  // AIQ #72 5889873087: `key_drivers` ranks by the rows' `importance_rank` — a structural claim only when EVERY row's
+  // basis is structural. On the walk's basis that rank was withheld, so the order would be arbitrary: omitted.
+  if ((factorRows ?? []).some((r) => !isStructuralFactorBasis(r.importance_basis))) delete out.key_drivers;
   return out as T;
 }

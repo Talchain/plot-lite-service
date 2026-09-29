@@ -1797,6 +1797,12 @@ interface MetaParams {
   withheldOptions?: import('../../types/engine-v3.js').WithheldOptionRecord[];
   /** Variant (b): inferred identities not forwarded to ISL (frameless) — _meta.identities_not_forwarded */
   identitiesNotForwarded?: import('../../integrations/isl/translator-v3.js').IdentityNotForwarded[];
+  /**
+   * PLoT #419 (AIQ #72 5889873087, one carrier): the goal identities not evaluated, decided ONCE by the route on the
+   * graph and ISL answer it analysed — the same value gates M1 coaching, the M2 review and every published figure.
+   * Absent only on paths that decide nothing earlier (then `buildResponse` decides it from its own inputs).
+   */
+  goalIdentityWithheld?: import('../../lib/goal-identity-withhold.js').GoalIdentityNotEvaluated[];
   /** Variant (a): frames PLoT derived for frameless inferred intermediate carriers — _meta.identity_derived_frames */
   identityDerivedFrames?: import('../../integrations/isl/translator-v3.js').IdentityDerivedFrame[];
   /** T7b 4b (AIQ #72 5869679096): zero factors held at 0 with no uncertainty — each named in inference_warnings */
@@ -3280,7 +3286,8 @@ function buildResponse(
   // ⛔ A declared identity on the goal's own path that ISL did not evaluate: the goal's chance would come from the
   // additive walk, so it is withheld on every option and said (GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED below).
   // AI Quality #72 5884802000 / DL 5884931550; `src/lib/goal-identity-withhold.ts`.
-  const goalIdentityWithheld = goalIdentitiesNotEvaluated(graph, getIslIdentityEvaluations(islResult), identityNotForwardedIds);
+  const goalIdentityWithheld = meta.goalIdentityWithheld
+    ?? goalIdentitiesNotEvaluated(graph, getIslIdentityEvaluations(islResult), identityNotForwardedIds);
   let goalProbabilityWithheld = false;
   // ⛔ The SAME unevaluated identity makes every per-option figure of the goal come from that additive walk: the
   // chance of leading and the outcome's centre and spread are as wrong as P(goal) (AI Quality #72 5886183999
@@ -9221,9 +9228,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // the same ISL answer, the same withdrawn ids — decided once here for the consumers that read ISL's answer
         // before the response exists: M1 coaching keeps only its structural fields (from factor rows less the walk's
         // fields); the M2 decision review is skipped.
-        const goalFiguresWithheld = goalIdentitiesNotEvaluated(
+        const goalIdentityWithheld = goalIdentitiesNotEvaluated(
           filteredGraph, getIslIdentityEvaluations(processedIslResult), identitiesNotForwarded.map((w) => w.node_id),
-        ).length > 0;
+        );
+        const goalFiguresWithheld = goalIdentityWithheld.length > 0;
 
         // Generate M1 coaching (Phase 2+3+4 deterministic coaching layer)
         let m1Coaching: any = null;
@@ -9298,7 +9306,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             coachingConstraintTargetDirectionSuspect,  // FIX #1 companion: skip joint-prob gate on direction-suspect targets
           );
           // AIQ 5889514782: under the withhold only coaching's structural fields stay (see coachingWithoutWalk).
-          if (goalFiguresWithheld && m1Coaching) m1Coaching = coachingWithoutWalk(m1Coaching);
+          if (goalFiguresWithheld && m1Coaching) m1Coaching = coachingWithoutWalk(m1Coaching, factorSensitivity);
         } catch (err) {
           req.log.warn({
             event: 'm1_coaching_generation_failed',
@@ -9794,6 +9802,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             ],
             withheldOptions: withheldOptionRecords,
             identitiesNotForwarded,
+            goalIdentityWithheld,
             identityDerivedFrames,
             zeroFactorsHeldExact: zeroFactorsHeld,
             exactInputOptionIds: exactInputOptions,

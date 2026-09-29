@@ -64,6 +64,16 @@ describe('coachingWithoutWalk', () => {
     const { coachingWithoutWalk } = await import('../src/lib/goal-identity-withhold.js');
     const c = { coaching_version: 'v', computed_at: 't', thresholds_used: {}, key_drivers: [1], model_critiques: [2], assumptions_ledger: [3],
       headline_type: 'clear_winner', executive_summary: {}, story_headlines: {}, next_actions: [], readiness: 'ready', readiness_reasons: [], readiness_signals: {}, readiness_tone: 'x', evidence_gaps: [] };
-    expect(Object.keys(coachingWithoutWalk(c)).sort()).toEqual(['assumptions_ledger', 'coaching_version', 'computed_at', 'key_drivers', 'model_critiques', 'thresholds_used']);
+    const structural = [{ importance_basis: 'isl_structural' }, { importance_basis: 'graph_structural' }];
+    expect(Object.keys(coachingWithoutWalk(c, structural)).sort()).toEqual(['assumptions_ledger', 'coaching_version', 'computed_at', 'key_drivers', 'model_critiques', 'thresholds_used']);
+  });
+  it("key_drivers go when ANY row's rank is the walk's (isl_uncertainty, or undisclosed): the order would be arbitrary (AIQ 5889873087)", async () => {
+    const { coachingWithoutWalk } = await import('../src/lib/goal-identity-withhold.js');
+    const c = { coaching_version: 'v', key_drivers: [{ factor_id: 'a', rank: 1 }], model_critiques: [], assumptions_ledger: {} };
+    for (const rows of [[{ importance_basis: 'isl_uncertainty' }], [{ importance_basis: 'isl_structural' }, { importance_basis: 'isl_uncertainty' }], [{}]]) {
+      expect('key_drivers' in coachingWithoutWalk(c, rows), JSON.stringify(rows)).toBe(false);
+    }
+    // CONTROL: every row structural → kept, the same array.
+    expect(coachingWithoutWalk(c, [{ importance_basis: 'graph_structural' }]).key_drivers).toBe(c.key_drivers);
   });
 });

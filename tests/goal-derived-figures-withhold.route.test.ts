@@ -107,8 +107,15 @@ describe("route — the goal's sensitivity, value-of-information and robustness 
     expect(control.m1_coaching.headline_type).toBeDefined();
     expect(control.confidence_tier).toBeDefined();
 
+    // ONE carrier (AIQ 5889873087): the route decides the predicate once; the review path and the published figures
+    // agree on the evaluated control (neither fires) and on the unevaluated case (both fire).
+    expect(codes(control)).not.toContain(WITHHELD);
+    expect(control.option_comparison.some((o: any) => typeof o.win_probability === 'number')).toBe(true);
+
     islOverride = { identity_evaluations: notEvaluated() };
     const body = await run(withBrief(inferredRequest()));
+    expect(codes(body).filter((c) => c === WITHHELD)).toHaveLength(1);
+    for (const o of body.option_comparison) expect('win_probability' in o, o.option_id).toBe(false);
     expect(body.review_status).toBe('skipped');
     expect(body.review_skip_reason).toBe('GOAL_FIGURES_WITHHELD');
     expect(body.m1_review ?? null).toBeNull();
