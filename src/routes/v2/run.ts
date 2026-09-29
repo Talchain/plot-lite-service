@@ -1532,6 +1532,8 @@ const runV3Schema = {
       // `extra: "ignore"` and being dropped in silence while the maximiser keeps
       // running unattested.
       goal_direction: { type: 'string', enum: ['maximise', 'minimise', 'target'] },
+      // R1 S4 (B): "above £85k" — strictly past the threshold. Boolean AT THE GATE; forwarded only as `true` beside a threshold.
+      goal_threshold_strict: { type: 'boolean' },
       include_thresholds: { type: 'boolean' },
       include_e_values: { type: 'boolean' },
       include_voi: { type: 'boolean' },
@@ -8003,7 +8005,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           body.factor_correlations,  // Capability #100 (D-23.4): forward client-supplied factor correlations verbatim (request-gated omit inside the translator)
           resolvedGoalTarget.frame,  // Only the attestation bound to the selected target; never borrowed from a conflicting node target
           body.user_stated_ranges,  // ROADMAP 2.720 (P4): the user's own stated ranges, projected onto ISL's declared members inside the translator (request-gated omit)
-          parseGoalDirection(body.goal_direction)  // ROADMAP 2.920: attested objective sense; unrecognised ⇒ undefined ⇒ today's unattested maximiser
+          parseGoalDirection(body.goal_direction),  // ROADMAP 2.920: attested objective sense; unrecognised ⇒ undefined ⇒ today's unattested maximiser
+          body.goal_threshold_strict === true  // R1 S4 (B): attested strict goal; forwarded only beside a threshold (translator)
         );
 
         // R3-8: each declared identity's participants carry the frame PLoT resolved (runtime

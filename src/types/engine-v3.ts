@@ -967,6 +967,13 @@ export interface RunRequestV3 {
   goal_direction?: unknown;
 
   /**
+   * R1 S4 (B) (R3 #72 5879133964; ISL #209): the producer's attested STRICT comparator for the goal target ("above
+   * £85k"; "below" when minimising). Typed `unknown` for the same reason as `goal_direction`: only `=== true` is
+   * forwarded (translator), and only beside a goal threshold; anything else is an omitted key.
+   */
+  goal_threshold_strict?: unknown;
+
+  /**
    * Original decision description/brief.
    * When provided, CEE can generate contextualised review output
    * (e.g., "Hiring a senior developer is recommended for your goal
