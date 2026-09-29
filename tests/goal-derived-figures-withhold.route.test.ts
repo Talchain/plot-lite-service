@@ -96,6 +96,27 @@ describe("route — the goal's sensitivity, value-of-information and robustness 
   afterAll(async () => { await app?.close(); });
   afterEach(() => { islOverride = {}; });
 
+  // conditional_winners: the W214 answer carries none, so this row adds one block in ISL's own wire shape — copied from
+  // the real ISL 3717e36 answer (tests/fixtures/b5-per-limit-0e19bb82/isl-3717e36.two-limits.response.json), with its
+  // ids relabelled to W214's factor and options. A shape discriminator for the gate, not a claim about W214's wire.
+  const CONDITIONAL_WINNERS = [{
+    factor_id: 'pro_paying_subscribers', factor_label: 'Pro paying subscribers', split_value: 0.4, split_unit: 'subscribers',
+    low_bucket: { n_samples: 5000, winner_id: 'keep_current_49_price', winner_label: 'Keep current £49 price', winner_probability: 0.5796, runner_up_id: 'increase_price_to_59', runner_up_probability: 0.152 },
+    high_bucket: { n_samples: 5000, winner_id: 'increase_price_to_59', winner_label: 'Increase price to £59', winner_probability: 0.3716, runner_up_id: 'increase_price_to_54', runner_up_probability: 0.3688 },
+    winner_flips: true,
+  }];
+
+  it('⭐ conditional_winners — which option wins as a factor moves is the walk\'s: shown when evaluated, withheld when not', async () => {
+    islOverride = { conditional_winners: CONDITIONAL_WINNERS };
+    const control = await run(REQUEST);
+    expect(control.conditional_winners.map((c: any) => c.factor_id)).toEqual(['pro_paying_subscribers']);
+
+    islOverride = { conditional_winners: CONDITIONAL_WINNERS, identity_evaluations: notEvaluated() };
+    const body = await run(inferredRequest());
+    expect(codes(body).filter((c) => c === WITHHELD)).toHaveLength(1);
+    expect(body.conditional_winners).toEqual([]);
+  });
+
   const withBrief = (r: any) => ({ ...r, brief: 'Should we raise the Pro plan price to get MRR above £85k?' });
   const COACHING_KEPT = ['assumptions_ledger', 'coaching_version', 'computed_at', 'key_drivers', 'model_critiques', 'thresholds_used'];
 
@@ -179,7 +200,7 @@ describe("route — the goal's sensitivity, value-of-information and robustness 
     expect(body.flip_thresholds).toEqual([]);
     expect(body.flip_thresholds_status).toBe('unavailable');
     // The goal's sensitivity to each factor / edge, per-factor stability, and what is built from them (R3 5889055195).
-    // (conditional_winners is withheld too; this ISL answer carries none, so no row here can discriminate it.)
+    // (conditional_winners: this ISL answer carries none — its own discriminating row is below.)
     // R3 5889219876 — ONE RULE: withhold what the walk computed, keep what the structure computed. On this answer every
     // row's basis is ISL's STRUCTURAL influence (R3-5), so the driver order, each row's rank / score / elasticity /
     // direction / influence and the brief's drivers are the control's; each row loses the walk's quantities.
