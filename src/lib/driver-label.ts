@@ -138,5 +138,9 @@ export function deriveDriverLabel(
 export function indexOfCanonicalTopDriver(
   factors: ReadonlyArray<unknown>,
 ): number {
-  return factors.length > 0 ? 0 : -1;
+  // ISL #213 (AIQ #72 5881953818): a gated (withheld) factor is never ranked, so it never wears the
+  // crown. With no gated row this is index 0, as before.
+  return factors.findIndex(
+    (f) => ((f as { influence_gated_by?: unknown[] } | null)?.influence_gated_by?.length ?? 0) === 0,
+  );
 }

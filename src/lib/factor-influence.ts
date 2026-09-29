@@ -1188,11 +1188,34 @@ export function adoptIslStructuralInfluence(
       gatedBy.set(row.node_id, [...row.gated_by]);
     }
   }
+  // Complete = every row is either scored or typed-withheld; an all-gated list is complete too (PR Review
+  // #408 5882179469: two zero operands gate each other). A gated row is withheld on EITHER branch.
   const complete =
-    factors.some((f) => islScore.has(f.factor_id)) &&
-    factors.every((f) => islScore.has(f.factor_id) || gatedBy.has(f.factor_id));
+    factors.length > 0 && factors.every((f) => islScore.has(f.factor_id) || gatedBy.has(f.factor_id));
+  const withhold = <T extends FactorSensitivityResultV3>(f: T, basis: 'isl_structural' | 'graph_walk') => {
+    const { influence_score: _s, influence_rank: _r, importance_rank: _i, driver_label: _l, ...rest } = f;
+    return { ...rest, influence_basis: basis, influence_gated_by: gatedBy.get(f.factor_id) as string[] };
+  };
   if (!complete) {
-    return factors.map((f) => ({ ...f, influence_basis: 'graph_walk' as const }));
+    if (gatedBy.size === 0 || !factors.some((f) => gatedBy.has(f.factor_id))) {
+      return factors.map((f) => ({ ...f, influence_basis: 'graph_walk' as const }));
+    }
+    // The walk stays for the unmarked rows (disclosed graph_walk), re-ranked 1..n among themselves in their
+    // walk order; a gated row is still withheld and never ranked.
+    const walked = factors.filter((f) => !gatedBy.has(f.factor_id));
+    const byInfluence = [...walked].sort(
+      (a, b) => (a.influence_rank ?? Number.MAX_SAFE_INTEGER) - (b.influence_rank ?? Number.MAX_SAFE_INTEGER),
+    );
+    const influenceRank = new Map(byInfluence.map((f, i) => [f.factor_id, i + 1]));
+    return [
+      ...walked.map((f, i) => ({
+        ...f,
+        influence_basis: 'graph_walk' as const,
+        ...(f.influence_rank !== undefined ? { influence_rank: influenceRank.get(f.factor_id) as number } : {}),
+        ...(f.importance_rank !== undefined ? { importance_rank: i + 1 } : {}),
+      })),
+      ...factors.filter((f) => gatedBy.has(f.factor_id)).map((f) => withhold(f, 'graph_walk')),
+    ];
   }
 
   const scored = factors
@@ -1205,12 +1228,7 @@ export function adoptIslStructuralInfluence(
     .sort((a, b) => (b.f.influence_score - a.f.influence_score) || (a.index - b.index))
     .map(({ f }, i) => ({ ...f, influence_rank: i + 1, importance_rank: i + 1 }));
   // Withheld rows follow, with no score and no rank: nothing downstream may read them as 0 or rank them.
-  const withheld = factors
-    .filter((f) => gatedBy.has(f.factor_id))
-    .map((f) => {
-      const { influence_score: _s, influence_rank: _r, importance_rank: _i, driver_label: _l, ...rest } = f;
-      return { ...rest, influence_basis: 'isl_structural' as const, influence_gated_by: gatedBy.get(f.factor_id) as string[] };
-    });
+  const withheld = factors.filter((f) => gatedBy.has(f.factor_id)).map((f) => withhold(f, 'isl_structural'));
   return [...scored, ...withheld];
 }
 
