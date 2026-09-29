@@ -54,6 +54,31 @@ export interface AssumptionRecord {
     | 'OUTCOME_MODIFIER'
     | 'STRUCTURAL_ONLY'
     | 'COSMETIC';
+
+  /**
+   * Who may see this row (AIQ #72 5884364585). `user`: an assumption of THIS decision model the user could check or
+   * change. `internal`: a process or normalisation diagnostic. Readers filter on this field, never on `dedup_key` or
+   * `reason` text. Set once by `buildAssumptionsLedger` via `ledgerAudience`.
+   */
+  audience: 'user' | 'internal';
+}
+
+/** A ledger row before its audience is stamped (every source builds these). */
+type AssumptionRecordDraft = Omit<AssumptionRecord, 'audience'>;
+
+/**
+ * The typed audience of a ledger row (AIQ #72 5884364585). `user` ONLY for the source classes AIQ ruled user-facing:
+ * an ISL-flagged fragile edge, and an ISL-flagged node confidence (which the producer emits only for a MEASURED,
+ * non-lever factor: #409, #410). Everything else, including a new or unknown class, is `internal` (fail closed); a class
+ * becomes `user` only with its own ruling and row.
+ */
+export function ledgerAudience(
+  record: Pick<AssumptionRecord, 'source_service' | 'entity_type' | 'field'>,
+): 'user' | 'internal' {
+  if (record.source_service !== 'isl_engine') return 'internal';
+  if (record.entity_type === 'edge' && record.field === 'switch_probability') return 'user';
+  if (record.entity_type === 'node' && record.field === 'confidence') return 'user';
+  return 'internal';
 }
 
 export interface AssumptionsLedger {
@@ -62,6 +87,10 @@ export interface AssumptionsLedger {
   high_impact_count: number;
   medium_impact_count: number;
   low_impact_count: number;
+  /** Rows with `audience: 'user'`: the only count a user-facing surface may show (AIQ #72 5884364585). */
+  user_count: number;
+  /** `user` rows with high impact. */
+  user_high_impact_count: number;
 }
 
 /**
@@ -89,7 +118,7 @@ export function buildAssumptionsLedger(
     severity?: string;
   }> = []
 ): AssumptionsLedger {
-  const records = new Map<string, AssumptionRecord>();
+  const records = new Map<string, AssumptionRecordDraft>();
 
   // 1. Collect from normaliser repairs
   for (const repair of repairsApplied) {
@@ -111,8 +140,9 @@ export function buildAssumptionsLedger(
     }
   }
 
-  // Deduplicated list
-  const assumptions = Array.from(records.values());
+  // Deduplicated list, each row stamped with its typed audience
+  const assumptions: AssumptionRecord[] = Array.from(records.values()).map((r) => ({ ...r, audience: ledgerAudience(r) }));
+  const userRows = assumptions.filter((a) => a.audience === 'user');
 
   // Count by impact
   const highCount = assumptions.filter((a) => a.impact === 'high').length;
@@ -125,6 +155,8 @@ export function buildAssumptionsLedger(
     high_impact_count: highCount,
     medium_impact_count: mediumCount,
     low_impact_count: lowCount,
+    user_count: userRows.length,
+    user_high_impact_count: userRows.filter((a) => a.impact === 'high').length,
   };
 }
 
@@ -141,7 +173,7 @@ function mapRepairToAssumption(
     option_id?: string;
   },
   inputs: CoachingInputs
-): AssumptionRecord {
+): AssumptionRecordDraft {
   // A3 round 2: a per-option intervention repair (the normaliser's `clamped`
   // record) names its option, and the option is part of its identity — two
   // options clamping the same factor are two assumptions. Keyed WITHOUT it they
@@ -184,8 +216,8 @@ function mapRepairToAssumption(
 /**
  * Extract assumptions from ISL robustness data.
  */
-function extractISLAssumptions(inputs: CoachingInputs): AssumptionRecord[] {
-  const assumptions: AssumptionRecord[] = [];
+function extractISLAssumptions(inputs: CoachingInputs): AssumptionRecordDraft[] {
+  const assumptions: AssumptionRecordDraft[] = [];
   const thresholds = getThresholds();
 
   // Fragile edges are high-impact assumptions
@@ -246,7 +278,7 @@ function extractISLAssumptions(inputs: CoachingInputs): AssumptionRecord[] {
 function mapCEECritiqueToAssumption(
   critique: { type: string; message: string; severity?: string },
   _inputs: CoachingInputs
-): AssumptionRecord | null {
+): AssumptionRecordDraft | null {
   // Only map critiques that represent assumptions (not all do)
   if (
     critique.type === 'MISSING_CONSIDERATION' ||

@@ -152,7 +152,7 @@ export function generateM1Coaching(
     // Phase 3: Differentiators (C1-C3)
     const assumptionsLedger = safeCompute(
       () => buildAssumptionsLedger(inputs, repairsApplied, ceeCritiques),
-      { assumptions: [], total_count: 0, high_impact_count: 0, medium_impact_count: 0, low_impact_count: 0 },
+      { assumptions: [], total_count: 0, high_impact_count: 0, medium_impact_count: 0, low_impact_count: 0, user_count: 0, user_high_impact_count: 0 },
       logger,
       'assumptions_ledger'
     );
