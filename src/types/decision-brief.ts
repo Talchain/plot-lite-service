@@ -119,8 +119,8 @@ export interface DecisionBriefV1 {
    * (`.strict()`) so the CEE capture hook copies it verbatim into
    * `DecisionRecordDecision.analysis_summary` — zero mapping (seam ratified
    * 2026-07-10): leading_option = rank-1 option label · win_probability =
-   * rank-1 win probability · goal_fit = leader's probability_of_joint_goal
-   * (OMITTED when absent — never invented) · robustness_band =
+   * rank-1 win probability · goal_fit = leader's probability_of_goal (OMITTED
+   * when absent — never the limits-only joint; DL #72 5887546998) · robustness_band =
    * `robustness.display_verdict` verbatim incl. 'not_assessed' (OMITTED when
    * the verdict is absent — never derived from another signal).
    *
