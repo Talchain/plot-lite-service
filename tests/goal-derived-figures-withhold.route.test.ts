@@ -108,6 +108,13 @@ describe("route — the goal's sensitivity, value-of-information and robustness 
     expect(body.flip_thresholds.length).toBeGreaterThan(0);
     expect(body.driver_order?.ranked_factor_ids?.length).toBeGreaterThan(0);
     expect(body.decision_brief?.top_drivers?.length).toBeGreaterThan(0);
+    // R3 5889055195 — the goal's sensitivity to each factor / edge and the facts and cards built from it.
+    expect(body.factor_sensitivity?.length).toBeGreaterThan(0);
+    expect(body.edge_sensitivity.length).toBeGreaterThan(0);
+    expect(body.factor_stability.length).toBeGreaterThan(0);
+    const factTypes = new Set((body.fact_objects ?? []).map((f: any) => f.fact_type));
+    for (const t of ['probability', 'factor_sensitivity', 'robustness']) expect(factTypes.has(t), t).toBe(true);
+    expect((body.review_cards ?? []).map((c: any) => c.card_type)).toContain('evidence_priority');
   });
 
   it('⭐ RED — the identity inferred and ISL reports it evaluated:false: the same answer\'s six carriers are withheld, said once', async () => {
@@ -132,6 +139,14 @@ describe("route — the goal's sensitivity, value-of-information and robustness 
     expect(body.flip_thresholds_status).toBe('unavailable');
     expect('driver_order' in body).toBe(false);
     expect(body.decision_brief?.top_drivers ?? []).toEqual([]);
+    // The goal's sensitivity to each factor / edge, per-factor stability, and what is built from them (R3 5889055195).
+    // (conditional_winners is withheld too; this ISL answer carries none, so no row here can discriminate it.)
+    expect('factor_sensitivity' in body).toBe(false);
+    expect(body.edge_sensitivity).toEqual([]);
+    expect(body.factor_stability).toEqual([]);
+    expect(body.conditional_winners).toEqual([]);
+    expect([...new Set((body.fact_objects ?? []).map((f: any) => f.fact_type))]).toEqual(['critique']);
+    expect((body.review_cards ?? []).map((c: any) => c.card_type)).not.toContain('evidence_priority');
 
     // ONE reason, #416's, naming the node — and no other warning appears because of the withhold.
     expect(codes(body).filter((c) => c === WITHHELD)).toHaveLength(1);

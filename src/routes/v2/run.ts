@@ -3704,10 +3704,14 @@ function buildResponse(
   // deployed ISL builds (e.g. f3f5d92) the nested field is absent too:
   // edge_sensitivity then stays "computed, empty" and is explicitly marked
   // via the EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE inference warning below.
-  const edgeSensitivity = sensitivityData?.edgeSensitivity
-    ?? transformEdgeSensitivity(getIslEdgeSensitivity(islResult), fallbackNodeLabelMap);
-  const factorSensitivity = sensitivityData?.factorSensitivity
-    ?? transformFactorSensitivity(islResult?.factor_sensitivity);
+  // ⛔ R3 SCIENCE #72 5889055195: the goal's sensitivity to each edge and factor is computed on the same links-only
+  // walk — under an unevaluated goal identity it ranks inputs by a walk that contradicts the model's own declaration,
+  // so it is withheld (edges: the required array, empty; factors: omitted). Everything built from it follows: the
+  // driver order, the evidence-priority card, the factor facts, the dominant factor and the brief's drivers.
+  const edgeSensitivity = optionFiguresInvalid ? [] : (sensitivityData?.edgeSensitivity
+    ?? transformEdgeSensitivity(getIslEdgeSensitivity(islResult), fallbackNodeLabelMap));
+  const factorSensitivity = optionFiguresInvalid ? undefined : (sensitivityData?.factorSensitivity
+    ?? transformFactorSensitivity(islResult?.factor_sensitivity));
 
   // ── Family-4 S1: the ONE canonical driver order + its attestation ────────
   //
@@ -3747,8 +3751,9 @@ function buildResponse(
   // former top-level read was structurally dead) — read via the accessor.
   const edgeEValues = sensitivityData?.edgeEValues
     ?? transformEdgeEValues(getIslEdgeEValues(islResult), fallbackNodeLabelMap);
-  const conditionalWinners = sensitivityData?.conditionalWinners
-    ?? transformConditionalWinners(islResult?.conditional_winners, fallbackNodeLabelMap, fallbackOptionLabelMap);
+  // Which option wins as a factor moves: the same walk's winners (R3 5889055195) — none under an unevaluated goal identity.
+  const conditionalWinners = optionFiguresInvalid ? undefined : (sensitivityData?.conditionalWinners
+    ?? transformConditionalWinners(islResult?.conditional_winners, fallbackNodeLabelMap, fallbackOptionLabelMap));
 
   // ROADMAP 2.720 (P4). Read through the envelope accessor, which fixes the
   // wire LOCATION in one place and degrades a non-array to absent. Forwarded
@@ -4182,7 +4187,8 @@ function buildResponse(
   // where no option reaches it, else its starting level is held and the options still move it (AIQ #72 5871640445).
   inferenceWarnings.push(...zeroFactorHeldWarnings(meta.zeroFactorsHeldExact ?? []));
 
-  if (analysisStatus === 'computed' && islResult && !hasNonEmptyArray(edgeSensitivity)) {
+  // (Not when the edges were withheld above: #416's warning already says why they are empty.)
+  if (analysisStatus === 'computed' && islResult && !optionFiguresInvalid && !hasNonEmptyArray(edgeSensitivity)) {
     inferenceWarnings.push({
       code: INFERENCE_WARNING_CODES.EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE,
       // provisional_doctrine_v0 — wording surface (diagnostic disclosure)
@@ -4516,7 +4522,8 @@ function buildResponse(
       // were always undefined (phantom — never populated from the V2 wire), so
       // mapRobustness already fell back to its 'moderate'/0.5 defaults. Passing
       // an empty object keeps the assembled FactObject byte-identical.
-      robustness: robustness ? {} : undefined,
+      // Under an unevaluated goal identity robustness is withheld (R3 5888737291): no robustness fact either.
+      robustness: robustness && !optionFiguresInvalid ? {} : undefined,
     };
 
     const envelope = assembleFactObjects(islInput, lineage);
@@ -4734,7 +4741,8 @@ function buildResponse(
     ...(driverOrder !== undefined && { driver_order: driverOrder }),
     // ISL stability assessment per factor (3C bootstrap analysis)
     // NOTE: Deterministic ISL output. Excluded from response_hash since v6.
-    factor_stability: factorStability ?? [],
+    // The same walk's per-factor stability (R3 5889055195): empty under an unevaluated goal identity.
+    factor_stability: optionFiguresInvalid ? [] : (factorStability ?? []),
     // ISL stability threshold configuration (boundaries for attribution_stability categories)
     // NOTE: Configuration metadata, NOT in response_hash. The categorical labels it
     // influences (attribution_stability in factor_stability) are already in the hash.
