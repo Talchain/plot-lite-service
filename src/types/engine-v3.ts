@@ -3203,6 +3203,20 @@ export const INFERENCE_WARNING_CODES = {
    * @see src/routes/v2/run.ts transformEdgeEValues
    */
   EDGE_E_VALUE_NON_FINITE_DROPPED: 'EDGE_E_VALUE_NON_FINITE_DROPPED',
+  /**
+   * A declared identity on the goal's own path was not evaluated, so `probability_of_goal` is WITHHELD on every
+   * option (never shown from the additive walk). `node_ids` names the identity node(s). AI Quality #72 5884802000,
+   * DL 5884931550. Severity: warning.
+   * @see src/lib/goal-identity-withhold.ts
+   */
+  GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED: 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED',
+  /**
+   * A limit whose target IS an unevaluated declared identity, or is reached through one, is scored on the same invalid
+   * walk: its probability is WITHHELD (per limit, so the joint follows via `joint_withheld`). `constraint_ids` names the
+   * limit(s), `node_ids` the identity node(s). AI Quality #72 5886183999. Severity: warning.
+   * @see src/lib/goal-identity-withhold.ts
+   */
+  CONSTRAINT_IDENTITY_NOT_EVALUATED: 'CONSTRAINT_IDENTITY_NOT_EVALUATED',
 } as const;
 
 export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof INFERENCE_WARNING_CODES];
@@ -3259,6 +3273,12 @@ export interface InferenceWarning {
    * fails the contract.
    */
   node_label?: string;
+  /**
+   * The node(s) this warning is about, by id — set on GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED (the identity nodes whose
+   * evaluation the goal's chance would rest on). The egress enrichment envelope's inference_warnings element is
+   * passthrough, so this additive field never fails the contract.
+   */
+  node_ids?: string[];
 }
 
 /**
