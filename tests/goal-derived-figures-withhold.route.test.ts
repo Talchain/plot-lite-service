@@ -168,6 +168,14 @@ describe("route — the goal's sensitivity, value-of-information and robustness 
     expect(codes(body).filter((c) => c === WITHHELD)).toHaveLength(1);
     expect(body.edge_e_values).toEqual([]);
     expect(codes(body).filter((c) => /E_VALUE/.test(c))).toEqual([]);
+
+    // An ISL answer with no E-value location: the evaluated control says so; under the withhold #416's warning is the
+    // only reason — the list is withheld whatever the wire carried.
+    const { edge_e_values: _omit, ...robustnessWithoutEValues } = ISL_BODY.robustness;
+    islOverride = { robustness: robustnessWithoutEValues };
+    expect(codes(await run(REQUEST))).toContain('EDGE_E_VALUES_UNAVAILABLE_V2_WIRE');
+    islOverride = { robustness: robustnessWithoutEValues, identity_evaluations: notEvaluated() };
+    expect(codes(await run(inferredRequest())).filter((c) => /E_VALUE/.test(c))).toEqual([]);
   });
 
   it('⭐ conditional_winners — which option wins as a factor moves is the walk\'s: shown when evaluated, withheld when not', async () => {
