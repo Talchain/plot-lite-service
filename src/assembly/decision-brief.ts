@@ -357,8 +357,10 @@ function buildOptions(input: BriefAssemblyInput): BriefOption[] {
  * Ratified seam (orchestrator, 2026-07-10) — every field copied, none
  * derived: leading_option/win_probability from the rank-1 option (the same
  * deterministic ranking as buildOptions), goal_fit from the LEADER's
- * probability_of_joint_goal (omitted when absent — never invented from
- * probability_of_goal or anything else), robustness_band from
+ * probability_of_GOAL (omitted when absent — never refilled from the
+ * limits-only probability_of_joint_goal or anything else; DL #72 5887546998 /
+ * AIQ 5887531086 superseded the 2026-07-10 joint mapping, which labelled "all
+ * your limits hold" as the goal's chance), robustness_band from
  * robustness.display_verdict VERBATIM incl. 'not_assessed' (omitted when
  * the verdict is absent — never derived from level/is_robust; that honest
  * mapping already happened in robustness-display-verdict.ts).
@@ -381,7 +383,7 @@ function buildAnalysisSummary(
   const leaderComparison = (input.option_comparison ?? []).find(
     (o) => o.option_id === leader.option_id,
   );
-  const goalFit = leaderComparison?.probability_of_joint_goal;
+  const goalFit = leaderComparison?.probability_of_goal;
   if (typeof goalFit === 'number' && Number.isFinite(goalFit)) {
     summary.goal_fit = goalFit;
   }
