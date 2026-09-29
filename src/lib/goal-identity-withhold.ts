@@ -134,8 +134,10 @@ export function goalIdentityWithheldMessage(
   const parts = first.parts.length > 0 ? first.parts.join(joiner) : 'other figures in the model';
   const more = nodes.length > 1 ? ` (and ${nodes.length - 1} more)` : '';
   if (unconfirmedNodeIds.has(first.node_id)) {
-    return `Not shown. Olumi reads '${first.label}' as ${parts}${more}, but you haven't confirmed that, `
-      + "so the chance for each option isn't calculated yet.";
+    // AI Quality #72 5891608873, the words WITHOUT the card: no ask the user cannot answer here, labels from the graph.
+    const quoted = first.parts.length > 0 ? first.parts.map((p) => `'${p}'`).join(joiner) : 'other figures in the model';
+    return `Not shown: Olumi reads '${first.label}' as ${quoted}${more}, but that hasn't been confirmed, `
+      + `so this run gives no chance of reaching the target for '${first.label}'.`;
   }
   return `Not shown. '${first.label}' depends on ${parts}${more}, but this run couldn't calculate it that way, `
     + 'so the figures for each option would be wrong.';

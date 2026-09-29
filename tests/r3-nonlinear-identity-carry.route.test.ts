@@ -794,7 +794,7 @@ describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the R
     expect(opts.filter((o) => o.probability_of_goal !== undefined)).toEqual([]);
     const withheld = (body.inference_warnings ?? []).filter((w: any) => w.code === 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED');
     expect(withheld.map((w: any) => w.node_ids)).toEqual([['mrr']]);
-    expect(withheld[0].message).toMatch(/^Not shown\. Olumi reads '.+' as .+ × .+, but you haven't confirmed that, so the chance for each option isn't calculated yet\.$/);
+    expect(withheld[0].message).toMatch(/^Not shown: Olumi reads '.+' as '.+' × '.+', but that hasn't been confirmed, so this run gives no chance of reaching the target for '.+'\.$/);
   });
 
   it('(d) CONTRAST: the same request with the goal\'s product STATED is sent to ISL once, evaluated, and nothing is withheld', async () => {
@@ -815,7 +815,7 @@ describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the R
     const withheld = (body.inference_warnings ?? []).filter((w: any) => w.code === 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED');
     expect(withheld).toHaveLength(1);
     expect(withheld[0].message).toContain("but this run couldn't calculate it that way");
-    expect(withheld[0].message).not.toContain("haven't confirmed");
+    expect(withheld[0].message).not.toContain("hasn't been confirmed");
   });
 
   it('⭐ RED (verifier FIX_FIRST): a withdrawn variant-(a) carrier takes its Olumi-derived frame out of _meta too — no claim of a frame the retry never sent', async () => {
