@@ -405,7 +405,8 @@ export interface M1Coaching {
   /**
    * Deterministic reason codes that produced `readiness_tone`. Empty array
    * when tone is `'confident'`; otherwise contains the triggered hard reasons
-   * plus an optional `INSUFFICIENT_SIGNALS` marker. Stable additive
+   * plus an optional `INSUFFICIENT_SIGNALS` marker and the soft
+   * `TOP_DRIVER_UNMEASURED` cap (AIQ #72 5883542574). Stable additive
    * vocabulary defined in `src/coaching/readiness-tone.ts`.
    *
    * Optional for the same reasons as `readiness_tone` above: backwards

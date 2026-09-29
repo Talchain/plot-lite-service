@@ -230,6 +230,7 @@ const REASON_PHRASES: Record<Exclude<ReadinessToneReason, 'EVIDENCE_GAPS'>, stri
   LOW_DRIVER_CONFIDENCE: 'the top driver has low confidence',
   NEAR_TIE: 'the margin is near a tie',
   INSUFFICIENT_SIGNALS: 'key signals are not yet available',
+  TOP_DRIVER_UNMEASURED: "the top driver's stability has not been measured",
 };
 
 // Reasons are surfaced in display priority order so the rationale leads with
@@ -242,6 +243,7 @@ const REASON_DISPLAY_ORDER: ReadinessToneReason[] = [
   'LOW_STABILITY',
   'LOW_DRIVER_CONFIDENCE',
   'NEAR_TIE',
+  'TOP_DRIVER_UNMEASURED',
   'INSUFFICIENT_SIGNALS',
 ];
 

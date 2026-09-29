@@ -498,7 +498,8 @@
     "readiness_tone": "tempered",
     "readiness_reasons": [
       "EVIDENCE_GAPS",
-      "INSUFFICIENT_SIGNALS"
+      "INSUFFICIENT_SIGNALS",
+      "TOP_DRIVER_UNMEASURED"
     ],
     "coaching_version": "1.2.0"
   },

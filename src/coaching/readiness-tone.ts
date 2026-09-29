@@ -24,7 +24,9 @@ export type ReadinessToneReason =
   | 'EVIDENCE_GAPS'
   | 'LOW_DRIVER_CONFIDENCE'
   | 'NEAR_TIE'
-  | 'INSUFFICIENT_SIGNALS';
+  | 'INSUFFICIENT_SIGNALS'
+  // AIQ #72 5883542574: the top driver's confidence has no MEASURED stability behind it (soft; see below).
+  | 'TOP_DRIVER_UNMEASURED';
 
 export interface ReadinessToneResult {
   tone: ReadinessTone;
@@ -112,6 +114,12 @@ export function deriveReadinessTone(
     || (topDriver !== undefined && topDriverConfidence === undefined);
   if (hasMissingSignal && reasons.length > 0) {
     reasons.push('INSUFFICIENT_SIGNALS');
+  }
+
+  // AIQ #72 5883542574: absence must never beat weak evidence. An unmeasured top-driver confidence is not a hard
+  // reason (it asserts no measured weakness), but it caps the tone below `confident`, and the copy names it.
+  if (topDriver !== undefined && topDriverConfidence === undefined) {
+    reasons.push('TOP_DRIVER_UNMEASURED');
   }
 
   const hardCount = reasons.filter((r) => HARD_REASONS.has(r)).length;
