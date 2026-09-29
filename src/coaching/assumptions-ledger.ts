@@ -67,15 +67,16 @@ export interface AssumptionRecord {
 type AssumptionRecordDraft = Omit<AssumptionRecord, 'audience'>;
 
 /**
- * The typed audience of a ledger row (AIQ #72 5884364585). `user` ONLY for the source classes AIQ ruled user-facing:
- * an ISL-flagged fragile edge, and an ISL-flagged node confidence (which the producer emits only for a MEASURED,
- * non-lever factor: #409, #410). Everything else, including a new or unknown class, is `internal` (fail closed); a class
- * becomes `user` only with its own ruling and row.
+ * The typed audience of a ledger row (AIQ #72 5884364585). `user` ONLY for the exact classes AIQ ruled user-facing:
+ * `isl_engine:flagged:edge:switch_probability` (a fragile edge) and `isl_engine:flagged:node:confidence` (which the
+ * producer emits only for a MEASURED, non-lever factor: #409, #410). The match is on all four parts: the same
+ * service/entity/field under another action (`defaulted`, `assumed`, …) has no ruling. Everything else, including a new
+ * or unknown class, is `internal` (fail closed); a class becomes `user` only with its own ruling and row.
  */
 export function ledgerAudience(
-  record: Pick<AssumptionRecord, 'source_service' | 'entity_type' | 'field'>,
+  record: Pick<AssumptionRecord, 'source_service' | 'action' | 'entity_type' | 'field'>,
 ): 'user' | 'internal' {
-  if (record.source_service !== 'isl_engine') return 'internal';
+  if (record.source_service !== 'isl_engine' || record.action !== 'flagged') return 'internal';
   if (record.entity_type === 'edge' && record.field === 'switch_probability') return 'user';
   if (record.entity_type === 'node' && record.field === 'confidence') return 'user';
   return 'internal';

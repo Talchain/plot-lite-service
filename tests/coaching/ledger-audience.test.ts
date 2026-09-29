@@ -39,9 +39,18 @@ describe('the served ledger rows classify by their typed source class', () => {
   });
 
   it('an unknown or unlisted source class is internal (fail closed)', () => {
-    expect(ledgerAudience({ source_service: 'cee_review', entity_type: 'node', field: 'x' })).toBe('internal');
-    expect(ledgerAudience({ source_service: 'something_new' as never, entity_type: 'edge', field: 'switch_probability' })).toBe('internal');
-    expect(ledgerAudience({ source_service: 'isl_engine', entity_type: 'node', field: 'something_else' })).toBe('internal');
+    expect(ledgerAudience({ source_service: 'cee_review', action: 'flagged', entity_type: 'node', field: 'x' })).toBe('internal');
+    expect(ledgerAudience({ source_service: 'something_new' as never, action: 'flagged', entity_type: 'edge', field: 'switch_probability' })).toBe('internal');
+    expect(ledgerAudience({ source_service: 'isl_engine', action: 'flagged', entity_type: 'node', field: 'something_else' })).toBe('internal');
+  });
+
+  it('the ruled service/entity/field under an UNRULED action is internal (PR Review 5884537290)', () => {
+    // Controls: the two ruled classes, exactly.
+    expect(ledgerAudience({ source_service: 'isl_engine', action: 'flagged', entity_type: 'node', field: 'confidence' })).toBe('user');
+    expect(ledgerAudience({ source_service: 'isl_engine', action: 'flagged', entity_type: 'edge', field: 'switch_probability' })).toBe('user');
+    // The same service/entity/field with another action has no ruling.
+    expect(ledgerAudience({ source_service: 'isl_engine', action: 'defaulted', entity_type: 'node', field: 'confidence' })).toBe('internal');
+    expect(ledgerAudience({ source_service: 'isl_engine', action: 'assumed', entity_type: 'edge', field: 'switch_probability' })).toBe('internal');
   });
 });
 
