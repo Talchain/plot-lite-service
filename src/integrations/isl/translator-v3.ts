@@ -224,6 +224,21 @@ export function attachIdentityExecutionFrames(
       if (resolved) participant.execution_frame = { frame: resolved.frame, carrier: resolved.carrier };
     }
   }
+  // ⛔ Variant (d) (AIQ #72 5891286280; R3 5891423959): an INFERRED (`stated_in_brief: false`) PRODUCT identity ON THE
+  // GOAL is Olumi's reading of how the user's goal is made, and the user has not confirmed it. The brief's own words
+  // license a silent product (then it arrives `stated_in_brief: true`); anything else waits for the user's Yes on the
+  // card (CEE #2292 writes it `stated_in_brief: true`). Until then it is NOT forwarded: the goal stays linear and
+  // `goalIdentitiesNotEvaluated` withholds every goal figure under its own code — never a chance through an unconfirmed
+  // product (served: "reaches above £85k MRR in 99.8%"), never one from the linear walk. Sums, stated identities and
+  // non-goal carriers fall through to the variants below untouched.
+  const notForwarded: IdentityNotForwarded[] = [];
+  for (const node of islNodes) {
+    const identity = node.nonlinear_identity;
+    if (!identity || identity.stated_in_brief !== false || identity.operation !== 'product') continue;
+    if (engineById.get(node.id)?.kind !== 'goal') continue;
+    delete node.nonlinear_identity;
+    notForwarded.push({ node_id: node.id, reason: 'inferred_identity_unconfirmed', frameless_node_ids: [] });
+  }
   // ⭐ Variant (a) (DL #72 5865205478, Canonical 5862317311) — ONE shape only: an INFERRED (`stated_in_brief: false`)
   // PRODUCT identity with no addends, whose carrier is a NON-GOAL OUTCOME with no level and no frame, and EVERY factor of
   // which is framed. Its frame is the product of its factors' frames — the most the parts can make — sent as carrier
@@ -253,7 +268,6 @@ export function attachIdentityExecutionFrames(
   // frameless is NOT forwarded — the node stays linear, exactly as served before the re-land — and is said
   // (`IdentityNotForwarded`). ISL would refuse the whole Run (`identity_frame_missing`) for a figure the user never
   // stated and cannot answer. A STATED identity is always forwarded: ISL's refusal stands (AIQ's rule).
-  const notForwarded: IdentityNotForwarded[] = [];
   for (const node of islNodes) {
     const identity = node.nonlinear_identity;
     if (!identity || identity.stated_in_brief !== false) continue;

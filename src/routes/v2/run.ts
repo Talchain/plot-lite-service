@@ -4129,7 +4129,8 @@ function buildResponse(
   if (goalProbabilityWithheld) {
     inferenceWarnings.push({
       code: INFERENCE_WARNING_CODES.GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED,
-      message: goalIdentityWithheldMessage(goalIdentityWithheld),
+      message: goalIdentityWithheldMessage(goalIdentityWithheld, new Set((meta.identitiesNotForwarded ?? [])
+        .filter((w) => w.reason === 'inferred_identity_unconfirmed').map((w) => w.node_id))),
       severity: 'warning',
       node_ids: goalIdentityWithheld.map((n) => n.node_id),
     });
