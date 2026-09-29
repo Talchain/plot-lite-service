@@ -148,6 +148,7 @@ const options = (body: any): any[] => body.results ?? body.option_comparison ?? 
 const warnings = (body: any): any[] => (body.inference_warnings ?? []).filter((w: any) => w.code === WITHHELD);
 
 const FIGURES = ['mean', 'std', 'p10', 'p50', 'p90'] as const;
+const probabilityFacts = (body: any): any[] => (body.fact_objects ?? []).filter((f: any) => f.fact_type === 'probability');
 
 describe("route — the goal's per-option figures are withheld with P(goal) when its identity was not evaluated", () => {
   let app: FastifyInstance;
@@ -178,6 +179,12 @@ describe("route — the goal's per-option figures are withheld with P(goal) when
       expect(o.downside, o.option_id).toBeDefined();
     }
     expect(body.decision_brief?.options?.length).toBe(rows.length);
+    // The facts state each option's own figures (bound by option id).
+    for (const o of rows) {
+      const fact = probabilityFacts(body).find((f: any) => f.data.option_id === o.option_id);
+      expect(fact?.data.mean, o.option_id).toBe(o.outcome.mean);
+      expect(fact?.data.p50, o.option_id).toBe(o.outcome.p50);
+    }
   }
 
   function expectWithheld(body: any) {
@@ -194,6 +201,9 @@ describe("route — the goal's per-option figures are withheld with P(goal) when
     }
     // The brief ranks by the published chance of leading: no ranking.
     expect(body.decision_brief?.options ?? []).toEqual([]);
+    // The facts carry the same figures: none is stated, and never as 0 (fact_objects is on in test and staging).
+    expect(Array.isArray(body.fact_objects) && body.fact_objects.length > 0).toBe(true);
+    expect(probabilityFacts(body)).toEqual([]);
     // ONE warning, #416's code and words, naming the node.
     const w = warnings(body);
     expect(w).toHaveLength(1);
