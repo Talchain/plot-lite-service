@@ -109,7 +109,7 @@ import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js'
 import type { RobustnessDataForCee } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue } from '../../integrations/isl/types/isl-types.js';
 import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures, getIslIdentityEvaluations, getIslStructuralInfluence } from '../../integrations/isl/v2-envelope.js';
-import { goalIdentitiesNotEvaluated, goalIdentityWithheldMessage, limitsOnUnevaluatedIdentityPath, limitIdentityWithheldMessage, withoutGoalDerivedVoi, factorRowWithoutWalk, driverOrderUnderWithhold, islResultWithoutGoalFigures, coachingWithoutWalk } from '../../lib/goal-identity-withhold.js';
+import { goalIdentitiesNotEvaluated, goalIdentityWithheldMessage, limitsOnUnevaluatedIdentityPath, limitIdentityWithheldMessage, withoutGoalDerivedVoi, factorRowWithoutWalk, driverOrderUnderWithhold, coachingWithoutWalk } from '../../lib/goal-identity-withhold.js';
 import { V2_RUN_ALLOWED_KEYS, islEnrichmentPassthrough } from './run-contract-keys.js';
 import { assessIslWireGeneration, logIslWireGenerationUnverified } from '../../integrations/isl/wire-generation.js';
 import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
@@ -9219,7 +9219,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
         // ⛔ PLoT #419 (R3 5889219876, AIQ 5889514782): the SAME predicate `buildResponse` withholds on — the same graph,
         // the same ISL answer, the same withdrawn ids — decided once here for the consumers that read ISL's answer
-        // before the response exists: M1 coaching reads the PUBLISHED view; the M2 decision review is skipped.
+        // before the response exists: M1 coaching keeps only its structural fields (from factor rows less the walk's
+        // fields); the M2 decision review is skipped.
         const goalFiguresWithheld = goalIdentitiesNotEvaluated(
           filteredGraph, getIslIdentityEvaluations(processedIslResult), identitiesNotForwarded.map((w) => w.node_id),
         ).length > 0;
@@ -9284,7 +9285,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           m1Coaching = generateM1Coaching(
             filteredGraph,
             body.options,
-            goalFiguresWithheld ? islResultWithoutGoalFigures(processedIslResult) : processedIslResult,
+            processedIslResult,
             req.log,
             repairsForCoaching,  // Phase 3: normaliser repairs for assumptions ledger
             [],                  // Phase 3: CEE critiques (empty for now, can be extended)

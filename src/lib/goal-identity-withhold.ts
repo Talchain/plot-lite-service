@@ -197,45 +197,12 @@ export function driverOrderUnderWithhold<T extends { basis?: unknown }>(order: T
   return goalFiguresWithheld && order?.basis === 'isl_uncertainty' ? undefined : order;
 }
 
-const OPTION_GOAL_FIGURES = ['win_probability', 'probability_of_goal', 'downside', 'expected_outcome', 'confidence_interval'] as const;
-const OUTCOME_FIGURES = ['mean', 'std', 'p10', 'p50', 'p90'] as const;
-const ISL_WALK_KEYS = ['p_win_sensitivity', 'factor_evppi', 'decision_evpi', 'factor_flip_values', 'conditional_winners', 'robustness'] as const;
-
-/**
- * ⛔ AIQ #72 5889514782 / R3 5889219876 — the PUBLISHED view of ISL's answer under an unevaluated goal identity, for
- * the consumers that read ISL's answer directly rather than the response (M1 coaching): each option less its goal
- * figures (sample counts stay), the walk's top-level blocks absent, and each factor row less the walk's fields.
- * A copy; the answer itself is untouched (the response is built from it under the same rule).
- */
-export function islResultWithoutGoalFigures<T>(islResult: T): T {
-  if (!islResult || typeof islResult !== 'object') return islResult;
-  const src = islResult as Record<string, unknown>;
-  const out: Record<string, unknown> = { ...src };
-  for (const k of ISL_WALK_KEYS) delete out[k];
-  for (const key of ['options', 'results'] as const) {
-    const rows = src[key];
-    if (!Array.isArray(rows)) continue;
-    out[key] = rows.map((row) => {
-      if (!row || typeof row !== 'object') return row;
-      const r = { ...(row as Record<string, unknown>) };
-      for (const k of OPTION_GOAL_FIGURES) delete r[k];
-      if (r.outcome && typeof r.outcome === 'object') {
-        const o = { ...(r.outcome as Record<string, unknown>) };
-        for (const k of OUTCOME_FIGURES) delete o[k];
-        r.outcome = o;
-      }
-      return r;
-    });
-  }
-  if (Array.isArray(src.factor_sensitivity)) out.factor_sensitivity = (src.factor_sensitivity as object[]).map(factorRowWithoutWalk);
-  return out as T;
-}
 
 /**
  * ⛔ AIQ #72 5889514782 — M1 coaching under an unevaluated goal identity, field by field on R3's rule. Its lead
  * (headline type, executive summary, story headlines), readiness, next actions and evidence gaps rank or name options
- * by the goal's walk — and, fed the published view, the coaching builder reads absent win probabilities as 0 ("too
- * close to call", "0% win probability"). So only the fields that make no claim about the goal's outcome stay: the key
+ * by the goal's walk — and the coaching builder, fed the figures' absence, reads absent win probabilities as 0 ("too
+ * close to call", "0% win probability"), so they are withheld rather than recomputed. So only the fields that make no claim about the goal's outcome stay: the key
  * drivers (structural influence), the model critiques, the assumptions ledger (inputs, not outcomes) and metadata.
  */
 const COACHING_STRUCTURAL_FIELDS = ['coaching_version', 'computed_at', 'thresholds_used', 'key_drivers', 'model_critiques', 'assumptions_ledger'] as const;
