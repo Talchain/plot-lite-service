@@ -9206,7 +9206,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const goalFiguresWithheld = goalIdentityWithheld.length > 0;
         const legacyCeeGoalFiguresWithheld: CeeOrchestrationResult = {
           ...legacyCeeSkipped,
-          ceeTrace: { ...legacyCeeSkipped.ceeTrace, reason: 'Legacy CEE review skipped: the goal figures are withheld (a declared identity on the goal path was not evaluated)' },
+          ceeTrace: {
+            requestId: requestId,
+            degraded: false,
+            timestamp: new Date().toISOString(),
+            source: 'orchestrator',
+            reason: 'Legacy CEE review skipped: the goal figures are withheld (a declared identity on the goal path was not evaluated)',
+          },
         };
 
         const [ceeOrchestrationResult, factorEnrichments] = await Promise.all([
