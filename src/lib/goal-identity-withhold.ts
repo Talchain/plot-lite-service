@@ -139,3 +139,93 @@ export function limitIdentityWithheldMessage(targetLabel: string, identities: re
   return `Not shown for the limit on '${targetLabel}'. '${first.label}' depends on ${parts}${more}, but this run couldn't `
     + 'calculate it that way, so the figures for that limit would be wrong.';
 }
+
+/**
+ * ⛔ R3 SCIENCE #72 5888737291: ISL's value-of-information figures — `p_win_sensitivity` (its `current_metric` is
+ * the chance of meeting the goal), `factor_evppi` (the best option's expected outcome, with and without perfect
+ * information) and `decision_evpi` — are computed on the same links-only walk as the per-option figures withheld
+ * under an unevaluated goal identity (`goalIdentitiesNotEvaluated`). They point the user at the wrong uncertainty,
+ * so they are withheld with them. Every other passthrough key (e.g. `correlation_model`, an input structure) stays.
+ */
+export const GOAL_DERIVED_VOI_KEYS = ['p_win_sensitivity', 'factor_evppi', 'decision_evpi'] as const;
+
+export function withoutGoalDerivedVoi(
+  passthrough: Record<string, unknown>,
+  goalFiguresWithheld: boolean,
+): Record<string, unknown> {
+  if (!goalFiguresWithheld) return passthrough;
+  const out = { ...passthrough };
+  for (const key of GOAL_DERIVED_VOI_KEYS) delete out[key];
+  return out;
+}
+
+/**
+ * ⛔ R3 SCIENCE #72 5889219876 — ONE RULE under `goalIdentitiesNotEvaluated`: withhold what the WALK (the goal's
+ * links-only draws) computed; keep what the STRUCTURE computed (R3-5, #405).
+ *
+ * A factor row's quantities behind `importance_rank` / `sensitivity_score` / `elasticity` / `direction` come from the
+ * authority its `importance_basis` names (contracts/openapi.yaml): a structural basis keeps them; anything else
+ * (`isl_uncertainty`, ISL's Monte-Carlo ordering, or no disclosure) is the walk. Value of information, attribution
+ * stability, rank-flip rate, flip risk and the heuristic EVPI are always the walk's. `confidence` is kept only when
+ * its source is attested structural (`plot_unified_from_graph`); a bootstrap-blended confidence is the walk's.
+ * `influence_*` (structural influence) always stays.
+ */
+const STRUCTURAL_FACTOR_BASES: ReadonlySet<unknown> = new Set(['graph_structural', 'isl_structural']);
+const WALK_FACTOR_FIELDS = [
+  'value_of_information', 'attribution_stability', 'rank_flip_rate', 'flip_risk_category',
+  'evpi_percentage_points', 'evpi_method',
+] as const;
+const BASIS_DEPENDENT_FACTOR_FIELDS = ['sensitivity_score', 'elasticity', 'importance_rank', 'direction'] as const;
+const CONFIDENCE_FIELDS = ['confidence', 'confidence_source', 'confidence_provenance', 'confidence_components'] as const;
+const STRUCTURAL_CONFIDENCE_SOURCE = 'plot_unified_from_graph';
+
+export function isStructuralFactorBasis(basis: unknown): boolean {
+  return STRUCTURAL_FACTOR_BASES.has(basis);
+}
+
+/** A factor row less every quantity the walk computed (see above). The row object is copied, never mutated. */
+export function factorRowWithoutWalk<T extends object>(row: T): T {
+  const out = { ...row } as Record<string, unknown>;
+  for (const k of WALK_FACTOR_FIELDS) delete out[k];
+  if (!isStructuralFactorBasis(out.importance_basis)) for (const k of BASIS_DEPENDENT_FACTOR_FIELDS) delete out[k];
+  if (out.confidence_source !== STRUCTURAL_CONFIDENCE_SOURCE) for (const k of CONFIDENCE_FIELDS) delete out[k];
+  return out as T;
+}
+
+/**
+ * The driver order is the walk's only when its basis is ISL's Monte-Carlo ordering (`isl_uncertainty`): withheld. A
+ * structural order stays, less its `rank_stability` (AIQ #72 5890824310): the worst rank-flip rate and attribution
+ * stability are aggregated from the walk's row fields, which `factorRowWithoutWalk` strips — so they take the
+ * producer's own "not measured" shape.
+ */
+export function driverOrderUnderWithhold<T extends { basis?: unknown; rank_stability?: unknown }>(
+  order: T | undefined,
+  goalFiguresWithheld: boolean,
+): T | undefined {
+  if (!goalFiguresWithheld || order === undefined) return order;
+  if (order.basis === 'isl_uncertainty') return undefined;
+  return { ...order, rank_stability: { max_rank_flip_rate: null, min_attribution_stability: null } };
+}
+
+
+/**
+ * ⛔ AIQ #72 5889514782 — M1 coaching under an unevaluated goal identity, field by field on R3's rule. Its lead
+ * (headline type, executive summary, story headlines), readiness, next actions and evidence gaps rank or name options
+ * by the goal's walk — and the coaching builder, fed the figures' absence, reads absent win probabilities as 0 ("too
+ * close to call", "0% win probability"), so they are withheld rather than recomputed. So only the fields that make no claim about the goal's outcome stay: the key
+ * drivers (structural influence), the model critiques, the assumptions ledger (inputs, not outcomes) and metadata.
+ */
+const COACHING_STRUCTURAL_FIELDS = ['coaching_version', 'computed_at', 'thresholds_used', 'key_drivers', 'model_critiques', 'assumptions_ledger'] as const;
+
+export function coachingWithoutWalk<T extends object>(
+  coaching: T,
+  factorRows: ReadonlyArray<{ importance_basis?: unknown }> | undefined,
+): T {
+  const src = coaching as Record<string, unknown>;
+  const out: Record<string, unknown> = {};
+  for (const k of COACHING_STRUCTURAL_FIELDS) if (k in src) out[k] = src[k];
+  // AIQ #72 5889873087: `key_drivers` ranks by the rows' `importance_rank` — a structural claim only when EVERY row's
+  // basis is structural. On the walk's basis that rank was withheld, so the order would be arbitrary: omitted.
+  if ((factorRows ?? []).some((r) => !isStructuralFactorBasis(r.importance_basis))) delete out.key_drivers;
+  return out as T;
+}

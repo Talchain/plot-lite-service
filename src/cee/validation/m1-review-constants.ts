@@ -244,6 +244,11 @@ export const ReviewSkipReasons = {
    * behaviour is this named skip — visible absence over confident wrongness.
    */
   NO_ANALYSED_OPTIONS: 'NO_ANALYSED_OPTIONS',
+  /**
+   * PLoT #419 (AIQ #72 5889514782): a declared identity on the goal's path was not evaluated, so the goal's figures
+   * are withheld (PLoT #416/#417/#419); a review would rest on figures this run could not calculate. Never partial.
+   */
+  GOAL_FIGURES_WITHHELD: 'GOAL_FIGURES_WITHHELD',
 } as const;
 
 export type ReviewSkipReason = typeof ReviewSkipReasons[keyof typeof ReviewSkipReasons];
