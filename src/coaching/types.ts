@@ -182,8 +182,9 @@ export interface EvidenceGap {
    */
   voi_score: number;
   confidence: number;            // 0-1 (raw)
-  confidence_display: string;    // "50%" (formatted)
-  confidence_defaulted: boolean; // True if confidence was missing
+  confidence_display?: string;   // "45%" (formatted); ABSENT when defaulted — a default is never printed
+  confidence_defaulted: boolean; // True when no MEASURED stability backs it (missing, or PLoT's graph-only formula):
+                                 // `confidence` is then the neutral ordering value (DL #72 5883188906)
   influence: number;             // Normalised impact (0-1)
   influence_display: string;     // "73%" (formatted)
   suggestion: string;            // "Gather data on {factor_label} to reduce uncertainty"

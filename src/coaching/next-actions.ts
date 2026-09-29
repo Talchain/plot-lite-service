@@ -67,7 +67,10 @@ export function generateNextActions(
     actions.push({
       priority: 2,
       action: `Gather evidence on ${namedGap.factor_label}`,
-      rationale: `This factor has high impact (${namedGap.influence_display}) but low confidence (${namedGap.confidence_display})`,
+      rationale:
+        namedGap.confidence_display === undefined
+          ? `This factor has high impact (${namedGap.influence_display}) and its confidence has not been measured`
+          : `This factor has high impact (${namedGap.influence_display}) but low confidence (${namedGap.confidence_display})`,
       target_type: 'factor',
       target_id: namedGap.factor_id,
       target_label: namedGap.factor_label,

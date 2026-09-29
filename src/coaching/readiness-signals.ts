@@ -140,7 +140,10 @@ function computeEvidenceQuality(
   if (avgConfidence >= 0.75) {
     signals.push({
       dimension: 'evidence',
-      signal: `High average confidence (${Math.round(avgConfidence * 100)}%)`,
+      // The score may use the neutral default; a printed figure may not (DL #72 5883188906).
+      signal: inputs.factorSensitivity.every((f) => f.confidence !== undefined)
+        ? `High average confidence (${Math.round(avgConfidence * 100)}%)`
+        : 'High average confidence',
       impact: 'positive',
       weight: 0.1,
     });

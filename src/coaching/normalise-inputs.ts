@@ -63,7 +63,10 @@ export function normaliseCoachingInputs(
         label: nodeLabelMap.get(f.factor_id) ?? f.factor_label ?? f.factor_id,
         elasticity: f.elasticity,
         importance_rank: f.importance_rank ?? f.influence_rank ?? 999,
-        confidence: f.confidence,
+        // DL #72 5883188906 / AIQ 5883088747: a confidence is a coaching input only when ISL MEASURED the factor's
+        // stability. `plot_unified_from_graph` is the graph formula with no measured stability (a synthetic 0.5 edge for
+        // a root factor): coaching orders it with the neutral default and never prints it.
+        confidence: f.confidence_source === 'plot_unified_from_isl_bootstrap' ? f.confidence : undefined,
         direction:
           f.direction === 'positive' || f.direction === 'negative'
             ? f.direction
