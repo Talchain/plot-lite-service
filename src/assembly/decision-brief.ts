@@ -421,9 +421,11 @@ function buildTopDrivers(input: BriefAssemblyInput): BriefDriver[] {
   const driverOrder = input.driver_order;
   const leverIds = driverOrder ? new Set(driverOrder.lever_ids) : undefined;
 
-  const factors = leverIds
+  const factors = (leverIds
     ? allFactors.filter((f) => !leverIds.has(f.factor_id))
-    : filterInterventionOverrides(allFactors);
+    : filterInterventionOverrides(allFactors)
+  // ISL #213 (AIQ #72 5881953818): a gated (withheld) factor is never a top driver.
+  ).filter((f) => (f.influence_gated_by?.length ?? 0) === 0);
   if (factors.length === 0) return [];
 
   const withElasticity = leverIds

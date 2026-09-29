@@ -320,6 +320,8 @@ export interface DriverOrderFactorRow {
   influence_score?: number | null;
   /** R3-5: `'isl_structural'` when the row's influence was adopted from ISL's structural influence. */
   influence_basis?: string | null;
+  /** ISL #213: a withheld (gated) factor — never in the ranked order (AIQ #72 5881953818). */
+  influence_gated_by?: string[];
   sensitivity_score?: number | null;
   rank_flip_rate?: number | null;
   attribution_stability?: string | null;
@@ -497,6 +499,8 @@ export function buildDriverOrder(input: BuildDriverOrderInput): DriverOrderV1 | 
   for (const f of factors) {
     const id = idOf(f);
     if (id === undefined) continue;
+    // ISL #213 (AIQ #72 5881953818): a gated factor's influence depends on the option chosen — never ranked.
+    if ((f.influence_gated_by?.length ?? 0) > 0) continue;
     rankedFactorIds.push(id);
     orderedRows.push(f);
     const lever = isOptionControlledLever(f, structuralLeverIds);

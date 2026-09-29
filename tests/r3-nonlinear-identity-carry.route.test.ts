@@ -1160,6 +1160,93 @@ describe('R3-5 route — an evaluated identity puts ISL\'s every-factor influenc
     expectGraphAuthority(body);
   });
 
+  // AIQ #72 5881953818 (system condition on ISL #213): a factor whose every path runs through a product with
+  // another input at 0 today is WITHHELD by ISL (null score + `gated_by`). PLoT counts that row as COVERED, keeps
+  // every other row on ISL's authority ranked 1..n, and carries the gate: no score, no rank, never on a driver
+  // surface. Treating it as incomplete would flip every row to the identity-blind walk.
+  const GATED_LIST = [
+    { node_id: 'pro_plan_price', influence_score: 1.0, influence_rank: 1 },
+    { node_id: 'fac_existing_customers_grandfathered', influence_score: 0.5, influence_rank: 2 },
+    { node_id: 'other_mrr_growth', influence_score: 0.25, influence_rank: 3 },
+    { node_id: 'pro_paying_subscribers', gated_by: ['pro_plan_price'] },
+    { node_id: 'monthly_churn', gated_by: ['pro_plan_price'] },
+    { node_id: 'monthly_new_pro_subscribers', gated_by: ['pro_plan_price'] },
+  ];
+  const GATED = ['pro_paying_subscribers', 'monthly_churn', 'monthly_new_pro_subscribers'];
+
+  it('GATED (ISL #213): a withheld row is covered — the rest stay on ISL, ranked 1..n; the gated rows carry the gate and no rank', async () => {
+    islNext = { extra: { identity_evaluations: [EVALUATIONS[0]], structural_influence: GATED_LIST } };
+    const body = await bodyOf(await post(paulRequest(PRODUCT)));
+    const rows = rowsOf(body);
+    expectIslAuthority(body);
+    expect(rows.pro_plan_price.influence_score).toBe(1.0);
+    expect(rows.fac_existing_customers_grandfathered.influence_score).toBe(0.5);
+    expect(rows.other_mrr_growth.influence_score).toBe(0.25);
+    expect([1, 2, 3].map((n) => Object.values(rows).filter((r: any) => r.influence_rank === n).length)).toEqual([1, 1, 1]);
+    for (const id of GATED) {
+      expect(rows[id].influence_gated_by).toEqual(['pro_plan_price']);
+      expect('influence_score' in rows[id]).toBe(false);
+      expect('influence_rank' in rows[id]).toBe(false);
+      expect('importance_rank' in rows[id]).toBe(false);
+      expect('driver_label' in rows[id]).toBe(false);
+    }
+  });
+
+  it('GATED: no driver surface ranks a gated factor — driver_order, the crown and key_drivers skip it', async () => {
+    islNext = { extra: { identity_evaluations: [EVALUATIONS[0]], structural_influence: GATED_LIST } };
+    const body = await bodyOf(await post(paulRequest(PRODUCT)));
+    for (const id of GATED) {
+      expect(body.driver_order.ranked_factor_ids).not.toContain(id);
+      expect((body.m1_coaching?.key_drivers ?? []).map((k: any) => k.factor_id)).not.toContain(id);
+    }
+    const crowned = (body.factor_sensitivity as any[]).filter((r) => r.driver_label === 'biggest').map((r) => r.factor_id);
+    expect(crowned.some((id: string) => GATED.includes(id))).toBe(false);
+  });
+
+  const expectNeverRanked = (body: any, ids: string[]) => {
+    const rows = rowsOf(body);
+    for (const id of ids) {
+      expect('influence_score' in rows[id]).toBe(false);
+      expect('influence_rank' in rows[id]).toBe(false);
+      expect('importance_rank' in rows[id]).toBe(false);
+      expect('driver_label' in rows[id]).toBe(false);
+      expect(rows[id].influence_gated_by?.length).toBeGreaterThan(0);
+      expect(body.driver_order.ranked_factor_ids).not.toContain(id);
+      expect((body.m1_coaching?.key_drivers ?? []).map((k: any) => k.factor_id)).not.toContain(id);
+      expect(body.decision_brief.top_drivers.map((d: any) => d.factor_label)).not.toContain(rows[id].factor_label);
+    }
+  };
+
+  it('GATED, all rows (PR Review #408: two zero operands gate each other) — a complete typed list; nothing is ranked by the walk', async () => {
+    const allGated = GATED_LIST.map((r: any) => ({ node_id: r.node_id, gated_by: ['pro_plan_price'] }));
+    islNext = { extra: { identity_evaluations: [EVALUATIONS[0]], structural_influence: allGated } };
+    const body = await bodyOf(await post(paulRequest(PRODUCT)));
+    const rows = rowsOf(body);
+    expect(Object.values(rows).every((r: any) => r.influence_basis === 'isl_structural')).toBe(true);
+    expectNeverRanked(body, Object.keys(rows));
+    expect(body.driver_order.ranked_factor_ids).toEqual([]);
+  });
+
+  it('GATED + an unmarked null (a truncated walk): the unmarked rows keep the disclosed walk, re-ranked 1..n; the gated rows stay withheld', async () => {
+    const mixed = GATED_LIST.map((r: any) => (r.gated_by ? r : { node_id: r.node_id, influence_score: null }));
+    islNext = { extra: { identity_evaluations: [EVALUATIONS[0]], structural_influence: mixed } };
+    const body = await bodyOf(await post(paulRequest(PRODUCT)));
+    const rows = rowsOf(body);
+    const walked = Object.values(rows).filter((r: any) => !GATED.includes(r.factor_id));
+    expect(walked.every((r: any) => r.influence_basis === 'graph_walk' && typeof r.influence_score === 'number')).toBe(true);
+    expect(walked.map((r: any) => r.influence_rank).sort()).toEqual([1, 2, 3]);
+    expectNeverRanked(body, GATED);
+    expectGraphAuthority(body);
+  });
+
+  it('GATED control: a null score WITHOUT gated_by is still an incomplete list — the walk stays and says graph_walk', async () => {
+    const noGate = GATED_LIST.map((r: any) => (r.gated_by ? { node_id: r.node_id, influence_score: null } : r));
+    islNext = { extra: { identity_evaluations: [EVALUATIONS[0]], structural_influence: noGate } };
+    const body = await bodyOf(await post(paulRequest(PRODUCT)));
+    expect(Object.values(rowsOf(body)).every((r: any) => r.influence_basis === 'graph_walk')).toBe(true);
+    expectGraphAuthority(body);
+  });
+
   it('ONE ALGORITHM: an identity ISL WITHHELD no longer gates — its complete list is adopted', async () => {
     islNext = { extra: { identity_evaluations: [EVALUATIONS[1]], structural_influence: r35List(R35_C0) } };
     const rows = rowsOf(await bodyOf(await post(paulRequest(PRODUCT))));

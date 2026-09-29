@@ -6530,6 +6530,18 @@ components:
                   own path walk, which does NOT account for the identity,
                   because ISL's list was absent, partial or withheld; bases are
                   never mixed.
+              influence_gated_by:
+                type: array
+                items:
+                  type: string
+                description: >-
+                  ISL #213 (AIQ ruling 5881953818). Present only when ISL WITHHELD
+                  this factor's structural influence because every path from it to
+                  the goal runs through a product with another input at 0 today
+                  (those inputs). Its influence depends on the option chosen: the
+                  row carries no `influence_score`, `influence_rank` or
+                  `importance_rank`, and no driver surface ranks it. Show "depends
+                  on the option chosen", never 0 and never "little".
               importance_score:
                 type: number
                 minimum: 0

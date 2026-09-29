@@ -54,7 +54,11 @@ export function normaliseCoachingInputs(
   );
 
   const factorSensitivity: NormalisedFactorSensitivity[] = enrichedFactorSensitivity
-    ? enrichedFactorSensitivity.map((f) => ({
+    ? enrichedFactorSensitivity
+      // ISL #213 (AIQ #72 5881953818): a gated factor's influence depends on the option chosen. Coaching
+      // would rank it by elasticity (`influence_score ?? elasticity`), so it is not a coaching input.
+      .filter((f) => (f.influence_gated_by?.length ?? 0) === 0)
+      .map((f) => ({
         node_id: f.factor_id,
         label: nodeLabelMap.get(f.factor_id) ?? f.factor_label ?? f.factor_id,
         elasticity: f.elasticity,

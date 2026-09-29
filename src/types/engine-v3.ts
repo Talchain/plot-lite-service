@@ -2671,6 +2671,14 @@ export interface FactorSensitivityResultV3 {
   influence_score?: number;
   /** Influence rank. 1 = most influential. */
   influence_rank?: number;
+  /**
+   * ISL #213 (AIQ #72 5881953818): present only when ISL WITHHELD this factor's structural influence
+   * because every path to the goal runs through a product with another input at 0 today (those inputs).
+   * Its influence depends on the option chosen: the row carries no `influence_score`, `influence_rank`
+   * or `importance_rank`, and no driver surface ranks it. A consumer shows "depends on the option
+   * chosen", never 0 and never "little".
+   */
+  influence_gated_by?: string[];
   /** Sensitivity score (raw total causal effect). From graph influence or ISL. */
   sensitivity_score?: number;
   /** Elasticity measure from ISL */
