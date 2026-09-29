@@ -244,3 +244,74 @@ export function coachingWithoutWalk<T extends object>(
   if ((factorRows ?? []).some((r) => !isStructuralFactorBasis(r.importance_basis))) delete out.key_drivers;
   return out as T;
 }
+
+/**
+ * ⛔ AI Quality #72 5893355501 — A USER-STATED EFFECT THE ANALYSIS CUT. PLoT clamps an edge's `strength.mean` to
+ * [-1, 1] (`graph-normaliser.ts`, `CLAMP_STRENGTH_MEAN`). Served Run c96fc4bb: the user's £49 per subscriber was
+ * written as 4.61 and analysed at 1 — about 1/4.6 of its size — while every goal figure still shipped and nothing said
+ * so. The rule:
+ *  - a USER-STATED size (`provenance.source: 'user_specified'` or `provenance.magnitude: 'user_stated'`) that was cut,
+ *    on the goal's own path (its target IS the goal or reaches it) → the goal figures are WITHHELD (#419's one carrier);
+ *  - an Olumi estimate or placeholder that was cut, or a user-stated one off the goal's path → DISCLOSED only.
+ * "Cut" means the analysed size is not the stated one: `|strength.mean| > 1` on the graph as sent, or the producer's
+ * own marker `strength.clamped_from` (MG's (a): a stored ±1 that remembers the user's number). Pure.
+ */
+export interface ClampedEffect {
+  readonly from: string;
+  readonly to: string;
+  readonly from_label: string;
+  readonly to_label: string;
+  /** The size as the user or Olumi gave it, before the cut. */
+  readonly clamped_from: number;
+  readonly user_stated: boolean;
+  readonly on_goal_path: boolean;
+}
+
+interface ClampEdgeLike extends EdgeLike {
+  readonly strength?: { readonly mean?: unknown; readonly clamped_from?: unknown } | null;
+  readonly provenance?: { readonly source?: unknown; readonly magnitude?: unknown } | null;
+}
+
+export function clampedEffects(graph: GraphLike): { withhold: ClampedEffect[]; disclose: ClampedEffect[] } {
+  const nodes = nodesOf(graph);
+  const labelOf = new Map(nodes.map((n) => [n.id, typeof n.label === 'string' && n.label.trim() ? n.label.trim() : n.id] as const));
+  const goals: string[] = nodes.filter((n) => n.kind === 'goal').map((n) => n.id);
+  const reach = reacher(graph);
+  const all: ClampedEffect[] = [];
+  for (const e of (Array.isArray(graph?.edges) ? graph!.edges : []) as ClampEdgeLike[]) {
+    if (e === null || typeof e !== 'object' || typeof e.from !== 'string' || typeof e.to !== 'string') continue;
+    const marker = e.strength?.clamped_from;
+    const mean = e.strength?.mean;
+    const stated = typeof marker === 'number' && Number.isFinite(marker) && Math.abs(marker) > 1 ? marker
+      : typeof mean === 'number' && Number.isFinite(mean) && Math.abs(mean) > 1 ? mean
+      : undefined;
+    if (stated === undefined) continue;
+    const userStated = e.provenance?.source === 'user_specified' || e.provenance?.magnitude === 'user_stated';
+    const to: string = e.to;
+    all.push({
+      from: e.from, to,
+      from_label: labelOf.get(e.from) ?? e.from, to_label: labelOf.get(e.to) ?? e.to,
+      clamped_from: stated, user_stated: userStated,
+      on_goal_path: goals.some((g) => reach(to, g)),
+    });
+  }
+  return {
+    withhold: all.filter((c) => c.user_stated && c.on_goal_path),
+    disclose: all.filter((c) => !(c.user_stated && c.on_goal_path)),
+  };
+}
+
+/** AI Quality 5893355501's words, from the graph. PLoT names the link; the size in the user's units is CEE's to render. */
+export function clampedEffectWithheldMessage(withheld: readonly ClampedEffect[]): string {
+  const links = withheld.map((c) => `how ‘${c.from_label}’ moves ‘${c.to_label}’`);
+  const one = links.length === 1;
+  return `Not shown. Your size for ${links.join(' and ')} ${one ? 'is' : 'are'} bigger than this model's scale can hold, `
+    + `so the run couldn't use ${one ? 'it' : 'them'} at full size, and the figures that depend on ${one ? 'it' : 'them'} would be wrong.`;
+}
+
+/** Disclosure only: an Olumi estimate capped, or a user-stated size capped off the goal's path. */
+export function clampedEffectDisclosedMessage(disclosed: readonly ClampedEffect[]): string {
+  return disclosed.map((c) => (c.user_stated
+    ? `Your size for how ‘${c.from_label}’ moves ‘${c.to_label}’ is bigger than this model's scale can hold, so the run used it capped at the model's limit.`
+    : `Olumi's estimate for ‘${c.from_label}’ → ‘${c.to_label}’ was capped at the model's limit.`)).join(' ');
+}

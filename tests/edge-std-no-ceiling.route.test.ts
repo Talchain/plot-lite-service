@@ -126,7 +126,7 @@ function wireStrengths(from: string, to: string): Array<{ mean: number; std: num
 
 /**
  * Every served repair on `edgeId`'s std, bound by the edge's identity (`from::to`). On `/v2/run` the normaliser's
- * CLAMP_STRENGTH_STD reaches `_meta.repairs_applied` upcast to `code: LEGACY_REPAIR` (`normaliseRepairsForMeta`), so
+ * CLAMP_STRENGTH_STD reaches `_meta.repairs_applied` with its typed code (it read `LEGACY_REPAIR` before 29 Sep), and
  * the edge's field path and the `clamped` action are the identity on the wire — exactly what AIQ's probe read.
  */
 const stdRepairsOn = (body: any, edgeId: string) =>

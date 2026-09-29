@@ -3211,6 +3211,20 @@ export const INFERENCE_WARNING_CODES = {
    */
   GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED: 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED',
   /**
+   * A USER-STATED link size on the goal's own path was bigger than the model's scale and was cut to fit, so every
+   * goal figure (P(goal), win %, the outcome's centre and spread, flips, the coaching lead) is WITHHELD — the figures
+   * would rest on a cut version of the user's number. `node_ids` names each cut link's two ends. AI Quality #72
+   * 5893355501. Severity: warning.
+   * @see src/lib/goal-identity-withhold.ts clampedEffects
+   */
+  GOAL_FIGURES_USER_EFFECT_CLAMPED: 'GOAL_FIGURES_USER_EFFECT_CLAMPED',
+  /**
+   * A link size was cut to the model's scale but the goal figures do not rest on a user-stated size (an Olumi
+   * estimate, or a user-stated link off the goal's path): figures kept, the cut SAID. AI Quality #72 5893355501.
+   * Severity: info.
+   */
+  EDGE_STRENGTH_CLAMPED: 'EDGE_STRENGTH_CLAMPED',
+  /**
    * A limit whose target IS an unevaluated declared identity, or is reached through one, is scored on the same invalid
    * walk: its probability is WITHHELD (per limit, so the joint follows via `joint_withheld`). `constraint_ids` names the
    * limit(s), `node_ids` the identity node(s). AI Quality #72 5886183999. Severity: warning.
