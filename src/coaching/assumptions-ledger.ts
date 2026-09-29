@@ -212,8 +212,12 @@ function extractISLAssumptions(inputs: CoachingInputs): AssumptionRecord[] {
     }
   }
 
-  // Low confidence factors are assumptions
+  // Low confidence factors are assumptions. An option-set LEVER is not one (AIQ #72 5883875188): its level is the
+  // user's own choice, so "low confidence (N%)" reads as doubt about the user's figure. Same lever union as
+  // evidence-gaps (`interventionTargetIds`, from the options).
+  const levers = inputs.interventionTargetIds ?? new Set<string>();
   for (const factor of inputs.factorSensitivity) {
+    if (levers.has(factor.node_id)) continue;
     if (factor.confidence !== undefined && factor.confidence < 0.5) {
       const dedupKey = `isl_engine:flagged:node:${factor.node_id}:confidence`;
 
