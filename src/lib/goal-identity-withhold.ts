@@ -139,3 +139,22 @@ export function limitIdentityWithheldMessage(targetLabel: string, identities: re
   return `Not shown for the limit on '${targetLabel}'. '${first.label}' depends on ${parts}${more}, but this run couldn't `
     + 'calculate it that way, so the figures for that limit would be wrong.';
 }
+
+/**
+ * ⛔ R3 SCIENCE #72 5888737291: ISL's value-of-information figures — `p_win_sensitivity` (its `current_metric` is
+ * the chance of meeting the goal), `factor_evppi` (the best option's expected outcome, with and without perfect
+ * information) and `decision_evpi` — are computed on the same links-only walk as the per-option figures withheld
+ * under an unevaluated goal identity (`goalIdentitiesNotEvaluated`). They point the user at the wrong uncertainty,
+ * so they are withheld with them. Every other passthrough key (e.g. `correlation_model`, an input structure) stays.
+ */
+export const GOAL_DERIVED_VOI_KEYS = ['p_win_sensitivity', 'factor_evppi', 'decision_evpi'] as const;
+
+export function withoutGoalDerivedVoi(
+  passthrough: Record<string, unknown>,
+  goalFiguresWithheld: boolean,
+): Record<string, unknown> {
+  if (!goalFiguresWithheld) return passthrough;
+  const out = { ...passthrough };
+  for (const key of GOAL_DERIVED_VOI_KEYS) delete out[key];
+  return out;
+}

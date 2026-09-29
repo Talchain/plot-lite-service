@@ -109,7 +109,7 @@ import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js'
 import type { RobustnessDataForCee } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue } from '../../integrations/isl/types/isl-types.js';
 import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures, getIslIdentityEvaluations, getIslStructuralInfluence } from '../../integrations/isl/v2-envelope.js';
-import { goalIdentitiesNotEvaluated, goalIdentityWithheldMessage, limitsOnUnevaluatedIdentityPath, limitIdentityWithheldMessage } from '../../lib/goal-identity-withhold.js';
+import { goalIdentitiesNotEvaluated, goalIdentityWithheldMessage, limitsOnUnevaluatedIdentityPath, limitIdentityWithheldMessage, withoutGoalDerivedVoi } from '../../lib/goal-identity-withhold.js';
 import { V2_RUN_ALLOWED_KEYS, islEnrichmentPassthrough } from './run-contract-keys.js';
 import { assessIslWireGeneration, logIslWireGenerationUnverified } from '../../integrations/isl/wire-generation.js';
 import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
@@ -3731,7 +3731,8 @@ function buildResponse(
   //     required on `SensitivityData`, so this branch is the only place the
   //     value can be absent);
   //   · ISL's own suppression disclosure ← read defensively off `islResult`.
-  const driverOrder = buildDriverOrder({
+  // ⛔ R3 5888737291: the driver ranking comes from the same walk — withheld under an unevaluated goal identity.
+  const driverOrder = optionFiguresInvalid ? undefined : buildDriverOrder({
     factors: factorSensitivity,
     structuralLeverIds:
       sensitivityData?.structuralLeverIds ?? interventionTargetIdsFromOptions(options),
@@ -3906,6 +3907,15 @@ function buildResponse(
       robust_edges: [],
     };
   }
+  // ⛔ R3 SCIENCE #72 5888737291: under an unevaluated goal identity every robustness fact comes from the same
+  // links-only walk as the withheld figures — the edges' switch probabilities and alternative winners, is_robust /
+  // level, and `confidence` (the leader's chance of leading, relabelled). Withheld with them; the always-present
+  // empty shape stays, so the display verdict below reads 'not_assessed'. #416's warning says why.
+  if (optionFiguresInvalid) {
+    robustness = { fragile_edges: [], robust_edges: [] };
+  }
+  // The same walk's tipping points: withheld from the verdict, the brief and the wire alike (one variable).
+  const publishedFlipThresholds = optionFiguresInvalid ? undefined : flipThresholds;
 
   // ⭐ RELEASE GATE (ii) — a limit "met" on levels its target cannot take is not
   // decision-grade (`level-domain-gate.ts`, olumi-programme-docs#70 5844770854).
@@ -4072,7 +4082,7 @@ function buildResponse(
     // parameter of this function, so this is the array that ships on the wire
     // at `flip_thresholds` below — the verdict and the evidence it cites can
     // never be taken from two different runs.
-    flipThresholds,
+    publishedFlipThresholds,
   );
   robustness.display_verdict = displayVerdictFields.display_verdict;
   robustness.display_verdict_reason = displayVerdictFields.display_verdict_reason;
@@ -4419,7 +4429,8 @@ function buildResponse(
     analysis_status: analysisStatus,
     critiques: critiquesOut,
     option_comparison: optionComparison,
-    factor_sensitivity: factorSensitivity,
+    // Under an unevaluated goal identity the brief ranks no drivers and names no tipping point (same walk).
+    factor_sensitivity: optionFiguresInvalid ? undefined : factorSensitivity,
     // Family-4 S1b: the SAME object the response publishes, so
     // decision_brief.top_drivers[0] and driver_order.ranked_factor_ids[0]
     // cannot describe different orders.
@@ -4434,10 +4445,10 @@ function buildResponse(
     // `flip_thresholds` below and the display verdict already consumes —
     // one variable, so the brief's robustness_caveat and the evidence it
     // cites can never come from two different runs.
-    flip_thresholds: flipThresholds,
+    flip_thresholds: publishedFlipThresholds,
     // AIQ 5867389636: the SAME factor_evppi rows the response passes through at top level, so
     // "What could change" names only a factor ISL measured above resolution.
-    factor_evppi: Array.isArray(islResult?.factor_evppi) ? (islResult.factor_evppi as RunResponseV3['factor_evppi']) : undefined,
+    factor_evppi: !optionFiguresInvalid && Array.isArray(islResult?.factor_evppi) ? (islResult.factor_evppi as RunResponseV3['factor_evppi']) : undefined,
     response_hash: responseHash,
     // Track S: depth-aware brief lineage (config_version + lineage.n_samples).
     meta: { seed_used: meta.seedUsed, n_samples: meta.nSamples },
@@ -4675,7 +4686,9 @@ function buildResponse(
     // + emission order derive from ISL_TOPLEVEL_ENRICHMENT_KEYS so the OpenAPI
     // drift gate stays in lockstep (F9). Guard is `!== undefined` so an explicit
     // null/0/false from ISL still passes through.
-    ...islEnrichmentPassthrough(islResult),
+    // ⛔ R3 5888737291: the value-of-information figures are computed on the same walk — withheld under an
+    // unevaluated goal identity (correlation_model, an input structure, still passes).
+    ...withoutGoalDerivedVoi(islEnrichmentPassthrough(islResult), optionFiguresInvalid),
     // ⭐ ROADMAP 2.720 (pillar P4) — per-range interquartile-fit disclosures for
     // the request's `user_stated_ranges`. Additive VERBATIM passthrough, read
     // through the envelope accessor so the wire LOCATION is fixed in one place
@@ -4757,7 +4770,7 @@ function buildResponse(
     // Flip thresholds (tipping points) for UI Results Panel.
     // Always emitted ([] when empty or absent) so consumers can distinguish
     // computed-empty from absent. Excluded from canonical hash.
-    flip_thresholds: flipThresholds ?? [],
+    flip_thresholds: publishedFlipThresholds ?? [],
 
     // Display-honesty: high-level classification of the post-denormalised
     // flip_thresholds[] array. Always emitted alongside flip_thresholds so
@@ -4765,7 +4778,7 @@ function buildResponse(
     // cases honestly without re-deriving from individual flip_reason strings.
     // Excluded from canonical hash (display-only enrichment).
     ...(() => {
-      const result = classifyFlipThresholdsStatus(flipThresholds);
+      const result = classifyFlipThresholdsStatus(publishedFlipThresholds);
       return {
         flip_thresholds_status: result.status,
         ...(result.status_reason && { flip_thresholds_status_reason: result.status_reason }),
@@ -4778,8 +4791,8 @@ function buildResponse(
     // margin movement (weakened / strengthened / flipped) without
     // changing PR #167's strict-flip semantics.
     ...(() => {
-      const marginStatus = classifyFlipThresholdsMarginStatus(flipThresholds);
-      const marginCoverage = computeFlipThresholdsMarginCoverage(flipThresholds);
+      const marginStatus = classifyFlipThresholdsMarginStatus(publishedFlipThresholds);
+      const marginCoverage = computeFlipThresholdsMarginCoverage(publishedFlipThresholds);
       return {
         flip_thresholds_margin_status: marginStatus.status,
         flip_thresholds_margin_coverage: marginCoverage,
