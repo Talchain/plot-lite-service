@@ -665,6 +665,12 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //         Salary Cost" is not said. UPDATE_GOLDEN diff is EXACTLY the
     //         DOMINANT_FACTOR entry leaving m1_coaching.model_critiques and
     //         decision_brief.warnings, plus this hash; `response_hash` UNMOVED.)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:ebe781eb3d19d244');
+    //  lever  rch_v2:503c9b221da9a82b (R3-B, AIQ #72 5883875188: the assumptions
+    //  2026-  ledger names no "low confidence (N%)" line for an option-set LEVER.
+    //  09-29  Every option here sets fac_tech_lead and fac_dev_headcount.
+    //         UPDATE_GOLDEN diff is EXACTLY those two ledger entries leaving,
+    //         the ledger counts (10→8, high 9→8, low 1→0), plus this hash;
+    //         `response_hash` UNMOVED.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:503c9b221da9a82b');
   });
 });

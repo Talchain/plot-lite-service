@@ -115,14 +115,19 @@ describe('MEASURED confidence is preserved', () => {
     expect(gap.confidence_display).toBe(`${Math.round(subs.confidence! * 100)}%`);
   });
 
-  it('a measured low-confidence factor keeps its ledger entry (ZERO: price, not anchored, ISL bootstrap)', () => {
-    const c = captures.ZERO;
-    const price = c.factor_sensitivity.find((f) => f.factor_id === 'pro_plan_price')!;
-    expect(price.confidence_source).toBe('plot_unified_from_isl_bootstrap');
+  it('a measured, non-lever low-confidence factor keeps its ledger entry (P1 before #215: subscribers)', () => {
+    // Not price: price is an option-set lever, and a lever carries no confidence line (AIQ 5883875188).
+    const c = captures.P1_pre215;
+    const subs = c.factor_sensitivity.find((f) => f.factor_id === 'pro_paying_subscribers')!;
+    expect(subs.confidence_source).toBe('plot_unified_from_isl_bootstrap');
     const entry = (coach(c).assumptions_ledger?.assumptions ?? []).find(
-      (a) => a.field === 'confidence' && a.entity_id === 'pro_plan_price',
+      (a) => a.field === 'confidence' && a.entity_id === 'pro_paying_subscribers',
     );
-    expect(entry?.reason).toContain(`(${Math.round(price.confidence! * 100)}%)`);
+    expect(entry?.reason).toContain(`(${Math.round(subs.confidence! * 100)}%)`);
+  });
+
+  it('ZERO: the ledger carries no confidence entry for a graph-only factor', () => {
+    const c = captures.ZERO;
     const graphOnly = (coach(c).assumptions_ledger?.assumptions ?? []).filter(
       (a) => a.field === 'confidence' && unmeasured(c).has(a.entity_id),
     );

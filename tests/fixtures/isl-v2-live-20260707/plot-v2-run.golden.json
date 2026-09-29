@@ -862,38 +862,12 @@
           "reason": "Factor Team Technical Maturity has low confidence (44%)",
           "impact": "high",
           "impact_reason_code": "HIGH_INFLUENCE_FACTOR"
-        },
-        {
-          "dedup_key": "isl_engine:flagged:node:fac_tech_lead:confidence",
-          "source_service": "isl_engine",
-          "action": "flagged",
-          "entity_type": "node",
-          "entity_id": "fac_tech_lead",
-          "field": "confidence",
-          "from_value": null,
-          "to_value": 0.3,
-          "reason": "Factor Tech Lead in Place has low confidence (30%)",
-          "impact": "high",
-          "impact_reason_code": "HIGH_INFLUENCE_FACTOR"
-        },
-        {
-          "dedup_key": "isl_engine:flagged:node:fac_dev_headcount:confidence",
-          "source_service": "isl_engine",
-          "action": "flagged",
-          "entity_type": "node",
-          "entity_id": "fac_dev_headcount",
-          "field": "confidence",
-          "from_value": null,
-          "to_value": 0.3,
-          "reason": "Factor Developer Headcount Added has low confidence (30%)",
-          "impact": "low",
-          "impact_reason_code": "STRUCTURAL_ONLY"
         }
       ],
-      "total_count": 10,
-      "high_impact_count": 9,
+      "total_count": 8,
+      "high_impact_count": 8,
       "medium_impact_count": 0,
-      "low_impact_count": 1
+      "low_impact_count": 0
     },
     "thresholds_used": {
       "headline_clear_winner_delta": 0.2,
@@ -1602,7 +1576,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:ebe781eb3d19d244"
+    "response_content_hash": "rch_v2:503c9b221da9a82b"
   },
   "meta": {
     "seed_used": "2034401427",
