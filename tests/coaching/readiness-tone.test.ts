@@ -307,3 +307,27 @@ describe('the driver-confidence reasons skip an option-set lever', () => {
     expect(tone(twoDrivers(0.9, undefined, ['f1'])).reasons).toEqual(['TOP_DRIVER_UNMEASURED']);
   });
 });
+
+// AIQ #72 5884881500 (with PLoT #413's ledger line): what ISL measured for the top driver is how STEADY its effect on
+// the result is. "the top driver has low confidence" read as doubt about the user's figure.
+describe('the driver-confidence copy says the effect is not steady', () => {
+  const lowStability = () =>
+    cleanInputs({
+      factorSensitivity: [{
+        node_id: 'f1', label: 'Cost', importance_rank: 1, elasticity: 0.5, influence_score: 0.5,
+        confidence: 0.3, direction: 'positive', zero_reason: undefined,
+      }],
+    });
+
+  it('precondition: LOW_DRIVER_CONFIDENCE is the only reason', () => {
+    const result = deriveReadinessTone(lowStability(), 'ready', 'clear_winner', cleanKeyDrivers(), [], getThresholds());
+    expect(result.reasons).toEqual(['LOW_DRIVER_CONFIDENCE']);
+  });
+
+  it("the tempered copy names the top driver's unsteady effect, never 'low confidence'", () => {
+    const lead = generateNextActions(lowStability(), 'clear_winner', [], []).find((a) => a.priority === 7);
+    expect(lead?.action).toMatch(/^Validate the key assumptions/);
+    expect(lead?.rationale).toContain("the top driver's effect on the result is not steady");
+    expect(lead?.rationale).not.toMatch(/low confidence/i);
+  });
+});
