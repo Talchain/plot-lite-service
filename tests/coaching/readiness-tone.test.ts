@@ -244,3 +244,66 @@ describe('an unmeasured top-driver confidence never yields the confident tone', 
     expect(lead?.rationale).toContain("the top driver's stability has not been measured");
   });
 });
+
+// AIQ #72 5884067259 (PLoT #410 follow-up): a LEVER the options set is the user's choice, not a measured weakness of
+// the model. If the top driver is a lever, the driver-confidence reasons read the NEXT non-lever driver, or none.
+describe('the driver-confidence reasons skip an option-set lever', () => {
+  const twoDrivers = (leverConfidence: number, nextConfidence: number | undefined, levers: string[]) =>
+    cleanInputs({
+      graph: {
+        nodes: [
+          { id: 'goal', kind: 'goal', label: 'Goal' },
+          { id: 'f1', kind: 'factor', label: 'Price' },
+          { id: 'f2', kind: 'factor', label: 'Demand' },
+        ],
+        edges: [
+          { from: 'f1', to: 'goal', strength: { mean: 0.6, std: 0.1 } },
+          { from: 'f2', to: 'goal', strength: { mean: 0.4, std: 0.1 } },
+        ],
+      },
+      factorSensitivity: [
+        { node_id: 'f1', label: 'Price', importance_rank: 1, elasticity: 0.6, influence_score: 0.6,
+          confidence: leverConfidence, direction: 'positive', zero_reason: undefined },
+        { node_id: 'f2', label: 'Demand', importance_rank: 2, elasticity: 0.4, influence_score: 0.4,
+          confidence: nextConfidence, direction: 'positive', zero_reason: undefined },
+      ],
+      interventionTargetIds: new Set(levers),
+    });
+  const drivers: KeyDriver[] = [
+    { factor_id: 'f1', factor_label: 'Price', influence_score: 0.6, normalised_impact: 1, impact_display: 'Very High', direction: 'positive', rank: 1 },
+    { factor_id: 'f2', factor_label: 'Demand', influence_score: 0.4, normalised_impact: 0.67, impact_display: 'High', direction: 'positive', rank: 2 },
+  ];
+  const tone = (inputs: CoachingInputs) =>
+    deriveReadinessTone(inputs, 'ready', 'clear_winner', drivers, [], getThresholds());
+
+  it('a low-stability LEVER at the top (and NO fragile lever link) produces no driver-confidence reason', () => {
+    const result = tone(twoDrivers(0.3, 0.9, ['f1']));
+    expect(result.reasons).not.toContain('LOW_DRIVER_CONFIDENCE');
+    expect(result.tone).toBe('confident');
+  });
+
+  it('control: the same factor, not a lever, does', () => {
+    expect(tone(twoDrivers(0.3, 0.9, [])).reasons).toContain('LOW_DRIVER_CONFIDENCE');
+  });
+
+  // AIQ 5884284990: the lever's VALUE is the user's choice, but how much it moves the goal can still be uncertain.
+  // That uncertainty is carried by the ROBUSTNESS reasons on the lever's links, which the skip must never touch.
+  it('control: a lever top driver whose OWN outgoing link is fragile still fires the robustness reason', () => {
+    const inputs = {
+      ...twoDrivers(0.3, 0.9, ['f1']),
+      fragileEdges: [{
+        edgeId: 'f1->goal', fromId: 'f1', toId: 'goal', fromLabel: 'Price', toLabel: 'Goal',
+        displayLabel: 'Price → Goal', switchProb: 0.5, altWinnerLabel: 'Option B', altWinnerId: 'opt2',
+      }],
+    } as CoachingInputs;
+    const result = tone(inputs);
+    expect(result.reasons).toContain('MATERIAL_FRAGILE_EDGE');
+    expect(result.reasons).not.toContain('LOW_DRIVER_CONFIDENCE');
+    expect(result.tone).not.toBe('confident');
+  });
+
+  it('the NEXT non-lever driver is read: its low confidence counts, its absence caps the tone', () => {
+    expect(tone(twoDrivers(0.9, 0.3, ['f1'])).reasons).toContain('LOW_DRIVER_CONFIDENCE');
+    expect(tone(twoDrivers(0.9, undefined, ['f1'])).reasons).toEqual(['TOP_DRIVER_UNMEASURED']);
+  });
+});
