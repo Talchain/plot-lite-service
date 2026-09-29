@@ -58,3 +58,28 @@ describe('driverOrderUnderWithhold — only the walk-ordered ranking goes', () =
     expect(driverOrderUnderWithhold(o, false)).toBe(o);
   });
 });
+
+describe('islResultWithoutGoalFigures / coachingWithoutWalk', () => {
+  it("ISL's answer less the goal's figures: sample counts and every other key stay; a copy", async () => {
+    const { islResultWithoutGoalFigures } = await import('../src/lib/goal-identity-withhold.js');
+    const answer = {
+      options: [{ option_id: 'a', win_probability: 0.6, probability_of_goal: 0.4, downside: { cvar_10: 1 }, outcome: { mean: 1, std: 2, p10: 0, p50: 1, p90: 2, n_samples: 10 } }],
+      robustness: { confidence: 0.95 }, p_win_sensitivity: [], factor_evppi: [], decision_evpi: 0, factor_flip_values: [], conditional_winners: [],
+      factor_sensitivity: [{ node_id: 'f', value_of_information: 0.2, influence_score: 1 }],
+      identity_evaluations: [{ node_id: 'mrr', evaluated: false }], analysis_status: 'computed',
+    };
+    const view = islResultWithoutGoalFigures(answer);
+    expect(view).toEqual({
+      options: [{ option_id: 'a', outcome: { n_samples: 10 } }],
+      factor_sensitivity: [{ node_id: 'f', influence_score: 1 }],
+      identity_evaluations: [{ node_id: 'mrr', evaluated: false }], analysis_status: 'computed',
+    });
+    expect(answer.options[0].win_probability).toBe(0.6);
+  });
+  it('coaching keeps only its structural fields', async () => {
+    const { coachingWithoutWalk } = await import('../src/lib/goal-identity-withhold.js');
+    const c = { coaching_version: 'v', computed_at: 't', thresholds_used: {}, key_drivers: [1], model_critiques: [2], assumptions_ledger: [3],
+      headline_type: 'clear_winner', executive_summary: {}, story_headlines: {}, next_actions: [], readiness: 'ready', readiness_reasons: [], readiness_signals: {}, readiness_tone: 'x', evidence_gaps: [] };
+    expect(Object.keys(coachingWithoutWalk(c)).sort()).toEqual(['assumptions_ledger', 'coaching_version', 'computed_at', 'key_drivers', 'model_critiques', 'thresholds_used']);
+  });
+});

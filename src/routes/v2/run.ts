@@ -109,7 +109,7 @@ import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js'
 import type { RobustnessDataForCee } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue } from '../../integrations/isl/types/isl-types.js';
 import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures, getIslIdentityEvaluations, getIslStructuralInfluence } from '../../integrations/isl/v2-envelope.js';
-import { goalIdentitiesNotEvaluated, goalIdentityWithheldMessage, limitsOnUnevaluatedIdentityPath, limitIdentityWithheldMessage, withoutGoalDerivedVoi, factorRowWithoutWalk, driverOrderUnderWithhold } from '../../lib/goal-identity-withhold.js';
+import { goalIdentitiesNotEvaluated, goalIdentityWithheldMessage, limitsOnUnevaluatedIdentityPath, limitIdentityWithheldMessage, withoutGoalDerivedVoi, factorRowWithoutWalk, driverOrderUnderWithhold, islResultWithoutGoalFigures, coachingWithoutWalk } from '../../lib/goal-identity-withhold.js';
 import { V2_RUN_ALLOWED_KEYS, islEnrichmentPassthrough } from './run-contract-keys.js';
 import { assessIslWireGeneration, logIslWireGenerationUnverified } from '../../integrations/isl/wire-generation.js';
 import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
@@ -9217,6 +9217,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           factorEnrichments,
         };
 
+        // ⛔ PLoT #419 (R3 5889219876, AIQ 5889514782): the SAME predicate `buildResponse` withholds on — the same graph,
+        // the same ISL answer, the same withdrawn ids — decided once here for the consumers that read ISL's answer
+        // before the response exists: M1 coaching reads the PUBLISHED view; the M2 decision review is skipped.
+        const goalFiguresWithheld = goalIdentitiesNotEvaluated(
+          filteredGraph, getIslIdentityEvaluations(processedIslResult), identitiesNotForwarded.map((w) => w.node_id),
+        ).length > 0;
+
         // Generate M1 coaching (Phase 2+3+4 deterministic coaching layer)
         let m1Coaching: any = null;
         try {
@@ -9277,18 +9284,20 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           m1Coaching = generateM1Coaching(
             filteredGraph,
             body.options,
-            processedIslResult,
+            goalFiguresWithheld ? islResultWithoutGoalFigures(processedIslResult) : processedIslResult,
             req.log,
             repairsForCoaching,  // Phase 3: normaliser repairs for assumptions ledger
             [],                  // Phase 3: CEE critiques (empty for now, can be extended)
             activeGoalConstraints,  // Task 1+3: goal constraints for joint-prob gate & grounding check
-            factorSensitivity,   // Provenance fix: coaching consumes the same enriched
+            goalFiguresWithheld ? factorSensitivity?.map(factorRowWithoutWalk) : factorSensitivity,   // Provenance fix: coaching consumes the same enriched
                                  // factor_sensitivity array we publish, so evidence_gaps
                                  // confidence/influence match the public payload (audit
                                  // A1-PRIMARY: no raw-ISL signal under coaching field names).
             coachingConstraintTargetsUnreliable,  // Item A: skip joint-prob gate on unreliable targets
             coachingConstraintTargetDirectionSuspect,  // FIX #1 companion: skip joint-prob gate on direction-suspect targets
           );
+          // AIQ 5889514782: under the withhold only coaching's structural fields stay (see coachingWithoutWalk).
+          if (goalFiguresWithheld && m1Coaching) m1Coaching = coachingWithoutWalk(m1Coaching);
         } catch (err) {
           req.log.warn({
             event: 'm1_coaching_generation_failed',
@@ -9543,6 +9552,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               m1_review: null,
               review_status: 'skipped',
               review_skip_reason: ReviewSkipReasons.BRIEF_MISSING,
+            };
+          } else if (goalFiguresWithheld) {
+            // ⛔ AIQ 5889514782: the review is an LLM reading of the goal's walk (ISL's answer, the coaching's lead, the
+            // tipping points); under an unevaluated goal identity it would rest on figures this run could not
+            // calculate. Skipped, said with its own reason — never a partial review.
+            req.log.info({ event: 'decision_review_goal_figures_withheld', request_id: requestId });
+            m2DecisionReview = {
+              m1_review: null,
+              review_status: 'skipped',
+              review_skip_reason: ReviewSkipReasons.GOAL_FIGURES_WITHHELD,
             };
           } else try {
             // ROADMAP 2.676 — see the field comment below. Computed here rather

@@ -86,6 +86,8 @@ describe("route — the goal's sensitivity, value-of-information and robustness 
   beforeAll(async () => {
     process.env.RATE_LIMIT_ENABLED = '0';
     process.env.CEE_ORCHESTRATOR_ENABLED = '0';
+    // Staging parity: the M2 decision review is on (it skips before any CEE call when it has nothing honest to read).
+    process.env.DECISION_REVIEW_ENABLE = '1';
     app = await createServer();
     await app.listen({ port: 0, host: '127.0.0.1' });
     const addr = app.server.address();
@@ -93,6 +95,38 @@ describe("route — the goal's sensitivity, value-of-information and robustness 
   }, 60_000);
   afterAll(async () => { await app?.close(); });
   afterEach(() => { islOverride = {}; });
+
+  const withBrief = (r: any) => ({ ...r, brief: 'Should we raise the Pro plan price to get MRR above £85k?' });
+  const COACHING_KEPT = ['assumptions_ledger', 'coaching_version', 'computed_at', 'key_drivers', 'model_critiques', 'thresholds_used'];
+
+  it('⭐ RED — the M2 review is skipped with its own reason, and coaching keeps only what makes no claim about the goal (AIQ 5889514782)', async () => {
+    const control = await run(withBrief(REQUEST));
+    // CONTROL: the review is attempted as today (CEE is not configured in this harness), coaching leads with the walk.
+    expect(control.review_skip_reason).not.toBe('GOAL_FIGURES_WITHHELD');
+    expect(control.m1_coaching.executive_summary?.summary).toMatch(/leads/);
+    expect(control.m1_coaching.headline_type).toBeDefined();
+    expect(control.confidence_tier).toBeDefined();
+
+    islOverride = { identity_evaluations: notEvaluated() };
+    const body = await run(withBrief(inferredRequest()));
+    expect(body.review_status).toBe('skipped');
+    expect(body.review_skip_reason).toBe('GOAL_FIGURES_WITHHELD');
+    expect(body.m1_review ?? null).toBeNull();
+    // Coaching: only the structural fields; no lead, no readiness, no next action, no evidence gap, no confidence tier.
+    expect(Object.keys(body.m1_coaching).sort()).toEqual(COACHING_KEPT);
+    expect('confidence_tier' in body).toBe(false);
+    expect(body.m1_coaching.key_drivers).toEqual(control.m1_coaching.key_drivers);
+    // The assumptions ledger lists inputs; the entries ISL flagged from the walk's bootstrap confidence go with the walk.
+    const entries = (b: any) => JSON.stringify(b.m1_coaching.assumptions_ledger.assumptions);
+    const fromWalk = (b: any) => (b.m1_coaching.assumptions_ledger.assumptions as any[]).filter((a) => a.source_service === 'isl_engine');
+    const inputs = (b: any) => (b.m1_coaching.assumptions_ledger.assumptions as any[]).filter((a) => a.source_service !== 'isl_engine');
+    expect(fromWalk(control).length).toBeGreaterThan(0);
+    expect(fromWalk(body)).toEqual([]);
+    expect(inputs(body)).toEqual(inputs(control));
+    expect(entries(body)).not.toEqual(entries(control));
+    // Nothing anywhere in the coaching names a chance of leading or a lead.
+    expect(JSON.stringify(body.m1_coaching)).not.toMatch(/win probability|leads by|too close to call/i);
+  });
 
   it("CONTROL — ISL's own answer (Paul's identity evaluated): every carrier ships, the goal's figures with it", async () => {
     const body = await run(REQUEST);
