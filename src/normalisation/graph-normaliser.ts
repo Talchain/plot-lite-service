@@ -383,6 +383,9 @@ export function normaliseNode(
       // a human set the value. See the field's own doc on `UpstreamNode`.
       source: os.source,
       extractionType: os.extractionType,
+      // Whose spread `std` is — read only by buildParameterUncertaintiesV3 (ISL `spread_source`), never forwarded on
+      // ISL's ObservedState (not an ISL_DECLARED_OBSERVED_STATE_FIELDS member).
+      ...(os.std_source !== undefined && { std_source: os.std_source }),
       // For constraint nodes, preserve metadata (contains operator) so the
       // constraint compiler can extract it via observed_state.metadata.operator.
       ...((os as any).metadata !== undefined && { metadata: (os as any).metadata }),

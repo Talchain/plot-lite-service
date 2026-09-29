@@ -162,6 +162,13 @@ export interface UpstreamNode {
      */
     source?: string;
     extractionType?: string;
+    /**
+     * Whose SPREAD `std` is (R3-B #72 5895208669; frames, AIQ 5895140735): `'user'` = the user's own figure or
+     * range, `'olumi'` = Olumi's (e.g. a spread carried across a frame move). An upstream claim, copied verbatim
+     * like `source`; PLoT maps it onto ISL's `ParameterUncertainty.spread_source` and nowhere else — it is not an
+     * ISL `ObservedState` member, so the egress projector never forwards it.
+     */
+    std_source?: string;
   };
   /** State space bounds for the factor (used for uncertainty calculation) */
   state_space?: {
@@ -362,6 +369,8 @@ export interface EngineNodeV3 {
      */
     source?: string;
     extractionType?: string;
+    /** Whose spread `std` is — see `UpstreamNode.observed_state.std_source`. */
+    std_source?: string;
   };
   /** State space bounds for the factor (used for uncertainty calculation) */
   state_space?: {

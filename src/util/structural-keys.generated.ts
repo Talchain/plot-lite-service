@@ -507,6 +507,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "status",
   "status_reason",
   "std",
+  "std_source",
   "stochastic",
   "strength",
   "strength_mean",
