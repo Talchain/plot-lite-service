@@ -309,12 +309,13 @@
         "factor_label": "Monthly logo churn",
         "voi_score": 0.5,
         "confidence": 0.5,
-        "confidence_display": "50%",
-        "confidence_defaulted": false,
+        "confidence_defaulted": true,
         "influence": 1,
         "influence_display": "100%",
-        "suggestion": "Confidence in \"Monthly logo churn\" is low; no measured evidence says learning it would change which option leads.",
-        "notes": [],
+        "suggestion": "Confidence in \"Monthly logo churn\" has not been measured; no measured evidence says learning it would change which option leads.",
+        "notes": [
+          "Confidence not measured by ISL; ordered with a neutral default"
+        ],
         "value": 0.04,
         "raw_value": 4,
         "unit": "% per month",
@@ -326,12 +327,13 @@
         "factor_label": "Annual delivery cost",
         "voi_score": 0.35714285714285715,
         "confidence": 0.5,
-        "confidence_display": "50%",
-        "confidence_defaulted": false,
+        "confidence_defaulted": true,
         "influence": 0.7142857142857143,
         "influence_display": "71%",
-        "suggestion": "Confidence in \"Annual delivery cost\" is low; no measured evidence says learning it would change which option leads.",
-        "notes": [],
+        "suggestion": "Confidence in \"Annual delivery cost\" has not been measured; no measured evidence says learning it would change which option leads.",
+        "notes": [
+          "Confidence not measured by ISL; ordered with a neutral default"
+        ],
         "value": 0.4,
         "raw_value": 200000,
         "unit": "£",
@@ -493,11 +495,11 @@
       "key_qualifier": "Significant evidence gaps remain.",
       "action_implication": "Gather additional evidence before deciding."
     },
-    "readiness_tone": "caution",
+    "readiness_tone": "tempered",
     "readiness_reasons": [
       "EVIDENCE_GAPS",
-      "LOW_DRIVER_CONFIDENCE",
-      "INSUFFICIENT_SIGNALS"
+      "INSUFFICIENT_SIGNALS",
+      "TOP_DRIVER_UNMEASURED"
     ],
     "coaching_version": "1.2.0"
   },

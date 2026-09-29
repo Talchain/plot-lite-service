@@ -67,7 +67,10 @@ export function generateNextActions(
     actions.push({
       priority: 2,
       action: `Gather evidence on ${namedGap.factor_label}`,
-      rationale: `This factor has high impact (${namedGap.influence_display}) but low confidence (${namedGap.confidence_display})`,
+      rationale:
+        namedGap.confidence_display === undefined
+          ? `This factor has high impact (${namedGap.influence_display}) and its confidence has not been measured`
+          : `This factor has high impact (${namedGap.influence_display}) but low confidence (${namedGap.confidence_display})`,
       target_type: 'factor',
       target_id: namedGap.factor_id,
       target_label: namedGap.factor_label,
@@ -227,6 +230,7 @@ const REASON_PHRASES: Record<Exclude<ReadinessToneReason, 'EVIDENCE_GAPS'>, stri
   LOW_DRIVER_CONFIDENCE: 'the top driver has low confidence',
   NEAR_TIE: 'the margin is near a tie',
   INSUFFICIENT_SIGNALS: 'key signals are not yet available',
+  TOP_DRIVER_UNMEASURED: "the top driver's stability has not been measured",
 };
 
 // Reasons are surfaced in display priority order so the rationale leads with
@@ -239,6 +243,7 @@ const REASON_DISPLAY_ORDER: ReadinessToneReason[] = [
   'LOW_STABILITY',
   'LOW_DRIVER_CONFIDENCE',
   'NEAR_TIE',
+  'TOP_DRIVER_UNMEASURED',
   'INSUFFICIENT_SIGNALS',
 ];
 

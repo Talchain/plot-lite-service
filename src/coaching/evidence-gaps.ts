@@ -78,7 +78,8 @@ export function computeEvidenceGaps(inputs: CoachingInputs): EvidenceGap[] {
       factor_label: f.label,
       voi_score: f.voi,
       confidence: f.confidence,
-      confidence_display: `${Math.round(f.confidence * 100)}%`,
+      // A defaulted confidence is the neutral ORDERING value, disclosed by `confidence_defaulted`: never printed.
+      ...(f.confidenceDefaulted ? {} : { confidence_display: `${Math.round(f.confidence * 100)}%` }),
       confidence_defaulted: f.confidenceDefaulted,
       influence: f.normalisedImpact,
       influence_display: `${Math.round(f.normalisedImpact * 100)}%`,
@@ -86,8 +87,10 @@ export function computeEvidenceGaps(inputs: CoachingInputs): EvidenceGap[] {
       // resolution; otherwise the row says what is true — low confidence, with no measured decision value.
       suggestion: evidenceAdviceMayName(inputs, f.node_id)
         ? `Gather data on "${f.label}" to reduce uncertainty`
-        : `Confidence in "${f.label}" is low; no measured evidence says learning it would change which option leads.`,
-      notes: f.confidenceDefaulted ? ['Confidence defaulted to 50% (not provided by ISL)'] : [],
+        : f.confidenceDefaulted
+          ? `Confidence in "${f.label}" has not been measured; no measured evidence says learning it would change which option leads.`
+          : `Confidence in "${f.label}" is low; no measured evidence says learning it would change which option leads.`,
+      notes: f.confidenceDefaulted ? ['Confidence not measured by ISL; ordered with a neutral default'] : [],
       ...(os?.value !== undefined && { value: os.value }),
       ...(os?.raw_value !== undefined && { raw_value: os.raw_value }),
       ...(os?.unit !== undefined && { unit: os.unit }),
