@@ -901,10 +901,16 @@ describe('R3-A1 — an INFERRED identity ISL cannot evaluate for ANY reason is w
       expect(body.option_comparison).toEqual(c0Body.option_comparison.map(lessGoalFigures));
       expect((body.inference_warnings ?? []).filter((w: any) => w.code === 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED')
         .map((w: any) => w.node_ids)).toEqual([['mrr']]);
-      for (const block of ['factor_sensitivity', 'driver_order', 'edge_sensitivity', 'robustness', 'flip_thresholds', 'constraint_results']) {
+      for (const block of ['factor_sensitivity', 'edge_sensitivity', 'constraint_results']) {
         expect(body[block], block).toBeDefined();
         expect(JSON.stringify(body[block]), block).toBe(JSON.stringify(c0Body[block]));
       }
+      // The same walk's driver ranking, tipping points and robustness facts are withheld with the figures (R3 SCIENCE
+      // #72 5888737291); C0 publishes the ranking, so the row discriminates.
+      expect(c0Body.driver_order).toBeDefined();
+      expect('driver_order' in body).toBe(false);
+      expect(body.flip_thresholds).toEqual([]);
+      expect(body.robustness).toMatchObject({ fragile_edges: [], robust_edges: [], display_verdict: 'not_assessed' });
     });
   }
 
