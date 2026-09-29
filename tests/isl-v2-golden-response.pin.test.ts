@@ -678,6 +678,11 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //         `audience: "user"` fields, `user_count: 8`,
     //         `user_high_impact_count: 8`, plus this hash; `response_hash`
     //         UNMOVED.)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:77413ad0529b8c66');
+    //  steady rch_v2:e27294174a11b1a4 (R3-B, AIQ #72 5884364585 wording: a
+    //  2026-  measured node-confidence ledger line says what ISL measured, "its
+    //  09-29  effect on the result is not steady (44%)", not "has low confidence
+    //         (44%)". UPDATE_GOLDEN diff is EXACTLY the 2 node `reason` strings,
+    //         plus this hash; `response_hash` UNMOVED.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:e27294174a11b1a4');
   });
 });

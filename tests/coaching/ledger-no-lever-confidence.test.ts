@@ -52,6 +52,12 @@ describe('the ledger names no confidence figure for an option-set lever', () => 
 
   it('control: a measured, non-lever low confidence keeps its line', () => {
     const other = confidenceEntries().find((a) => a.entity_id === OTHER);
-    expect(other?.reason).toBe('Factor Other MRR growth has low confidence (44%)');
+    expect(other?.reason).toBe('Factor Other MRR growth: its effect on the result is not steady (44%)');
+  });
+
+  it('the line says what was measured (how steady the effect is), never "low confidence" in the value (AIQ #72 5884364585)', () => {
+    const lines = confidenceEntries().map((a) => a.reason);
+    expect(lines.length).toBeGreaterThan(0);
+    for (const line of lines) expect(line).not.toMatch(/confidence/i);
   });
 });
