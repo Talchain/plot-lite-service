@@ -221,12 +221,17 @@ function checkOverconfidence(inputs: CoachingInputs, thresholds: ReturnType<type
     withConfidence.reduce((sum, f) => sum + f.confidence!, 0) / withConfidence.length;
 
   if (avgConfidence > thresholds.critique_overconfidence_threshold) {
+    // The average runs over the measured factors only; with any factor unmeasured it is not the model's average, so no
+    // figure is printed or carried (DL #72 5883188906).
+    const allMeasured = withConfidence.length === factorSensitivity.length;
     return {
       type: 'OVERCONFIDENCE',
       severity: 'warn',
-      challenge_question: `Average confidence is ${Math.round(avgConfidence * 100)}%. Is this justified?`,
+      challenge_question: allMeasured
+        ? `Average confidence is ${Math.round(avgConfidence * 100)}%. Is this justified?`
+        : 'Measured confidence is high on average. Is this justified?',
       suggested_action: 'Review whether high-confidence assumptions have supporting evidence',
-      context: { average: avgConfidence },
+      ...(allMeasured ? { context: { average: avgConfidence } } : {}),
     };
   }
 

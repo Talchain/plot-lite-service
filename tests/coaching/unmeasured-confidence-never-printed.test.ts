@@ -20,6 +20,7 @@ import { dirname, join } from 'node:path';
 
 import { generateM1Coaching } from '../../src/coaching/m1-coaching.js';
 import { computeReadinessSignals } from '../../src/coaching/readiness-signals.js';
+import { generateCritiques } from '../../src/coaching/critiques.js';
 import { getThresholds } from '../../src/coaching/thresholds.js';
 import type { CoachingInputs } from '../../src/coaching/types.js';
 
@@ -148,5 +149,41 @@ describe('the readiness signal prints an average only when every factor was meas
     const texts = signalText(base([0.9, 0.9, 0.9, undefined]));
     expect(texts.some((t) => t.startsWith('High average confidence'))).toBe(true);
     for (const t of texts) expect(t).not.toMatch(PRINTED_CONFIDENCE);
+  });
+
+  // PR Review #409 5883367656: the LOW path printed "Low average confidence (23%)" from two measured 0.1 values and
+  // an unmeasured neutral 0.5.
+  it('LOW, all measured: the figure is printed', () => {
+    expect(signalText(base([0.1, 0.1]))).toContain('Low average confidence (10%)');
+  });
+
+  it('LOW, one defaulted: the signal stands, with no figure', () => {
+    const texts = signalText(base([0.1, 0.1, undefined]));
+    expect(texts.some((t) => t.startsWith('Low average confidence'))).toBe(true);
+    for (const t of texts) expect(t).not.toMatch(PRINTED_CONFIDENCE);
+  });
+});
+
+describe('the overconfidence critique prints an average only when every factor was measured', () => {
+  const inputs = (confidences: Array<number | undefined>): CoachingInputs =>
+    ({
+      factorSensitivity: confidences.map((confidence, i) => ({
+        node_id: `f${i}`, label: `F${i}`, elasticity: 0.1, importance_rank: i + 1, confidence,
+      })),
+      graph: { nodes: [], edges: [] }, options: [], fragileEdges: [], robustness: {},
+      interventionTargetIds: new Set<string>(),
+    }) as unknown as CoachingInputs;
+  const over = (c: Array<number | undefined>) =>
+    generateCritiques(inputs(c)).filter((x) => x.type === 'OVERCONFIDENCE');
+
+  it('all measured: the figure is printed', () => {
+    const [critique] = over([0.95, 0.95]);
+    expect(critique?.challenge_question).toBe('Average confidence is 95%. Is this justified?');
+  });
+
+  it('one defaulted: the critique stands, with no figure', () => {
+    const [critique] = over([0.95, 0.95, undefined]);
+    expect(critique).toBeDefined();
+    expect(critique!.challenge_question).not.toMatch(/\d+\s*%/);
   });
 });
