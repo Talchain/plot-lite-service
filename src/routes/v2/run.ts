@@ -3273,6 +3273,11 @@ function buildResponse(
     (meta.identitiesNotForwarded ?? []).map((w) => w.node_id),
   );
   let goalProbabilityWithheld = false;
+  // ⛔ The SAME unevaluated identity makes every per-option figure of the goal come from that additive walk: the
+  // chance of leading and the outcome's centre and spread are as wrong as P(goal) (AI Quality #72 5886183999
+  // follow-up; R3-B census 5886351619). Withheld on every option by the SAME predicate; the sample counts stay (they
+  // are not claims about the goal). `decision_brief.options[]` / its leader follow, built from this published list.
+  const optionFiguresInvalid = goalIdentityWithheld.length > 0;
   const optionComparison = islOptionData?.map((r: any) => {
     const optionId = r.option_id ?? r.id;
     const option = options?.find((o) => o.id === optionId);
@@ -3346,6 +3351,11 @@ function buildResponse(
       }
       // An outcome with nothing honest in it is not an outcome: emit no key
       // rather than an empty object a consumer could mistake for a result.
+      if (optionFiguresInvalid) {
+        for (const k of ['mean', 'std', 'p10', 'p50', 'p90'] as const) {
+          if (built[k] !== undefined) { delete built[k]; goalProbabilityWithheld = true; }
+        }
+      }
       if (Object.keys(built).length > 0) outcome = built;
     }
 
@@ -3382,7 +3392,9 @@ function buildResponse(
     // absent, non-finite, or out-of-range). Mirrors the finite guard already used
     // by the recommended-option / near-tie derivations (see deriveRecommendedOption).
     const winProb = prob01(r.win_probability);
-    if (winProb !== undefined) {
+    if (winProb !== undefined && optionFiguresInvalid) {
+      goalProbabilityWithheld = true;
+    } else if (winProb !== undefined) {
       result.win_probability = winProb;
     }
 
@@ -3406,7 +3418,7 @@ function buildResponse(
     // loosening a guard it never mentioned. Binding to
     // `hasAllRequiredOutcomeStats` restores the producer's own invariant and
     // keeps downside behaviour byte-identical to before this change.
-    const downside = hasAllRequiredOutcomeStats(outcomeData)
+    const downside = hasAllRequiredOutcomeStats(outcomeData) && !optionFiguresInvalid
       ? buildDownside(r.downside)
       : undefined;
     if (downside !== undefined) {
