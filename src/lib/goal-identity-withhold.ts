@@ -28,37 +28,79 @@ export interface GoalIdentityNotEvaluated {
 interface NodeLike { readonly id?: unknown; readonly kind?: unknown; readonly label?: unknown; readonly nonlinear_identity?: unknown }
 interface EdgeLike { readonly from?: unknown; readonly to?: unknown }
 
+type GraphLike = { readonly nodes?: readonly unknown[]; readonly edges?: readonly unknown[] } | undefined;
+
 export function goalIdentitiesNotEvaluated(
-  graph: { readonly nodes?: readonly unknown[]; readonly edges?: readonly unknown[] } | undefined,
+  graph: GraphLike,
   identityEvaluations: readonly IdentityEvaluationV3[] | undefined,
   notForwardedNodeIds: readonly string[],
 ): GoalIdentityNotEvaluated[] {
-  const nodes = (Array.isArray(graph?.nodes) ? graph!.nodes : []).filter(
+  const goals = new Set(nodesOf(graph).filter((n) => n.kind === 'goal').map((n) => n.id));
+  if (goals.size === 0) return [];
+  const reach = reacher(graph);
+  return unevaluatedIdentities(graph, identityEvaluations, notForwardedNodeIds)
+    .filter((i) => [...goals].some((g) => reach(i.node_id, g)));
+}
+
+/**
+ * ⛔ AI Quality's CONDITION on #416 (#72 5886183999): a LIMIT whose target IS an unevaluated identity, or is reached
+ * through one (a spend limit when spend is the un-evaluated savings product), is scored on the same invalid walk, so its
+ * probability is withheld with the same reason and node id, and the joint follows through `joint_withheld`. A limit on a
+ * node no unevaluated identity reaches keeps its own. Pure.
+ */
+export function limitsOnUnevaluatedIdentityPath(
+  graph: GraphLike,
+  constraints: readonly { readonly constraint_id: string; readonly node_id: string }[] | undefined,
+  identityEvaluations: readonly IdentityEvaluationV3[] | undefined,
+  notForwardedNodeIds: readonly string[],
+): { constraint_id: string; node_id: string; identities: GoalIdentityNotEvaluated[] }[] {
+  const unevaluated = unevaluatedIdentities(graph, identityEvaluations, notForwardedNodeIds);
+  if (unevaluated.length === 0) return [];
+  const reach = reacher(graph);
+  return (constraints ?? []).flatMap((c) => {
+    const identities = unevaluated.filter((i) => reach(i.node_id, c.node_id));
+    return identities.length > 0 ? [{ constraint_id: c.constraint_id, node_id: c.node_id, identities }] : [];
+  });
+}
+
+function nodesOf(graph: GraphLike): (NodeLike & { id: string })[] {
+  return (Array.isArray(graph?.nodes) ? graph!.nodes : []).filter(
     (n): n is NodeLike & { id: string } => n !== null && typeof n === 'object' && typeof (n as NodeLike).id === 'string',
   );
-  const goals = new Set(nodes.filter((n) => n.kind === 'goal').map((n) => n.id));
-  if (goals.size === 0) return [];
+}
+
+/** `reach(from, to)`: `from` IS `to`, or reaches it through the graph's edges. */
+function reacher(graph: GraphLike): (from: string, to: string) => boolean {
   const next = new Map<string, string[]>();
   for (const e of (Array.isArray(graph?.edges) ? graph!.edges : []) as EdgeLike[]) {
     if (e === null || typeof e !== 'object' || typeof e.from !== 'string' || typeof e.to !== 'string') continue;
     next.set(e.from, [...(next.get(e.from) ?? []), e.to]);
   }
-  const reachesGoal = (from: string): boolean => {
+  return (from, to) => {
     const seen = new Set([from]);
     const stack = [from];
     while (stack.length > 0) {
       const x = stack.pop()!;
-      if (goals.has(x)) return true;
+      if (x === to) return true;
       for (const y of next.get(x) ?? []) if (!seen.has(y)) { seen.add(y); stack.push(y); }
     }
     return false;
   };
+}
+
+/** Every DECLARED identity (on the graph, or withdrawn and said) that ISL did not report `evaluated: true`. */
+export function unevaluatedIdentities(
+  graph: GraphLike,
+  identityEvaluations: readonly IdentityEvaluationV3[] | undefined,
+  notForwardedNodeIds: readonly string[],
+): GoalIdentityNotEvaluated[] {
+  const nodes = nodesOf(graph);
   const byId = new Map(nodes.map((n) => [n.id, n] as const));
   const evaluated = new Set((identityEvaluations ?? []).filter((v) => v?.evaluated === true).map((v) => v.node_id));
   const withdrawn = new Set(notForwardedNodeIds);
   return nodes
     .filter((n) => (n.nonlinear_identity !== undefined && n.nonlinear_identity !== null) || withdrawn.has(n.id))
-    .filter((n) => !evaluated.has(n.id) && reachesGoal(n.id))
+    .filter((n) => !evaluated.has(n.id))
     .map((n) => {
       const identity = (n.nonlinear_identity ?? null) as { operation?: unknown; factor_ids?: unknown } | null;
       const ids = Array.isArray(identity?.factor_ids) ? identity!.factor_ids.filter((x): x is string => typeof x === 'string') : [];
@@ -86,4 +128,14 @@ export function goalIdentityWithheldMessage(nodes: readonly GoalIdentityNotEvalu
   const more = nodes.length > 1 ? ` (and ${nodes.length - 1} more)` : '';
   return `Not shown. '${first.label}' depends on ${parts}${more}, but this run couldn't calculate it that way, `
     + 'so the figures for each option would be wrong.';
+}
+
+/** The words for a withheld LIMIT, in the register AI Quality set for the goal (#72 5885033487): no action asked. */
+export function limitIdentityWithheldMessage(targetLabel: string, identities: readonly GoalIdentityNotEvaluated[]): string {
+  const first = identities[0]!;
+  const joiner = first.operation === 'sum' ? ' + ' : ' × ';
+  const parts = first.parts.length > 0 ? first.parts.join(joiner) : 'other figures in the model';
+  const more = identities.length > 1 ? ` (and ${identities.length - 1} more)` : '';
+  return `Not shown for the limit on '${targetLabel}'. '${first.label}' depends on ${parts}${more}, but this run couldn't `
+    + 'calculate it that way, so the figures for that limit would be wrong.';
 }

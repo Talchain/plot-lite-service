@@ -3210,6 +3210,13 @@ export const INFERENCE_WARNING_CODES = {
    * @see src/lib/goal-identity-withhold.ts
    */
   GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED: 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED',
+  /**
+   * A limit whose target IS an unevaluated declared identity, or is reached through one, is scored on the same invalid
+   * walk: its probability is WITHHELD (per limit, so the joint follows via `joint_withheld`). `constraint_ids` names the
+   * limit(s), `node_ids` the identity node(s). AI Quality #72 5886183999. Severity: warning.
+   * @see src/lib/goal-identity-withhold.ts
+   */
+  CONSTRAINT_IDENTITY_NOT_EVALUATED: 'CONSTRAINT_IDENTITY_NOT_EVALUATED',
 } as const;
 
 export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof INFERENCE_WARNING_CODES];

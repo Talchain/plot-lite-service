@@ -109,7 +109,7 @@ import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js'
 import type { RobustnessDataForCee } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue } from '../../integrations/isl/types/isl-types.js';
 import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures, getIslIdentityEvaluations, getIslStructuralInfluence } from '../../integrations/isl/v2-envelope.js';
-import { goalIdentitiesNotEvaluated, goalIdentityWithheldMessage } from '../../lib/goal-identity-withhold.js';
+import { goalIdentitiesNotEvaluated, goalIdentityWithheldMessage, limitsOnUnevaluatedIdentityPath, limitIdentityWithheldMessage } from '../../lib/goal-identity-withhold.js';
 import { V2_RUN_ALLOWED_KEYS, islEnrichmentPassthrough } from './run-contract-keys.js';
 import { assessIslWireGeneration, logIslWireGenerationUnverified } from '../../integrations/isl/wire-generation.js';
 import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
@@ -3200,16 +3200,29 @@ function buildResponse(
     unreliableConstraintTargets,
     graph,
   );
-  const suppressConstraintProbabilities = constraintTargetPartition.suppressed.length > 0;
+  // ⛔ AI Quality #72 5886183999 (the CONDITION on the goal withhold below): a limit whose target IS an unevaluated
+  // identity, or is reached through one, is scored on the same invalid additive walk. It is withheld PER LIMIT exactly
+  // like a suppressed target (so the joint follows through `joint_withheld`), and said as
+  // CONSTRAINT_IDENTITY_NOT_EVALUATED — never as CONSTRAINT_TARGET_UNRELIABLE, whose words name other causes.
+  const identityNotForwardedIds = (meta.identitiesNotForwarded ?? []).map((w) => w.node_id);
+  const identityPathLimits = limitsOnUnevaluatedIdentityPath(
+    graph,
+    goalConstraints,
+    getIslIdentityEvaluations(islResult),
+    identityNotForwardedIds,
+  );
+  const suppressConstraintProbabilities =
+    constraintTargetPartition.suppressed.length > 0 || identityPathLimits.length > 0;
   // B5 (AI Quality #70 5855345225 / 5855511541): ONE LIMIT'S REFUSAL NEVER
   // SILENCES ANOTHER. The partition is applied PER LIMIT: a suppressed target's
   // own probability is withheld and every other limit keeps its own. (Before
   // B5 any suppressed target withheld every limit on the run, and modelled-basis
   // delivery was switched off on a mixed run.) What stays run-level is the
   // JOINT: see `unscoredConstraintIds` below.
-  const suppressedConstraintIds = new Set(
-    constraintTargetPartition.suppressed.map((t) => t.constraint_id),
-  );
+  const suppressedConstraintIds = new Set([
+    ...constraintTargetPartition.suppressed.map((t) => t.constraint_id),
+    ...identityPathLimits.map((l) => l.constraint_id),
+  ]);
   const modelledBasisConstraintTargets = constraintTargetPartition.modelledBasis;
   const modelledBasisConstraintIds = modelledBasisConstraintTargets.map((t) => t.constraint_id);
   // Sorted + deduplicated node ids for the per-option annotation.
@@ -3267,11 +3280,7 @@ function buildResponse(
   // ⛔ A declared identity on the goal's own path that ISL did not evaluate: the goal's chance would come from the
   // additive walk, so it is withheld on every option and said (GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED below).
   // AI Quality #72 5884802000 / DL 5884931550; `src/lib/goal-identity-withhold.ts`.
-  const goalIdentityWithheld = goalIdentitiesNotEvaluated(
-    graph,
-    getIslIdentityEvaluations(islResult),
-    (meta.identitiesNotForwarded ?? []).map((w) => w.node_id),
-  );
+  const goalIdentityWithheld = goalIdentitiesNotEvaluated(graph, getIslIdentityEvaluations(islResult), identityNotForwardedIds);
   let goalProbabilityWithheld = false;
   // ⛔ The SAME unevaluated identity makes every per-option figure of the goal come from that additive walk: the
   // chance of leading and the outcome's centre and spread are as wrong as P(goal) (AI Quality #72 5886183999
@@ -4075,6 +4084,19 @@ function buildResponse(
   const stabilityThresholdsExtracted = extractStabilityThresholds(islResult);
   const inferenceWarnings: InferenceWarning[] = [];
 
+  // One per limit target node, naming the withheld limit(s) and the identity node(s) they rest on.
+  for (const nodeId of [...new Set(identityPathLimits.map((l) => l.node_id))]) {
+    const onNode = identityPathLimits.filter((l) => l.node_id === nodeId);
+    const identities = [...new Map(onNode.flatMap((l) => l.identities).map((i) => [i.node_id, i] as const)).values()];
+    inferenceWarnings.push({
+      code: INFERENCE_WARNING_CODES.CONSTRAINT_IDENTITY_NOT_EVALUATED,
+      message: limitIdentityWithheldMessage(graph?.nodes?.find((n) => n.id === nodeId)?.label ?? nodeId, identities),
+      severity: 'warning',
+      constraint_ids: onNode.map((l) => l.constraint_id),
+      node_ids: identities.map((i) => i.node_id),
+    });
+  }
+
   if (goalProbabilityWithheld) {
     inferenceWarnings.push({
       code: INFERENCE_WARNING_CODES.GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED,
@@ -4552,7 +4574,11 @@ function buildResponse(
       goalConstraints,
       islResult,
       constraintNormRanges,
-      constraintTargetPartition.suppressed,
+      // A limit on an unevaluated identity's path is withheld from the top-level block too (same per-limit rule).
+      [
+        ...constraintTargetPartition.suppressed,
+        ...identityPathLimits.map((l) => ({ constraint_id: l.constraint_id, node_id: l.node_id, reasons: [] })),
+      ],
       logger,
       // Release gate (ii): the GATED markers (identical to the input map unless
       // the leader's row tripped `judgeLevelDomain` above).

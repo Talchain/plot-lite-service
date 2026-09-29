@@ -203,6 +203,87 @@ describe('route — the goal\'s chance is withheld when a declared identity on i
   });
 });
 
+describe('route — a LIMIT on an unevaluated identity\'s path is withheld too, and the joint follows (AIQ 5886183999)', () => {
+  let app: FastifyInstance;
+  let baseUrl: string;
+  const CHURN = 'agent-lane:monthly_churn:<=';
+  async function post(payload: any) {
+    islBodies = [];
+    return fetch(`${baseUrl}/v2/run`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+  }
+  /** Paul's capture (its churn limit on `monthly_churn`), with an INFERRED product identity declared on `nodeId`. */
+  function withIdentityOn(nodeId: string): any {
+    const d = paulRequest();
+    d.graph.nodes.find((n: any) => n.id === nodeId).nonlinear_identity = { operation: 'product', factor_ids: ['pro_plan_price', 'fac_existing_customers_grandfathered'], stated_in_brief: false };
+    return d;
+  }
+  const evalOn = (nodeId: string, evaluated: boolean) => ({ ...evaluation(evaluated), node_id: nodeId, factor_ids: ['pro_plan_price', 'fac_existing_customers_grandfathered'] });
+  const limitWarnings = (body: any): any[] => (body.inference_warnings ?? []).filter((w: any) => w.code === 'CONSTRAINT_IDENTITY_NOT_EVALUATED');
+  const churnScoredEverywhere = (body: any) => options(body).every((o: any) => typeof o.constraint_probabilities?.[CHURN] === 'number');
+  const churnScoredNowhere = (body: any) => options(body).every((o: any) => o.constraint_probabilities?.[CHURN] === undefined);
+
+  beforeAll(async () => {
+    process.env.RATE_LIMIT_ENABLED = '0';
+    process.env.CEE_ORCHESTRATOR_ENABLED = '0';
+    app = await createServer();
+    await app.listen({ port: 0, host: '127.0.0.1' });
+    const addr = app.server.address();
+    baseUrl = `http://127.0.0.1:${typeof addr === 'object' && addr ? addr.port : 0}`;
+  }, 60_000);
+  afterAll(async () => { await app?.close(); });
+  afterEach(() => { islNext = null; islSeq = []; });
+
+  it('PRECONDITION: Paul\'s churn limit reaches ISL and is scored on every option, with a joint', async () => {
+    const res = await post(paulRequest());
+    const body = await res.json();
+    expect(islBodies[0].goal_constraints.map((c: any) => c.constraint_id)).toContain(CHURN);
+    expect(churnScoredEverywhere(body)).toBe(true);
+    expect(options(body).every((o: any) => typeof o.probability_of_joint_goal === 'number')).toBe(true);
+  });
+
+  it('⭐ RED — the limit\'s target IS the unevaluated identity (churn): withheld on every option, joint withheld naming it, said with the node', async () => {
+    islNext = { extra: { identity_evaluations: [evalOn('monthly_churn', false)] } };
+    const res = await post(withIdentityOn('monthly_churn'));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(churnScoredNowhere(body)).toBe(true);
+    expect(options(body).filter((o: any) => 'probability_of_joint_goal' in o)).toEqual([]);
+    expect(body.joint_withheld).toEqual({ reason: 'limit_unscored', constraint_ids: [CHURN] });
+    expect((body.constraint_results ?? []).map((r: any) => r.constraint_id)).not.toContain(CHURN);
+    const w = limitWarnings(body);
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatchObject({ severity: 'warning', constraint_ids: [CHURN], node_ids: ['monthly_churn'] });
+    expect(w[0].message).toMatch(/^Not shown for the limit on 'Monthly churn'\. 'Monthly churn' depends on /);
+    // Not mis-said as an unreliable target.
+    expect((body.inference_warnings ?? []).filter((x: any) => x.code === 'CONSTRAINT_TARGET_UNRELIABLE')).toEqual([]);
+  });
+
+  it('⭐ RED — the limit\'s target is REACHED THROUGH the unevaluated identity (price sensitivity → churn): withheld', async () => {
+    islNext = { extra: { identity_evaluations: [evalOn('price_sensitivity', false)] } };
+    const body = await (await post(withIdentityOn('price_sensitivity'))).json();
+    expect(churnScoredNowhere(body)).toBe(true);
+    expect(limitWarnings(body).map((x: any) => [x.constraint_ids, x.node_ids])).toEqual([[[CHURN], ['price_sensitivity']]]);
+  });
+
+  it('CONTROL — an unevaluated identity that does NOT reach the limit (on the goal MRR, downstream of churn): the limit and joint keep theirs', async () => {
+    islNext = { extra: { identity_evaluations: [evaluation(false)] } };
+    const body = await (await post(paulRequest(INFERRED))).json();
+    expect(churnScoredEverywhere(body)).toBe(true);
+    expect(options(body).every((o: any) => typeof o.probability_of_joint_goal === 'number')).toBe(true);
+    expect(limitWarnings(body)).toEqual([]);
+    // …while the goal's own chance IS withheld (it rests on MRR).
+    expect(options(body).filter((o: any) => 'probability_of_goal' in o)).toEqual([]);
+  });
+
+  it('CONTROL — the identity on churn EVALUATED: the limit and joint are scored, nothing said', async () => {
+    islNext = { extra: { identity_evaluations: [evalOn('monthly_churn', true)] } };
+    const body = await (await post(withIdentityOn('monthly_churn'))).json();
+    expect(churnScoredEverywhere(body)).toBe(true);
+    expect(body.joint_withheld).toBeUndefined();
+    expect(limitWarnings(body)).toEqual([]);
+  });
+});
+
 describe('pure — which identities the goal\'s chance would rest on', () => {
   const graph = {
     nodes: [
