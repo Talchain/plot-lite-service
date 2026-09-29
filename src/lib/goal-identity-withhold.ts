@@ -138,7 +138,7 @@ export function goalIdentityWithheldMessage(
   if (unconfirmedNodeIds.has(first.node_id)) {
     // AI Quality #72 5891608873, the words WITHOUT the card: no ask the user cannot answer here, labels from the graph.
     const quoted = first.parts.length > 0 ? first.parts.map((p) => `'${p}'`).join(joiner) : 'other figures in the model';
-    return `Not shown: Olumi reads '${first.label}' as ${quoted}${more}, but that hasn't been confirmed, `
+    return `Not shown. Olumi reads '${first.label}' as ${quoted}${more}, but that hasn't been confirmed, `
       + `so this run gives no chance of reaching the target for '${goalLabel ?? first.label}'.`;
   }
   return `Not shown. '${first.label}' depends on ${parts}${more}, but this run couldn't calculate it that way, `
