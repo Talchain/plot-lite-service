@@ -1071,6 +1071,12 @@ export interface ISLStructuralInfluenceEntry {
   influence_score?: number | null;
   /** 1 = highest, over every factor node */
   influence_rank?: number | null;
+  /**
+   * ISL #213 (AIQ #72 5881683705 / 5881953818): set only when the score is WITHHELD because every path
+   * from this factor to the goal runs through a product with another input at 0 today — those inputs.
+   * Its influence depends on the option chosen: never 0, never ranked.
+   */
+  gated_by?: string[] | null;
 }
 
 export interface ISLRobustnessAnalyzeV2Response {

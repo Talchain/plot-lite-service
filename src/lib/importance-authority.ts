@@ -77,6 +77,8 @@ interface RankableFactor {
   zero_reason?: string | null;
   importance_rank?: number;
   influence_score?: number | null;
+  /** ISL #213: a withheld (gated) factor — never ranked (AIQ #72 5881953818). */
+  influence_gated_by?: string[];
 }
 
 /**
@@ -104,8 +106,11 @@ export function applyLeverAwareImportanceOrder<T extends RankableFactor>(
 ): T[] {
   const levers: T[] = [];
   const nonLevers: T[] = [];
+  // ISL #213: a gated (withheld) factor is never ranked; it stays last, with no importance_rank.
+  const gated: T[] = [];
   for (const f of factors) {
-    (isOptionControlledLever(f, structuralLeverIds) ? levers : nonLevers).push(f);
+    if ((f.influence_gated_by?.length ?? 0) > 0) gated.push(f);
+    else (isOptionControlledLever(f, structuralLeverIds) ? levers : nonLevers).push(f);
   }
   // Degenerate partition — nothing is being displaced. Return the SAME array
   // reference so the no-op is provably byte-identical.
@@ -116,7 +121,7 @@ export function applyLeverAwareImportanceOrder<T extends RankableFactor>(
   for (let i = 0; i < ordered.length; i++) {
     ordered[i].importance_rank = i + 1;
   }
-  return ordered;
+  return [...ordered, ...gated];
 }
 
 /**
