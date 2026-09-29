@@ -3704,14 +3704,16 @@ function buildResponse(
   // deployed ISL builds (e.g. f3f5d92) the nested field is absent too:
   // edge_sensitivity then stays "computed, empty" and is explicitly marked
   // via the EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE inference warning below.
-  // ⛔ R3 SCIENCE #72 5889055195: the goal's sensitivity to each edge and factor is computed on the same links-only
-  // walk — under an unevaluated goal identity it ranks inputs by a walk that contradicts the model's own declaration,
-  // so it is withheld (edges: the required array, empty; factors: omitted). Everything built from it follows: the
-  // driver order, the evidence-priority card, the factor facts, the dominant factor and the brief's drivers.
+  // ⛔ R3 SCIENCE #72 5889055195: the goal's sensitivity to each edge is computed on the same links-only walk — under
+  // an unevaluated goal identity it ranks inputs by a walk that contradicts the model's own declaration: withheld (the
+  // required array, empty). `factor_sensitivity` itself is NOT withheld here: its rows also carry R3-5's structural
+  // influence (`influence_*`, adopted even when ISL withholds the identity — #405); which of its fields are the walk's
+  // is R3's field-level call. What is RANKED by the walk from it is withheld below: the driver order, the
+  // evidence-priority card, the factor facts, the dominant factor and the brief's drivers.
   const edgeSensitivity = optionFiguresInvalid ? [] : (sensitivityData?.edgeSensitivity
     ?? transformEdgeSensitivity(getIslEdgeSensitivity(islResult), fallbackNodeLabelMap));
-  const factorSensitivity = optionFiguresInvalid ? undefined : (sensitivityData?.factorSensitivity
-    ?? transformFactorSensitivity(islResult?.factor_sensitivity));
+  const factorSensitivity = sensitivityData?.factorSensitivity
+    ?? transformFactorSensitivity(islResult?.factor_sensitivity);
 
   // ── Family-4 S1: the ONE canonical driver order + its attestation ────────
   //
@@ -4474,7 +4476,7 @@ function buildResponse(
     // unmeasured row #1 on a value copied from a different quantity. Read the
     // helper's JSDoc before changing this call.
     const epFactors: FactorInput[] = toEvidencePriorityFactorInputs(
-      filterInterventionOverrides(factorSensitivity ?? []),
+      filterInterventionOverrides(optionFiguresInvalid ? [] : (factorSensitivity ?? [])),
       graph?.edges,
     );
     const epCard = buildEvidencePriorityCard(epFactors);
@@ -4508,7 +4510,7 @@ function buildResponse(
         label: oc.label as string | undefined,
         outcome: oc.outcome as { p10?: number; p50?: number; p90?: number; mean?: number } | undefined,
       })),
-      factor_sensitivity: mapFactorSensitivityToFactsInput(factorSensitivity),
+      factor_sensitivity: optionFiguresInvalid ? undefined : mapFactorSensitivityToFactsInput(factorSensitivity),
       critiques: critiquesOut?.map((c) => ({
         id: c.id ?? c.code,
         code: c.code,
@@ -4771,7 +4773,7 @@ function buildResponse(
     // Dominant factor detection (B1) — computed from factor_sensitivity
     // NOTE: Deterministic. Excluded from response_hash.
     ...(() => {
-      const df = detectDominantFactor(factorSensitivity);
+      const df = optionFiguresInvalid ? undefined : detectDominantFactor(factorSensitivity);
       return df ? { dominant_factor: df } : {};
     })(),
 

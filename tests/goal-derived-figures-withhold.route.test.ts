@@ -141,7 +141,7 @@ describe("route — the goal's sensitivity, value-of-information and robustness 
     expect(body.decision_brief?.top_drivers ?? []).toEqual([]);
     // The goal's sensitivity to each factor / edge, per-factor stability, and what is built from them (R3 5889055195).
     // (conditional_winners is withheld too; this ISL answer carries none, so no row here can discriminate it.)
-    expect('factor_sensitivity' in body).toBe(false);
+    // factor_sensitivity rows stay: they also carry R3-5's structural influence (#405); the field-level split is R3's call.
     expect(body.edge_sensitivity).toEqual([]);
     expect(body.factor_stability).toEqual([]);
     expect(body.conditional_winners).toEqual([]);

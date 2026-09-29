@@ -901,7 +901,7 @@ describe('R3-A1 — an INFERRED identity ISL cannot evaluate for ANY reason is w
       expect(body.option_comparison).toEqual(c0Body.option_comparison.map(lessGoalFigures));
       expect((body.inference_warnings ?? []).filter((w: any) => w.code === 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED')
         .map((w: any) => w.node_ids)).toEqual([['mrr']]);
-      for (const block of ['factor_sensitivity', 'edge_sensitivity', 'constraint_results']) {
+      for (const block of ['factor_sensitivity', 'constraint_results']) {
         expect(body[block], block).toBeDefined();
         expect(JSON.stringify(body[block]), block).toBe(JSON.stringify(c0Body[block]));
       }
@@ -911,6 +911,7 @@ describe('R3-A1 — an INFERRED identity ISL cannot evaluate for ANY reason is w
       expect('driver_order' in body).toBe(false);
       expect(body.flip_thresholds).toEqual([]);
       expect(body.robustness).toMatchObject({ fragile_edges: [], robust_edges: [], display_verdict: 'not_assessed' });
+      expect(body.edge_sensitivity).toEqual([]); // the goal's per-edge sensitivity, same walk (R3 5889055195)
     });
   }
 
