@@ -852,7 +852,7 @@
           "field": "confidence",
           "from_value": null,
           "to_value": 0.44075,
-          "reason": "Factor Hiring and Salary Cost has low confidence (44%)",
+          "reason": "Factor Hiring and Salary Cost: its effect on the result is not steady (44%)",
           "impact": "high",
           "impact_reason_code": "HIGH_INFLUENCE_FACTOR",
           "audience": "user"
@@ -866,7 +866,7 @@
           "field": "confidence",
           "from_value": null,
           "to_value": 0.44455,
-          "reason": "Factor Team Technical Maturity has low confidence (44%)",
+          "reason": "Factor Team Technical Maturity: its effect on the result is not steady (44%)",
           "impact": "high",
           "impact_reason_code": "HIGH_INFLUENCE_FACTOR",
           "audience": "user"
@@ -1586,7 +1586,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:77413ad0529b8c66"
+    "response_content_hash": "rch_v2:e27294174a11b1a4"
   },
   "meta": {
     "seed_used": "2034401427",

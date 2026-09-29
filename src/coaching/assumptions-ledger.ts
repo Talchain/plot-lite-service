@@ -263,7 +263,9 @@ function extractISLAssumptions(inputs: CoachingInputs): AssumptionRecordDraft[] 
         field: 'confidence',
         from_value: null,
         to_value: factor.confidence,
-        reason: `Factor ${factor.label} has low confidence (${Math.round(factor.confidence * 100)}%)`,
+        // What ISL measured is how STEADY the factor's effect on the result is, not doubt about its value
+        // (AIQ #72 5884364585): "low confidence (44%)" read as "Olumi isn't sure of the figure".
+        reason: `Factor ${factor.label}: its effect on the result is not steady (${Math.round(factor.confidence * 100)}%)`,
         impact: classifyFactorImpact(factor, inputs).level,
         impact_reason_code: classifyFactorImpact(factor, inputs).code,
       });
