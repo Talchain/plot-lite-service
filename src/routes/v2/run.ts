@@ -3761,8 +3761,10 @@ function buildResponse(
   // Fallback transforms for edge_e_values and conditional_winners when sensitivityData not pre-computed.
   // Edge E-values are NESTED at robustness.edge_e_values on the V2 wire (the
   // former top-level read was structurally dead) — read via the accessor.
-  const edgeEValues = sensitivityData?.edgeEValues
-    ?? transformEdgeEValues(getIslEdgeEValues(islResult), fallbackNodeLabelMap);
+  // ⛔ AIQ #72 5890824310: each E-value is how far a link must move to change the walk's winner — a flip point of the
+  // same walk, like `flip_thresholds`: none under an unevaluated goal identity (#416's warning says why).
+  const edgeEValues = optionFiguresInvalid ? [] : (sensitivityData?.edgeEValues
+    ?? transformEdgeEValues(getIslEdgeEValues(islResult), fallbackNodeLabelMap));
   // Which option wins as a factor moves: the same walk's winners (R3 5889055195) — none under an unevaluated goal identity.
   const conditionalWinners = optionFiguresInvalid ? undefined : (sensitivityData?.conditionalWinners
     ?? transformConditionalWinners(islResult?.conditional_winners, fallbackNodeLabelMap, fallbackOptionLabelMap));
@@ -4222,6 +4224,7 @@ function buildResponse(
   // accessor resolves it). Pairs with _meta.evidence.isl_wire_generation_ok.
   if (
     analysisStatus === 'computed' &&
+    !optionFiguresInvalid &&
     islResult?.robustness &&
     getIslEdgeEValues(islResult) === undefined
   ) {
@@ -4367,7 +4370,7 @@ function buildResponse(
   // (assembly/decision-brief.ts:729-737) echoes severity 'warning' only. The
   // earlier text here named `_meta.warning_codes`, a field that does not exist
   // anywhere in this repo.
-  if (meta.edgeEValuesDropped) {
+  if (meta.edgeEValuesDropped && !optionFiguresInvalid) {
     const disclosure = describeEdgeEValueDrop(
       meta.edgeEValuesDropped.inputNull,
       meta.edgeEValuesDropped.overflow,
@@ -9193,10 +9196,25 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           analysis_status: topLevelStatus,
         });
 
+        // ⛔ PLoT #419 (R3 5889219876, AIQ 5889514782, PR Review 5890819288): the SAME predicate `buildResponse` withholds
+        // on — the same graph, the same ISL answer, the same withdrawn ids — decided ONCE here, before any consumer that
+        // reads ISL's answer ahead of the response: the legacy CEE review and the M2 decision review are skipped (each an
+        // LLM reading of the walk's outcomes and robustness); M1 coaching keeps only its structural fields.
+        const goalIdentityWithheld = goalIdentitiesNotEvaluated(
+          filteredGraph, getIslIdentityEvaluations(processedIslResult), identitiesNotForwarded.map((w) => w.node_id),
+        );
+        const goalFiguresWithheld = goalIdentityWithheld.length > 0;
+        const legacyCeeGoalFiguresWithheld: CeeOrchestrationResult = {
+          ...legacyCeeSkipped,
+          ceeTrace: { ...legacyCeeSkipped.ceeTrace, reason: 'Legacy CEE review skipped: the goal figures are withheld (a declared identity on the goal path was not evaluated)' },
+        };
+
         const [ceeOrchestrationResult, factorEnrichments] = await Promise.all([
-          // Skip legacy CEE /review + /options when M2 decision-review is enabled
+          // Skip legacy CEE /review + /options when M2 decision-review is enabled, or when the goal figures are withheld
           FLAGS.DECISION_REVIEW_ENABLE
             ? Promise.resolve(legacyCeeSkipped)
+            : goalFiguresWithheld
+            ? Promise.resolve(legacyCeeGoalFiguresWithheld)
             : requestCeeReview(
                 responseHash ?? requestId, // Use response hash as scenario ID
                 filteredGraph,
@@ -9223,15 +9241,6 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           ...sensitivityData,
           factorEnrichments,
         };
-
-        // ⛔ PLoT #419 (R3 5889219876, AIQ 5889514782): the SAME predicate `buildResponse` withholds on — the same graph,
-        // the same ISL answer, the same withdrawn ids — decided once here for the consumers that read ISL's answer
-        // before the response exists: M1 coaching keeps only its structural fields (from factor rows less the walk's
-        // fields); the M2 decision review is skipped.
-        const goalIdentityWithheld = goalIdentitiesNotEvaluated(
-          filteredGraph, getIslIdentityEvaluations(processedIslResult), identitiesNotForwarded.map((w) => w.node_id),
-        );
-        const goalFiguresWithheld = goalIdentityWithheld.length > 0;
 
         // Generate M1 coaching (Phase 2+3+4 deterministic coaching layer)
         let m1Coaching: any = null;

@@ -58,6 +58,10 @@ vi.mock('../src/integrations/isl/index.ts', async () => {
   return { ...actual, getISLService: () => mockISLService, islService: mockISLService };
 });
 
+// The legacy CEE review (/review) — reached only with CEE_ORCHESTRATOR_ENABLED on and M2 off (its own row below).
+const mockOrchestrateCeeReview = vi.fn();
+vi.mock('../src/cee/orchestrator.ts', () => ({ orchestrateCeeReview: (...a: unknown[]) => mockOrchestrateCeeReview(...a) }));
+
 import { createServer } from '../src/createServer.js';
 
 const WITHHELD = 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED';
@@ -105,6 +109,66 @@ describe("route — the goal's sensitivity, value-of-information and robustness 
     high_bucket: { n_samples: 5000, winner_id: 'increase_price_to_59', winner_label: 'Increase price to £59', winner_probability: 0.3716, runner_up_id: 'increase_price_to_54', runner_up_probability: 0.3688 },
     winner_flips: true,
   }];
+
+  it('⭐ legacy CEE review (CEE_ORCHESTRATOR_ENABLED on, M2 off): never sent the walk under the withhold — the evaluated control still is (PR Review 5890819288)', async () => {
+    const env = { CEE_ORCHESTRATOR_ENABLED: '1', DECISION_REVIEW_ENABLE: '0', CEE_BASE_URL: 'http://cee.test', CEE_API_KEY: 'test-key' };
+    const saved = Object.fromEntries(Object.keys(env).map((k) => [k, process.env[k]]));
+    Object.assign(process.env, env);
+    const NARRATIVE = 'Increase price to £59 leads with a 95% chance and the result is robust.';
+    mockOrchestrateCeeReview.mockReset();
+    mockOrchestrateCeeReview.mockResolvedValue({
+      ceeReview: {
+        decision_quality: { level: 'good', summary: NARRATIVE },
+        insights: [{ type: 'fragile_assumption', content: NARRATIVE, severity: 'medium' }],
+        blocks: [{ id: 'robustness', headline: NARRATIVE, factors: [NARRATIVE] }],
+      },
+      ceeTrace: { requestId: 'r', degraded: false, timestamp: 't', source: 'orchestrator' },
+    });
+    try {
+      // CONTROL (evaluated): the legacy review is sent ISL's outcomes and its narrative is published, as today.
+      const control = await run(withBrief(REQUEST));
+      expect(mockOrchestrateCeeReview).toHaveBeenCalledTimes(1);
+      const sent = mockOrchestrateCeeReview.mock.calls[0][1];
+      expect(sent.inference_results.per_option_outcomes?.length).toBeGreaterThan(0);
+      expect(control.cee_status).toBe('available');
+      expect(JSON.stringify(control.insights)).toContain(NARRATIVE);
+      expect(control.robustness_synthesis?.headline).toBe(NARRATIVE);
+
+      // RED (unevaluated): never called; no narrative, no robustness synthesis; one #416 warning.
+      mockOrchestrateCeeReview.mockClear();
+      islOverride = { identity_evaluations: notEvaluated() };
+      const body = await run(withBrief(inferredRequest()));
+      expect(mockOrchestrateCeeReview).not.toHaveBeenCalled();
+      expect(body.cee_status).toBe('skipped');
+      for (const k of ['decision_quality', 'insights', 'improvement_guidance', 'rationale', 'robustness_synthesis']) {
+        expect(body[k] ?? null, k).toBeNull();
+      }
+      expect(JSON.stringify(body)).not.toContain(NARRATIVE);
+      expect(codes(body).filter((c) => c === WITHHELD)).toHaveLength(1);
+    } finally {
+      for (const [k, v] of Object.entries(saved)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+    }
+  });
+
+  // Finite E-values: W214's are all null, so this row puts two rows in ISL's own wire shape at robustness.edge_e_values —
+  // copied from the real ISL staging capture (tests/fixtures/isl-v2-live-20260708/isl-staging-capture.json), with the
+  // edge ids relabelled to two of W214's links. A shape discriminator for the gate, not a claim about W214's wire.
+  const E_VALUES = [
+    { edge_id: 'monthly_churn->pro_paying_subscribers', from_id: 'monthly_churn', to_id: 'pro_paying_subscribers', e_value: 3.6404, is_unflippable: false, flip_direction: 'increase', current_mean: -0.15, flip_mean: 0.436845 },
+    { edge_id: 'monthly_new_pro_subscribers->pro_paying_subscribers', from_id: 'monthly_new_pro_subscribers', to_id: 'pro_paying_subscribers', e_value: 1.2228, is_unflippable: false, flip_direction: 'increase', current_mean: 0.1, flip_mean: 0.620287 },
+  ];
+
+  it('⭐ edge_e_values — how far a link must move to change the walk\'s winner: shown when evaluated, withheld when not (AIQ 5890824310)', async () => {
+    islOverride = { robustness: { ...ISL_BODY.robustness, edge_e_values: E_VALUES } };
+    const control = await run(REQUEST);
+    expect(control.edge_e_values.map((e: any) => e.e_value)).toEqual([3.6404, 1.2228]);
+
+    islOverride = { robustness: { ...ISL_BODY.robustness, edge_e_values: E_VALUES }, identity_evaluations: notEvaluated() };
+    const body = await run(inferredRequest());
+    expect(codes(body).filter((c) => c === WITHHELD)).toHaveLength(1);
+    expect(body.edge_e_values).toEqual([]);
+    expect(codes(body).filter((c) => /E_VALUE/.test(c))).toEqual([]);
+  });
 
   it('⭐ conditional_winners — which option wins as a factor moves is the walk\'s: shown when evaluated, withheld when not', async () => {
     islOverride = { conditional_winners: CONDITIONAL_WINNERS };
@@ -169,6 +233,7 @@ describe("route — the goal's sensitivity, value-of-information and robustness 
     expect(body.robustness.display_verdict).not.toBe('not_assessed');
     expect(body.flip_thresholds.length).toBeGreaterThan(0);
     expect(body.driver_order?.ranked_factor_ids?.length).toBeGreaterThan(0);
+    expect(body.driver_order.rank_stability.max_rank_flip_rate).toEqual(expect.any(Number));
     expect(body.decision_brief?.top_drivers?.length).toBeGreaterThan(0);
     // R3 5889055195 — the goal's sensitivity to each factor / edge and the facts and cards built from it.
     expect(body.factor_sensitivity?.length).toBeGreaterThan(0);
@@ -208,7 +273,15 @@ describe("route — the goal's sensitivity, value-of-information and robustness 
     const control = await run(REQUEST);
     islOverride = { identity_evaluations: notEvaluated() };
     expect(control.driver_order.basis).toBe('isl_structural');
-    expect(body.driver_order).toEqual(control.driver_order);
+    // The structural order stays; its rank_stability (aggregated from the walk's row fields) takes "not measured".
+    expect(control.driver_order.rank_stability.max_rank_flip_rate).toEqual(expect.any(Number));
+    expect(body.driver_order).toEqual({ ...control.driver_order, rank_stability: { max_rank_flip_rate: null, min_attribution_stability: null } });
+    // Each link's E-value is how far it must move to change the walk's winner (AIQ 5890824310): none, and no E-value
+    // diagnostic about rows that are not published. (W214's 7 E-values are all null, so the control's published list is
+    // empty too, with its non-finite-drop diagnostic — the discriminating row with finite E-values is below.)
+    expect(codes(control)).toContain('EDGE_E_VALUE_NON_FINITE_DROPPED');
+    expect(body.edge_e_values).toEqual([]);
+    expect(codes(body).filter((c) => /E_VALUE/.test(c))).toEqual([]);
     expect(body.decision_brief?.top_drivers).toEqual(control.decision_brief?.top_drivers);
     const WALK = ['value_of_information', 'attribution_stability', 'rank_flip_rate', 'flip_risk_category', 'evpi_percentage_points', 'evpi_method'];
     const STRUCTURE = ['factor_id', 'influence_score', 'influence_rank', 'influence_basis', 'importance_basis', 'sensitivity_score', 'elasticity', 'importance_rank', 'direction'];

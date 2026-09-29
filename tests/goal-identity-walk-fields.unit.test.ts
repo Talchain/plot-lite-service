@@ -47,10 +47,11 @@ describe('driverOrderUnderWithhold — only the walk-ordered ranking goes', () =
   it('isl_uncertainty under the withhold → withheld', () => {
     expect(driverOrderUnderWithhold(order('isl_uncertainty'), true)).toBeUndefined();
   });
-  it('a structural order under the withhold → kept, the same object', () => {
+  it("a structural order under the withhold → kept, less the walk's rank_stability (AIQ 5890824310); a copy", () => {
     for (const b of ['graph_structural', 'isl_structural', 'none']) {
-      const o = order(b);
-      expect(driverOrderUnderWithhold(o, true)).toBe(o);
+      const o = { ...order(b), rank_stability: { max_rank_flip_rate: 0.4, min_attribution_stability: 'negligible' } };
+      expect(driverOrderUnderWithhold(o, true)).toEqual({ ...order(b), rank_stability: { max_rank_flip_rate: null, min_attribution_stability: null } });
+      expect(o.rank_stability.max_rank_flip_rate).toBe(0.4);
     }
   });
   it('CONTROL: no withhold → every basis kept', () => {

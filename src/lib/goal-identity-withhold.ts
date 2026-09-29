@@ -192,9 +192,19 @@ export function factorRowWithoutWalk<T extends object>(row: T): T {
   return out as T;
 }
 
-/** The driver order is the walk's only when its basis is ISL's Monte-Carlo ordering (`isl_uncertainty`). */
-export function driverOrderUnderWithhold<T extends { basis?: unknown }>(order: T | undefined, goalFiguresWithheld: boolean): T | undefined {
-  return goalFiguresWithheld && order?.basis === 'isl_uncertainty' ? undefined : order;
+/**
+ * The driver order is the walk's only when its basis is ISL's Monte-Carlo ordering (`isl_uncertainty`): withheld. A
+ * structural order stays, less its `rank_stability` (AIQ #72 5890824310): the worst rank-flip rate and attribution
+ * stability are aggregated from the walk's row fields, which `factorRowWithoutWalk` strips — so they take the
+ * producer's own "not measured" shape.
+ */
+export function driverOrderUnderWithhold<T extends { basis?: unknown; rank_stability?: unknown }>(
+  order: T | undefined,
+  goalFiguresWithheld: boolean,
+): T | undefined {
+  if (!goalFiguresWithheld || order === undefined) return order;
+  if (order.basis === 'isl_uncertainty') return undefined;
+  return { ...order, rank_stability: { max_rank_flip_rate: null, min_attribution_stability: null } };
 }
 
 
