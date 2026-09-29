@@ -119,7 +119,7 @@ import { createServer } from '../src/createServer.js';
 import { factorRowWithoutWalk, driverOrderUnderWithhold } from '../src/lib/goal-identity-withhold.js';
 
 import { NormalisationError, normaliseNode, readNonlinearIdentity } from '../src/normalisation/graph-normaliser.js';
-import { attachIdentityExecutionFrames, toISLNode } from '../src/integrations/isl/translator-v3.js';
+import { attachIdentityExecutionFrames, goalCarrierIds, toISLNode } from '../src/integrations/isl/translator-v3.js';
 import { computeResponseContentHash } from '../src/util/response-content-hash.js';
 
 const FIXTURE_DIR = resolve(__dirname, 'fixtures/paul-own-a295e4a1-20260927');
@@ -276,9 +276,12 @@ describe('R3-3 unit — normaliseNode / toISLNode carry the declaration or refus
 
   // ⛔ Variant (b) (DL #72 5863297824): an INFERRED identity with a frameless participant is NOT forwarded — the node
   // stays linear, as served before the re-land — and is said. A STATED one is forwarded frameless: ISL refuses (AIQ).
-  function framed(identity: Record<string, unknown>, goalCaps: ReadonlyMap<string, number>) {
+  // ⛔ Variant (d) (AIQ 5891286280; R3 5891423959, fork (iii)): an INFERRED product ON THE GOAL is never forwarded, so
+  // the (b) rows carry their inferred identity on a NON-GOAL outcome (`OUTCOME`): (b) is about frames, not about goals.
+  const OUTCOME = { kind: 'outcome', observed_state: { value: 0.6 } };
+  function framed(identity: Record<string, unknown>, goalCaps: ReadonlyMap<string, number>, carrier: Record<string, unknown> = {}) {
     const engine = [
-      normaliseNode({ ...node, nonlinear_identity: { ...PRODUCT, ...identity } } as any),
+      normaliseNode({ ...node, ...carrier, nonlinear_identity: { ...PRODUCT, ...identity } } as any),
       normaliseNode({ id: 'pro_plan_price', kind: 'factor', label: 'Price', observed_state: { value: 0.245, cap: 200 } } as any),
       normaliseNode({ id: 'pro_paying_subscribers', kind: 'factor', label: 'Subs' } as any),
     ];
@@ -288,7 +291,7 @@ describe('R3-3 unit — normaliseNode / toISLNode carry the declaration or refus
   }
 
   it('(b) RED: an INFERRED identity whose carrier has no frame is NOT forwarded — no declaration, no frames — and is said', () => {
-    const { isl, notForwarded, frames } = framed({ stated_in_brief: false }, new Map());
+    const { isl, notForwarded, frames } = framed({ stated_in_brief: false }, new Map(), OUTCOME);
     expect(isl.find((n) => n.id === 'mrr')).not.toHaveProperty('nonlinear_identity');
     expect(frames).toEqual({ mrr: undefined, pro_plan_price: undefined, pro_paying_subscribers: undefined });
     expect(notForwarded).toEqual([{ node_id: 'mrr', reason: 'inferred_identity_frame_unresolved', frameless_node_ids: ['mrr'] }]);
@@ -302,14 +305,89 @@ describe('R3-3 unit — normaliseNode / toISLNode carry the declaration or refus
     expect(notForwarded).toEqual([]);
   });
 
-  it('(b) CONTRAST: an INFERRED identity the goal cap frames IS forwarded, every participant framed, nothing said', () => {
-    const { isl, notForwarded, frames } = framed({ stated_in_brief: false }, new Map([['mrr', 25000]]));
+  it('(b) CONTRAST: an INFERRED identity whose carrier is framed IS forwarded, every participant framed, nothing said', () => {
+    const { isl, notForwarded, frames } = framed({ stated_in_brief: false }, new Map(), { kind: 'outcome', observed_state: { value: 0.6, cap: 125000 } });
     expect(isl.find((n) => n.id === 'mrr')?.nonlinear_identity).toEqual({ ...PRODUCT, stated_in_brief: false });
+    expect(frames).toEqual({
+      mrr: { frame: 125000, carrier: 'cap' },
+      pro_plan_price: { frame: 200, carrier: 'cap' },
+      pro_paying_subscribers: { frame: 2000, carrier: 'scale_frame' },
+    });
+    expect(notForwarded).toEqual([]);
+  });
+
+  // ⛔ Variant (d): the goal's own product, when it is Olumi's reading (`stated_in_brief: false`), waits for the user.
+  it('(d) RED: an INFERRED product ON THE GOAL is NOT forwarded even with every participant framed — said as unconfirmed', () => {
+    const { isl, notForwarded, frames } = framed({ stated_in_brief: false }, new Map([['mrr', 25000]]));
+    expect(isl.find((n) => n.id === 'mrr')).not.toHaveProperty('nonlinear_identity');
+    expect(frames).toEqual({ mrr: undefined, pro_plan_price: undefined, pro_paying_subscribers: undefined });
+    expect(notForwarded).toEqual([{ node_id: 'mrr', reason: 'inferred_identity_unconfirmed', frameless_node_ids: [] }]);
+  });
+
+  it('(d) CONTRAST: the SAME goal product, STATED (the user said it, or confirmed it on the card), IS forwarded, framed', () => {
+    const { isl, notForwarded, frames } = framed({ stated_in_brief: true }, new Map([['mrr', 25000]]));
+    expect(isl.find((n) => n.id === 'mrr')?.nonlinear_identity).toEqual({ ...PRODUCT, stated_in_brief: true });
     expect(frames).toEqual({
       mrr: { frame: 25000, carrier: 'cap' },
       pro_plan_price: { frame: 200, carrier: 'cap' },
       pro_paying_subscribers: { frame: 2000, carrier: 'scale_frame' },
     });
+    expect(notForwarded).toEqual([]);
+  });
+
+  // ⛔ The card domain (AIQ 5891608873; PR Review CR 5891899825): units compose to the goal's, the user's three levels,
+  // within 5% — however many parents the goal has. One row per class; each flips exactly one condition of the base.
+  describe('(d) goalCarrierIds — the card domain decides, not the parent count', () => {
+    const lvl = (raw: number, unit: string, source = 'brief_extraction') => ({ observed_state: { raw_value: raw, unit, source } });
+    const base = (o: { rate?: object; count?: object; goal?: object; secondParent?: boolean; stated?: boolean } = {}) => ({
+      nodes: [
+        { id: 'g', kind: 'goal', ...lvl(75000, 'GBP/month'), ...(o.goal ?? {}) },
+        { id: 'c', kind: 'outcome', nonlinear_identity: { operation: 'product', factor_ids: ['r', 'n'], stated_in_brief: o.stated ?? false } },
+        { id: 'r', kind: 'factor', ...lvl(49, 'GBP/subscriber/month'), ...(o.rate ?? {}) },
+        { id: 'n', kind: 'factor', ...lvl(1500, 'subscribers'), ...(o.count ?? {}) },
+        { id: 'x', kind: 'factor', ...lvl(1500, 'GBP/month', 'cee_inference') },
+        { id: 'opt', kind: 'option' },
+      ],
+      edges: [{ from: 'c', to: 'g' }, { from: 'opt', to: 'g' }, ...(o.secondParent === false ? [] : [{ from: 'x', to: 'g' }])],
+    });
+    const carriers = (o?: Parameters<typeof base>[0]) => { const g = base(o); return [...goalCarrierIds(g.nodes as any, g.edges)]; };
+
+    it('QUALIFIES beside another parent (served ed49d44 run 4: £49 × 1,500 = £73,500 ≈ £75,000, + Olumi\'s £1,500)', () => expect(carriers()).toEqual(['c']));
+    it('QUALIFIES as the sole parent too', () => expect(carriers({ secondParent: false })).toEqual(['c']));
+    it('QUALIFIES with no denominator on the rate (the card\'s confirm case: "GBP/month")', () => expect(carriers({ rate: lvl(49, 'GBP/month') })).toEqual(['c']));
+    it('QUALIFIES on a goal written "GBP MRR" (MRR names the month)', () => expect(carriers({ goal: lvl(75000, 'GBP MRR') })).toEqual(['c']));
+    it('QUALIFIES when the goal\'s unit names NO period — fail closed (AIQ 5892025855 on MG 5892012494: "GBP", named "Monthly recurring revenue")', () =>
+      expect(carriers({ goal: { ...lvl(75000, 'GBP'), label: 'Monthly recurring revenue' } })).toEqual(['c']));
+    it.each([
+      ['a sole parent with an OLUMI level (the count is cee_inference)', { secondParent: false, count: lvl(1500, 'subscribers', 'cee_inference') }],
+      ['the goal\'s level is Olumi\'s', { goal: lvl(75000, 'GBP/month', 'cee_inference') }],
+      ['the product misses the goal by more than 5% (£49 × 1,400 = £68,600)', { count: lvl(1400, 'subscribers') }],
+      ['the rate is a percentage, not money', { rate: lvl(49, '%') }],
+      ['the "count" carries money', { count: lvl(1500, 'GBP') }],
+      ['the count is a share', { count: lvl(1500, 'proportion') }],
+      ['the count has a period (new subscribers per month)', { count: lvl(1500, 'subscribers/month') }],
+      ['another currency (USD rate, GBP goal)', { rate: lvl(49, 'USD/subscriber/month') }],
+      ['a period mismatch (a yearly rate, a monthly goal)', { rate: lvl(49, 'GBP/subscriber/year') }],
+      ['the product is STATED (the user\'s own — forwarded, evaluated)', { stated: true }],
+    ])('does NOT qualify: %s', (_label, o) => expect(carriers(o as any)).toEqual([]));
+  });
+
+  it('(d) RED: an inferred product on a card-domain goal carrier (a FACTOR) is NOT forwarded — said as unconfirmed', () => {
+    const engine = [
+      normaliseNode({ id: 'g', kind: 'goal', label: 'MRR' } as any),
+      normaliseNode({ id: 'c', kind: 'factor', label: 'Pro MRR', nonlinear_identity: { ...PRODUCT, stated_in_brief: false } } as any),
+      normaliseNode({ id: 'pro_plan_price', kind: 'factor', label: 'Price', observed_state: { value: 0.245, cap: 200 } } as any),
+      normaliseNode({ id: 'pro_paying_subscribers', kind: 'factor', label: 'Subs' } as any),
+    ];
+    const isl = engine.map(toISLNode);
+    const notForwarded = attachIdentityExecutionFrames(isl, engine, new Map([['pro_paying_subscribers', 2000]]), new Map(), [], new Set(['c']));
+    expect(isl.find((n) => n.id === 'c')).not.toHaveProperty('nonlinear_identity');
+    expect(notForwarded).toEqual([{ node_id: 'c', reason: 'inferred_identity_unconfirmed', frameless_node_ids: [] }]);
+  });
+
+  it('(d) CONTRAST: an inferred SUM on the goal is not (d)\'s: it falls to (b) — framed, so forwarded', () => {
+    const { isl, notForwarded } = framed({ operation: 'sum', stated_in_brief: false }, new Map([['mrr', 25000]]));
+    expect(isl.find((n) => n.id === 'mrr')?.nonlinear_identity).toEqual({ ...PRODUCT, operation: 'sum', stated_in_brief: false });
     expect(notForwarded).toEqual([]);
   });
 
@@ -464,8 +542,23 @@ describe("R3-3 route — Paul's request: the declaration reaches ISL exactly onc
     expect(mrr.goal_threshold_cap).toBe(25000);
   });
 
-  it('R3-8 — journey A served (7512a0e6): the goal is framed by its goal_threshold_cap, so ISL has no identity_frame_missing', async () => {
+  it('(d) — journey A AS SERVED (7512a0e6, the goal\'s product inferred): never sent to ISL, said as unconfirmed', async () => {
     const res = await post(journeyARequest());
+    expect(res.status).toBe(200);
+    expect(islBodies.every((b) => occurrences(b) === 0)).toBe(true);
+    expect((await res.json())._meta?.identities_not_forwarded)
+      .toEqual([{ node_id: 'mrr', reason: 'inferred_identity_unconfirmed', frameless_node_ids: [] }]);
+  });
+
+  // The same served graph once the user CONFIRMS the reading on the card (CEE #2292 writes `stated_in_brief: true`).
+  const journeyAConfirmed = () => {
+    const req = journeyARequest();
+    req.graph.nodes.find((n: any) => n.id === 'mrr').nonlinear_identity.stated_in_brief = true;
+    return req;
+  };
+
+  it('R3-8 — journey A (7512a0e6), confirmed: the goal is framed by its goal_threshold_cap, so ISL has no identity_frame_missing', async () => {
+    const res = await post(journeyAConfirmed());
     expect(res.status).toBe(200);
     expect(islBodies.length).toBeGreaterThan(0);
     for (const body of islBodies) {
@@ -571,6 +664,17 @@ function islCritique(id: string, extra: Record<string, unknown> = {}) {
     ...extra,
   };
 }
+
+// ⛔ Variant (d) (AIQ 5891286280; R3 5891423959): an INFERRED product on the GOAL never reaches ISL, so variant (c)'s
+// withdraw-and-retry is proven on the served NON-GOAL carrier — DL A15's `pro_plan_mrr` (its goal `mrr` declares nothing).
+const a15 = (): any => JSON.parse(readFileSync(resolve(__dirname, 'fixtures/r3-intermediate-carrier-dl-a15.request.json'), 'utf8'));
+const A15_PARTS = ['pro_plan_mrr', 'pro_plan_monthly_price', 'pro_paying_subscribers'];
+const a15Critique = (id: string, withheld_reason: string | undefined, figures: Record<string, number> = {}) => islCritique(id, {
+  affected_node_ids: A15_PARTS,
+  identity: { node_id: 'pro_plan_mrr', operation: 'product', participants: A15_PARTS.slice(1), withheld_reason, ...figures },
+});
+const A15_FIGURES = { reconstructed: 50000, stated: 75000, mismatch_share: 0.3333 };
+const a15Inconsistent = a15Critique('crit-a15-inconsistent', 'identity_inconsistent', A15_FIGURES);
 
 describe('R3 rung (a) unit — readCritiqueIdentity validates ISL\'s critique identity{} or drops it', () => {
   // Imported lazily: a static import of run.ts is hoisted above `mockISLService` and trips the
@@ -714,19 +818,126 @@ describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the R
   afterEach(() => { islNext = null; islSeq = []; });
 
   it('⭐ RED: inferred + ISL 422 identity_inconsistent → withdrawn, asked ONCE more, the Run computes, and it is said with ISL\'s figures', async () => {
-    islSeq = [reject(inconsistent)];
-    const res = await post(paulRequest(INFERRED));
+    islSeq = [reject(a15Inconsistent)];
+    const res = await post(a15());
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.analysis_status).not.toBe('blocked');
     expect(islBodies).toHaveLength(2);
     expect(occurrences(islBodies[0])).toBe(1);
     expect(occurrences(islBodies[1])).toBe(0);
-    expect(islBodies[1].graph.nodes.filter((n: any) => n.execution_frame).map((n: any) => n.id)).toEqual([]);
-    const { node_id, participants: _p, withheld_reason: _w, operation: _o, ...figures } = CRITIQUE_IDENTITY;
+    expect(islBodies[1].graph.nodes.find((n: any) => n.id === 'pro_plan_mrr')?.execution_frame).toBeUndefined();
     expect(body._meta?.identities_not_forwarded).toEqual([
-      { node_id, reason: 'inferred_identity_inconsistent', frameless_node_ids: [], reconciliation: figures },
+      { node_id: 'pro_plan_mrr', reason: 'inferred_identity_inconsistent', frameless_node_ids: [], reconciliation: A15_FIGURES },
     ]);
+  });
+
+  it('⭐ (d) RED: Paul\'s request with the GOAL\'s product INFERRED — never sent to ISL, one call, every goal chance withheld as unconfirmed', async () => {
+    const res = await post(paulRequest(INFERRED));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(islBodies).toHaveLength(1);
+    expect(occurrences(islBodies[0])).toBe(0);
+    expect(body._meta?.identities_not_forwarded).toEqual([{ node_id: 'mrr', reason: 'inferred_identity_unconfirmed', frameless_node_ids: [] }]);
+    const opts: any[] = body.results ?? body.option_comparison ?? [];
+    expect(opts.length).toBeGreaterThan(0);
+    expect(opts.filter((o) => o.probability_of_goal !== undefined)).toEqual([]);
+    const withheld = (body.inference_warnings ?? []).filter((w: any) => w.code === 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED');
+    expect(withheld.map((w: any) => w.node_ids)).toEqual([['mrr']]);
+    expect(withheld[0].message).toMatch(/^Not shown: Olumi reads '.+' as '.+' × '.+', but that hasn't been confirmed, so this run gives no chance of reaching the target for '.+'\.$/);
+  });
+
+  /**
+   * Served `ed49d44` shapes on Paul's request: `pro_plan_mrr` (a factor) carries Olumi's inferred price × subscribers into
+   * the goal `mrr`. `secondParent` keeps `other_mrr_growth → mrr` beside it (run 4's shape); `usersCount` makes the
+   * 1,500 subscribers the user's (as served) — the fixture's own count is Olumi's (`cee_inference`).
+   */
+  const carrierRequest = (o: { secondParent: boolean; usersCount: boolean; goal?: { unit: string; label: string } }): any => {
+    const d = paulRequest();
+    if (o.goal) {
+      const mrr = d.graph.nodes.find((n: any) => n.id === 'mrr');
+      mrr.label = o.goal.label;
+      mrr.observed_state.unit = o.goal.unit;
+    }
+    d.graph.nodes.push({ id: 'pro_plan_mrr', kind: 'factor', label: 'Pro plan MRR',
+      nonlinear_identity: { operation: 'product', factor_ids: ['pro_plan_price', 'pro_paying_subscribers'], stated_in_brief: false } });
+    if (o.usersCount) d.graph.nodes.find((n: any) => n.id === 'pro_paying_subscribers').observed_state.source = 'brief_extraction';
+    const keep = (e: any) => e.to !== 'mrr' || (o.secondParent && e.from === 'other_mrr_growth');
+    const template = d.graph.edges.find((e: any) => e.from === 'pro_plan_price' && e.to === 'mrr');
+    d.graph.edges = [
+      ...d.graph.edges.filter(keep),
+      { ...template, from: 'pro_plan_price', to: 'pro_plan_mrr' },
+      { ...template, from: 'pro_paying_subscribers', to: 'pro_plan_mrr' },
+      { ...template, from: 'pro_plan_mrr', to: 'mrr' },
+    ];
+    return d;
+  };
+  const unconfirmedOn = (body: any) => (body._meta?.identities_not_forwarded ?? [])
+    .filter((w: any) => w.reason === 'inferred_identity_unconfirmed').map((w: any) => w.node_id);
+
+  // PR Review CR 5891899825's discriminator: the card domain, not the parent count.
+  it('⭐ (d) SCOPE — QUALIFYING carrier BESIDE another parent (run 4: £49 × 1,500 ≈ £75k, + a second parent): not sent; the goal\'s chance withheld, naming the goal\'s target', async () => {
+    const res = await post(carrierRequest({ secondParent: true, usersCount: true }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(islBodies).toHaveLength(1);
+    expect(occurrences(islBodies[0])).toBe(0);
+    expect(unconfirmedOn(body)).toEqual(['pro_plan_mrr']);
+    const opts: any[] = body.results ?? body.option_comparison ?? [];
+    expect(opts.filter((x) => x.probability_of_goal !== undefined)).toEqual([]);
+    const withheld = (body.inference_warnings ?? []).filter((w: any) => w.code === 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED');
+    expect(withheld.map((w: any) => w.node_ids)).toEqual([['pro_plan_mrr']]);
+    expect(withheld[0].message).toBe("Not shown: Olumi reads 'Pro plan MRR' as 'Pro plan price' × 'Pro paying subscribers', but that hasn't been confirmed, so this run gives no chance of reaching the target for 'MRR'.");
+  });
+
+  it('⭐ (d) SCOPE — QUALIFYING SOLE carrier (run 2: nothing else feeds the goal): not sent, withheld', async () => {
+    const body = await (await post(carrierRequest({ secondParent: false, usersCount: true }))).json();
+    expect(occurrences(islBodies[0])).toBe(0);
+    expect(unconfirmedOn(body)).toEqual(['pro_plan_mrr']);
+  });
+
+  it('(d) SCOPE CONTRAST — NON-QUALIFYING SOLE carrier (the count is Olumi\'s): not (d)\'s — never said as unconfirmed', async () => {
+    const res = await post(carrierRequest({ secondParent: false, usersCount: false }));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(unconfirmedOn(body)).toEqual([]);
+    expect((body.inference_warnings ?? []).map((w: any) => w.message).join(' ')).not.toContain("hasn't been confirmed");
+  });
+
+  it('(d) SCOPE CONTRAST — NON-QUALIFYING carrier beside another parent (the count is Olumi\'s): not (d)\'s', async () => {
+    const body = await (await post(carrierRequest({ secondParent: true, usersCount: false }))).json();
+    expect(unconfirmedOn(body)).toEqual([]);
+  });
+
+  // MG 5892012494: CEE reads the goal's period from its unit OR its label; PLoT read the unit only (fail-open split).
+  // AIQ 5892025855: a goal unit with NO period composes (fail closed).
+  it('⭐ (d) SCOPE — a goal unit with NO period (typed "GBP", named "Monthly recurring revenue"): not sent, withheld', async () => {
+    const body = await (await post(carrierRequest({ secondParent: true, usersCount: true, goal: { unit: 'GBP', label: 'Monthly recurring revenue' } }))).json();
+    expect(occurrences(islBodies[0])).toBe(0);
+    expect(unconfirmedOn(body)).toEqual(['pro_plan_mrr']);
+    const withheld = (body.inference_warnings ?? []).filter((w: any) => w.code === 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED');
+    expect(withheld.map((w: any) => w.message)).toEqual(["Not shown: Olumi reads 'Pro plan MRR' as 'Pro plan price' × 'Pro paying subscribers', but that hasn't been confirmed, so this run gives no chance of reaching the target for 'Monthly recurring revenue'."]);
+  });
+
+  it('(d) CONTRAST: the same request with the goal\'s product STATED is sent to ISL once, evaluated, and nothing is withheld', async () => {
+    islNext = { extra: { identity_evaluations: [{ node_id: 'mrr', operation: 'product', evaluated: true, level_source: 'stated_level' }] } };
+    const res = await post(paulRequest(PRODUCT));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(islBodies).toHaveLength(1);
+    expect(occurrences(islBodies[0])).toBe(1);
+    expect(body._meta?.identities_not_forwarded ?? []).toEqual([]);
+    expect((body.inference_warnings ?? []).filter((w: any) => w.code === 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED')).toEqual([]);
+  });
+
+  it('(d) CONTRAST: a STATED goal product ISL leaves unevaluated keeps #416\'s own words — never "haven\'t confirmed"', async () => {
+    const res = await post(paulRequest(PRODUCT));
+    const body = await res.json();
+    expect(occurrences(islBodies[0])).toBe(1);
+    const withheld = (body.inference_warnings ?? []).filter((w: any) => w.code === 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED');
+    expect(withheld).toHaveLength(1);
+    expect(withheld[0].message).toContain("but this run couldn't calculate it that way");
+    expect(withheld[0].message).not.toContain("hasn't been confirmed");
   });
 
   it('⭐ RED (verifier FIX_FIRST): a withdrawn variant-(a) carrier takes its Olumi-derived frame out of _meta too — no claim of a frame the retry never sent', async () => {
@@ -757,25 +968,25 @@ describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the R
   // Superseded by R3-A1 (AIQ RESULT + RULING #72 5867263914): this row pinned "another reason keeps the refusal". An
   // INFERRED identity ISL cannot evaluate for ANY of its reasons is now withdrawn; only a STATED one refuses the Run.
   it('R3-A1: an inferred identity withheld for ANOTHER of ISL\'s reasons is withdrawn too — two calls, 200, named', async () => {
-    islSeq = [reject(islCritique('crit-operand', { identity: { ...CRITIQUE_IDENTITY, withheld_reason: 'identity_operand_missing' } }))];
-    const res = await post(paulRequest(INFERRED));
+    islSeq = [reject(a15Critique('crit-a15-zero', 'identity_zero_level'))];
+    const res = await post(a15());
     expect(res.status).toBe(200);
     expect(islBodies).toHaveLength(2);
     expect((await res.json())._meta?.identities_not_forwarded)
-      .toEqual([{ node_id: 'mrr', reason: 'inferred_identity_operand_missing', frameless_node_ids: [] }]);
+      .toEqual([{ node_id: 'pro_plan_mrr', reason: 'inferred_identity_zero_level', frameless_node_ids: [] }]);
   });
 
   it('CONTRAST: any OTHER blocker beside it keeps the refusal — one call, 422', async () => {
-    islSeq = [reject(inconsistent, { id: 'crit-other', code: 'GRAPH_INVALID', severity: 'blocker', message: 'x', affected_node_ids: [] })];
-    const res = await post(paulRequest(INFERRED));
+    islSeq = [reject(a15Inconsistent, { id: 'crit-other', code: 'GRAPH_INVALID', severity: 'blocker', message: 'x', affected_node_ids: [] })];
+    const res = await post(a15());
     expect(res.status).toBe(422);
     expect(islBodies).toHaveLength(1);
   });
 
   it('ONCE: when the retry is refused too, that refusal is returned — never a third call', async () => {
     const other = islCritique('crit-after', { code: 'GRAPH_INVALID', identity: undefined });
-    islSeq = [reject(inconsistent), reject(other)];
-    const res = await post(paulRequest(INFERRED));
+    islSeq = [reject(a15Inconsistent), reject(other)];
+    const res = await post(a15());
     expect(res.status).toBe(422);
     expect(islBodies).toHaveLength(2);
     expect(((await res.json()).critiques as any[]).map((c) => c.id)).toContain('crit-after');
@@ -859,24 +1070,24 @@ describe('R3-A1 — an INFERRED identity ISL cannot evaluate for ANY reason is w
     });
   });
 
-  // ⭐ RED at base (aac1970): 422, one ISL call — #385 withdrew only `identity_inconsistent`.
-  for (const [label, file, reason] of [
-    ['A1of (inferred, operand level MISSING)', A1OF, 'inferred_identity_operand_missing'],
-    ['A1zf (inferred, operand level ZERO)', A1ZF, 'inferred_identity_zero_level'],
+  // ⭐ Served A1of / A1zf were refused 422 at aac1970, then (#385 → R3-A1) withdrawn and asked again. Under variant (d)
+  // (AIQ 5891286280) their goal's product is Olumi's UNCONFIRMED reading, so it is never sent: ONE call, C0 on the wire,
+  // the goal's figures withheld exactly as before — ISL never has an identity to refuse.
+  for (const [label, file] of [
+    ['A1of (inferred, operand level MISSING)', A1OF],
+    ['A1zf (inferred, operand level ZERO)', A1ZF],
   ] as const) {
-    it(`⭐ ${label}: 422 → 200 — withdrawn, asked ONCE more, named ${reason}; the retry is C0 on the wire, its goal figures withheld`, async () => {
+    it(`⭐ ${label}, as served: (d) never sent — ONE call, C0 on the wire, named inferred_identity_unconfirmed; its goal figures withheld`, async () => {
       const row = served(file);
-      islSeq = [servedReject(row)];
       const res = await post(row.request);
       expect(res.status).toBe(200);
       const body = await res.json();
       expect(body.analysis_status).not.toBe('blocked');
-      expect(islBodies).toHaveLength(2);
-      expect(occurrences(islBodies[0])).toBe(1);
-      expect(occurrences(islBodies[1])).toBe(0);
-      expect(JSON.stringify(islBodies[1])).not.toContain('"execution_frame"');
-      expect(body._meta?.identities_not_forwarded).toEqual([{ node_id: 'mrr', reason, frameless_node_ids: [] }]);
-      const retried = islBodies[1];
+      expect(islBodies).toHaveLength(1);
+      expect(occurrences(islBodies[0])).toBe(0);
+      expect(JSON.stringify(islBodies[0])).not.toContain('"execution_frame"');
+      expect(body._meta?.identities_not_forwarded).toEqual([{ node_id: 'mrr', reason: 'inferred_identity_unconfirmed', frameless_node_ids: [] }]);
+      const retried = islBodies[0];
 
       // C0 — the same request with no identity: the Run PLoT asks ISL for after the withdrawal IS C0's, byte for byte.
       const c0 = await post(withoutIdentity(row.request));
@@ -919,17 +1130,18 @@ describe('R3-A1 — an INFERRED identity ISL cannot evaluate for ANY reason is w
     });
   }
 
-  it('A1if (inferred, INCONSISTENT) — #385\'s row unchanged: withdrawn with ISL\'s own figures, exactly as served', async () => {
-    // A1if's first-call 422 never surfaced (#385 withdrew it); ISL's critique for the same graph is A1is's (PRECONDITION).
-    islSeq = [servedReject(served(A1IS))];
-    const res = await post(served(A1IF).request);
-    expect(res.status).toBe(200);
-    expect(islBodies).toHaveLength(2);
-    expect((await res.json())._meta?.identities_not_forwarded).toEqual(served(A1IF).response._meta.identities_not_forwarded);
+  it('A1if (inferred, INCONSISTENT), as served: (d) never sent — ONE call, said as unconfirmed, not as ISL\'s inconsistency', async () => {
+    // As served (before (d)) ISL found it inconsistent and #385 withdrew it with ISL's figures — the capture says so.
     expect(served(A1IF).response._meta.identities_not_forwarded).toEqual([{
       node_id: 'mrr', reason: 'inferred_identity_inconsistent', frameless_node_ids: [],
       reconciliation: { reconstructed: 74500, stated: 93125, mismatch_share: 0.2 },
     }]);
+    const res = await post(served(A1IF).request);
+    expect(res.status).toBe(200);
+    expect(islBodies).toHaveLength(1);
+    expect(occurrences(islBodies[0])).toBe(0);
+    expect((await res.json())._meta?.identities_not_forwarded)
+      .toEqual([{ node_id: 'mrr', reason: 'inferred_identity_unconfirmed', frameless_node_ids: [] }]);
   });
 
   // CONTROLS — a STATED identity keeps ISL's refusal: one call, 422, ISL's critique carried, nothing withdrawn.
@@ -964,27 +1176,29 @@ describe('R3-A1 — an INFERRED identity ISL cannot evaluate for ANY reason is w
     });
   }
 
+  // The reason-shape rules below are variant (c)'s, proven on the NON-GOAL carrier (A15 `pro_plan_mrr`): under (d) an
+  // inferred GOAL product never reaches ISL to be withheld.
+  const a15Reject = (...critiques: unknown[]) => ({ error: { code: 'ISL_REJECTED', message: 'Validation failed', retryable: false, status: 422, critiques } });
+
   it('ANY reason: an inferred identity ISL withheld as identity_frame_missing is withdrawn too, named inferred_identity_frame_missing', async () => {
-    const row = served(A1OF);
-    islSeq = [servedReject(row, islCritiquesOf(row).map((c) => withReason(c, 'identity_frame_missing')))];
-    const res = await post(row.request);
+    islSeq = [a15Reject(a15Critique('crit-a15-frame', 'identity_frame_missing'))];
+    const res = await post(a15());
     expect(res.status).toBe(200);
     expect(islBodies).toHaveLength(2);
     expect((await res.json())._meta?.identities_not_forwarded)
-      .toEqual([{ node_id: 'mrr', reason: 'inferred_identity_frame_missing', frameless_node_ids: [] }]);
+      .toEqual([{ node_id: 'pro_plan_mrr', reason: 'inferred_identity_frame_missing', frameless_node_ids: [] }]);
   });
 
   // AIQ #72 5869104258 (merge-order condition on ISL #199): ANY ISL withheld reason withdraws an INFERRED identity —
   // matched by shape, not a list — so a reason ISL adds later can never refuse a Run over an identity nobody stated.
   for (const reason of ['identity_scale_out_of_range', 'identity_unknown_future_reason']) {
     it(`⭐ RED (AIQ 5869104258): an inferred identity ISL withholds as "${reason}" is withdrawn and named, 2 calls, 200`, async () => {
-      const row = served(A1OF);
-      islSeq = [servedReject(row, islCritiquesOf(row).map((c) => withReason(c, reason)))];
-      const res = await post(row.request);
+      islSeq = [a15Reject(a15Critique('crit-a15-future', reason))];
+      const res = await post(a15());
       expect(res.status).toBe(200);
       expect(islBodies).toHaveLength(2);
       expect((await res.json())._meta?.identities_not_forwarded)
-        .toEqual([{ node_id: 'mrr', reason: `inferred_${reason}`, frameless_node_ids: [] }]);
+        .toEqual([{ node_id: 'pro_plan_mrr', reason: `inferred_${reason}`, frameless_node_ids: [] }]);
     });
   }
 
@@ -1000,27 +1214,30 @@ describe('R3-A1 — an INFERRED identity ISL cannot evaluate for ANY reason is w
 
   for (const bad of [undefined, '', 'Identity Scale Out Of Range', 'scale_out_of_range']) {
     it(`CONTRAST: a critique with no ISL-typed reason (${JSON.stringify(bad)}) keeps the refusal — 1 call, 422`, async () => {
-      const row = served(A1OF);
-      islSeq = [servedReject(row, islCritiquesOf(row).map((c) => withReason(c, bad as string)))];
-      const res = await post(row.request);
+      islSeq = [a15Reject(a15Critique('crit-a15-bad', bad))];
+      const res = await post(a15());
       expect(res.status).toBe(422);
       expect(islBodies).toHaveLength(1);
+      expect(occurrences(islBodies[0])).toBe(1);
     });
   }
 
-  /** A1of plus a SECOND identity, on `pro_paying_subscribers` (monthly_new × monthly_churn — every participant framed). */
+  /**
+   * A15 (its inferred NON-GOAL carrier `pro_plan_mrr`) plus a SECOND identity, on `pro_paying_subscribers`
+   * (monthly_churn × fac_trial_to_pro_conversion). Under (d) the goal's own product never reaches ISL, so the
+   * two-identity rules are proven on two non-goal carriers.
+   */
+  const SECOND_PARTS = ['monthly_churn', 'fac_trial_to_pro_conversion'];
   const twoIdentities = (secondStated: boolean): any => {
-    const request = structuredClone(served(A1OF).request);
+    const request = a15();
     request.graph.nodes.find((n: any) => n.id === 'pro_paying_subscribers').nonlinear_identity = {
-      operation: 'product', factor_ids: ['monthly_new_pro_subscribers', 'monthly_churn'], stated_in_brief: secondStated,
+      operation: 'product', factor_ids: SECOND_PARTS, stated_in_brief: secondStated,
     };
     return request;
   };
-  const secondCritique = (withheld_reason: string) => ({
-    ...islCritiquesOf(served(A1OF))[0],
-    id: 'critique_second_identity',
-    affected_node_ids: ['pro_paying_subscribers', 'monthly_new_pro_subscribers', 'monthly_churn'],
-    identity: { node_id: 'pro_paying_subscribers', operation: 'product', participants: ['monthly_new_pro_subscribers', 'monthly_churn'], withheld_reason },
+  const secondCritique = (withheld_reason: string) => islCritique('critique_second_identity', {
+    affected_node_ids: ['pro_paying_subscribers', ...SECOND_PARTS],
+    identity: { node_id: 'pro_paying_subscribers', operation: 'product', participants: SECOND_PARTS, withheld_reason },
   });
 
   it('PRECONDITION — both identities of the two-identity request reach ISL (every participant framed)', async () => {
@@ -1030,8 +1247,7 @@ describe('R3-A1 — an INFERRED identity ISL cannot evaluate for ANY reason is w
   });
 
   it('ONE retry, never a loop: the retry refused over a STILL-declared inferred identity returns that refusal — 2 calls, 422', async () => {
-    const row = served(A1OF);
-    islSeq = [servedReject(row), servedReject(row, [secondCritique('identity_zero_level')])];
+    islSeq = [a15Reject(a15Critique('crit-a15-op', 'identity_operand_missing')), a15Reject(secondCritique('identity_zero_level'))];
     const res = await post(twoIdentities(false));
     expect(res.status).toBe(422);
     expect(islBodies).toHaveLength(2);
@@ -1040,8 +1256,7 @@ describe('R3-A1 — an INFERRED identity ISL cannot evaluate for ANY reason is w
   });
 
   it('CONTROL: an inferred identity beside a STATED one, both withheld in one 422 — nothing is withdrawn; one call, 422', async () => {
-    const row = served(A1OF);
-    islSeq = [servedReject(row, [...islCritiquesOf(row), secondCritique('identity_operand_missing')])];
+    islSeq = [a15Reject(a15Critique('crit-a15-op', 'identity_operand_missing'), secondCritique('identity_operand_missing'))];
     const res = await post(twoIdentities(true));
     expect(res.status).toBe(422);
     expect(islBodies).toHaveLength(1);

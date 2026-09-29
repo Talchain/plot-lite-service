@@ -121,11 +121,26 @@ function labelOf(n: NodeLike): string {
  * The words, exactly as AI Quality set them (#72 5885033487 (2)): no user action is implied (the fix is Olumi's), labels
  * come from the graph, and several identities name the first and add "(and N more)".
  */
-export function goalIdentityWithheldMessage(nodes: readonly GoalIdentityNotEvaluated[]): string {
+export function goalIdentityWithheldMessage(
+  nodes: readonly GoalIdentityNotEvaluated[],
+  /**
+   * The goal identities PLoT did not forward because they are Olumi's UNCONFIRMED reading (translator variant (d),
+   * `inferred_identity_unconfirmed`). Their words say what is missing — the user's confirmation — not a failed calculation.
+   */
+  unconfirmedNodeIds: ReadonlySet<string> = new Set(),
+  /** The goal's own label: an unconfirmed product on the goal's sole carrier still names the GOAL's target. */
+  goalLabel?: string,
+): string {
   const first = nodes[0]!;
   const joiner = first.operation === 'sum' ? ' + ' : ' × ';
   const parts = first.parts.length > 0 ? first.parts.join(joiner) : 'other figures in the model';
   const more = nodes.length > 1 ? ` (and ${nodes.length - 1} more)` : '';
+  if (unconfirmedNodeIds.has(first.node_id)) {
+    // AI Quality #72 5891608873, the words WITHOUT the card: no ask the user cannot answer here, labels from the graph.
+    const quoted = first.parts.length > 0 ? first.parts.map((p) => `'${p}'`).join(joiner) : 'other figures in the model';
+    return `Not shown: Olumi reads '${first.label}' as ${quoted}${more}, but that hasn't been confirmed, `
+      + `so this run gives no chance of reaching the target for '${goalLabel ?? first.label}'.`;
+  }
   return `Not shown. '${first.label}' depends on ${parts}${more}, but this run couldn't calculate it that way, `
     + 'so the figures for each option would be wrong.';
 }

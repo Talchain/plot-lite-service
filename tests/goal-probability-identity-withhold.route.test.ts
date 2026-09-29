@@ -133,8 +133,8 @@ function paulRequest(identity?: unknown): any {
   return d;
 }
 
-const evaluation = (evaluated: boolean) => ({
-  node_id: 'mrr', operation: 'product', factor_ids: ['pro_plan_price', 'pro_paying_subscribers'], stated_in_brief: false, evaluated,
+const evaluation = (evaluated: boolean, stated_in_brief = false) => ({
+  node_id: 'mrr', operation: 'product', factor_ids: ['pro_plan_price', 'pro_paying_subscribers'], stated_in_brief, evaluated,
   ...(evaluated ? { level_source: 'stated_level' } : { withheld_reason: 'identity_frame_missing' }),
 });
 
@@ -169,9 +169,11 @@ describe('route — the goal\'s chance is withheld when a declared identity on i
     expect(warnings(body)).toEqual([]);
   });
 
+  // The vehicle is the STATED product: under translator variant (d) (AIQ 5891286280) an INFERRED goal product never
+  // reaches ISL, so "ISL reports it evaluated:false" can only be about a product the user stated or confirmed.
   it('⭐ RED — ISL reports the goal\'s identity evaluated:false: no option carries a chance, and the warning names the node', async () => {
-    islNext = { extra: { identity_evaluations: [evaluation(false)] } };
-    const res = await post(paulRequest(INFERRED));
+    islNext = { extra: { identity_evaluations: [evaluation(false, true)] } };
+    const res = await post(paulRequest(PRODUCT));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(body.analysis_status).not.toBe('blocked');
@@ -182,6 +184,16 @@ describe('route — the goal\'s chance is withheld when a declared identity on i
     expect(w[0]).toMatchObject({ severity: 'warning', node_ids: ['mrr'] });
     // AI Quality's exact words (#72 5885033487 (2)): labels from the graph, no action asked of the user.
     expect(w[0].message).toBe("Not shown. 'MRR' depends on Pro plan price × Pro paying subscribers, but this run couldn't calculate it that way, so the figures for each option would be wrong.");
+  });
+
+  it('⭐ (d) — the goal\'s product INFERRED (Olumi\'s reading, unconfirmed): withheld, said as awaiting the user, never sent', async () => {
+    const res = await post(paulRequest(INFERRED));
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(options(body).filter((o: any) => 'probability_of_goal' in o)).toEqual([]);
+    const w = warnings(body);
+    expect(w.map((x: any) => x.node_ids)).toEqual([['mrr']]);
+    expect(w[0].message).toBe("Not shown: Olumi reads 'MRR' as 'Pro plan price' × 'Pro paying subscribers', but that hasn't been confirmed, so this run gives no chance of reaching the target for 'MRR'.");
   });
 
   it('⭐ RED — declared, and ISL says nothing about it: silence is not evaluation, the chance is withheld', async () => {
