@@ -88,7 +88,10 @@ export function deriveReadinessTone(
     reasons.push('EVIDENCE_GAPS');
   }
 
-  const topDriver = keyDrivers[0];
+  // AIQ #72 5884067259: an option-set LEVER is the user's choice, not a measured weakness of the model, so the
+  // driver-confidence reasons read the first NON-lever key driver (or none). Same lever union as evidence gaps.
+  const levers = inputs.interventionTargetIds ?? new Set<string>();
+  const topDriver = keyDrivers.find((d) => !levers.has(d.factor_id));
   let topDriverConfidence: number | undefined;
   if (topDriver !== undefined) {
     const factor = factorSensitivity.find((f) => f.node_id === topDriver.factor_id);
