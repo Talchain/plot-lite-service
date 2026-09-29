@@ -206,8 +206,8 @@ export function attachIdentityExecutionFrames(
   goalCapByNodeId: ReadonlyMap<string, number> = new Map(),
   /** Variant (a): OUT — each frame PLoT derived for a frameless inferred intermediate carrier (`_meta.identity_derived_frames`). */
   derivedFrames: IdentityDerivedFrame[] = [],
-  /** Variant (d): each goal's ONLY non-option parent (`goalSoleParentIds`). Empty → (d) reads the goal alone. */
-  goalSoleParents: ReadonlySet<string> = new Set(),
+  /** Variant (d): the goals' card-domain carriers (`goalCarrierIds`). Empty → (d) reads the goal alone. */
+  goalCarriers: ReadonlySet<string> = new Set(),
 ): IdentityNotForwarded[] {
   const engineById = new Map(engineNodes.map((node) => [node.id, node]));
   const islById = new Map(islNodes.map((node) => [node.id, node]));
@@ -233,14 +233,14 @@ export function attachIdentityExecutionFrames(
   // `goalIdentitiesNotEvaluated` withholds every goal figure under its own code — never a chance through an unconfirmed
   // product (served: "reaches above £85k MRR in 99.8%"), never one from the linear walk. Sums, stated identities and
   // non-goal carriers fall through to the variants below untouched.
-  // The card domain decides, not the node kind (AIQ 5891608873; DL 5891633125): the goal's ONLY non-option parent IS the
-  // goal but for a name (served `ed49d44` run 2: `pro_plan_mrr` → `mrr`, nothing else), so a product there is a reading
-  // of the goal too. A carrier that shares the goal with another parent (DL A15: + `other_plan_mrr`) is not (d)'s.
+  // The card domain decides, not the node kind (AIQ 5891608873; DL 5891633125; PR Review CR 5891899825): a goal carrier
+  // (`goalCarrierIds` — units compose to the goal's, the user's three levels, within 5%) is a reading of the goal too,
+  // however many parents the goal has. A carrier outside the domain (DL A15: an Olumi level) is not (d)'s.
   const notForwarded: IdentityNotForwarded[] = [];
   for (const node of islNodes) {
     const identity = node.nonlinear_identity;
     if (!identity || identity.stated_in_brief !== false || identity.operation !== 'product') continue;
-    if (engineById.get(node.id)?.kind !== 'goal' && !goalSoleParents.has(node.id)) continue;
+    if (engineById.get(node.id)?.kind !== 'goal' && !goalCarriers.has(node.id)) continue;
     delete node.nonlinear_identity;
     notForwarded.push({ node_id: node.id, reason: 'inferred_identity_unconfirmed', frameless_node_ids: [] });
   }
@@ -289,22 +289,81 @@ export function attachIdentityExecutionFrames(
   return notForwarded;
 }
 
+/** ISL's reconciliation tolerance (the stated level within 5% of the product), as CEE's mint reads it. */
+const CARRIER_RECONCILIATION_TOLERANCE = 0.05;
+
+/** A level the USER gave (a finite `raw_value` whose `source` is the brief or the user), else `undefined`. */
+function userLevel(node: { observed_state?: { raw_value?: unknown; source?: unknown } } | undefined): number | undefined {
+  const raw = node?.observed_state?.raw_value;
+  const source = node?.observed_state?.source;
+  const users = source === 'brief_extraction' || (typeof source === 'string' && source.startsWith('user'));
+  return users && typeof raw === 'number' && Number.isFinite(raw) ? raw : undefined;
+}
+
+const unitOf = (node: { observed_state?: { unit?: unknown } } | undefined): string =>
+  typeof node?.observed_state?.unit === 'string' ? node.observed_state.unit : '';
+
+const CURRENCIES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/£|\bgbp\b|\bpounds?\b/i, 'GBP'], [/\$|\busd\b|\bdollars?\b/i, 'USD'], [/€|\beur\b|\beuros?\b/i, 'EUR'],
+];
+const PERIODS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\b(month|months|monthly|mo|pcm|mrr)\b/i, 'month'], [/\b(year|years|yearly|annual|annually|yr|pa|arr)\b/i, 'year'],
+  [/\b(week|weeks|weekly|wk)\b/i, 'week'], [/\b(day|days|daily)\b/i, 'day'], [/\b(quarter|quarters|quarterly|qtr)\b/i, 'quarter'],
+];
+const currencyOf = (unit: string): string | undefined => CURRENCIES.find(([re]) => re.test(unit))?.[1];
+const periodsOf = (unit: string): string[] => PERIODS.filter(([re]) => re.test(unit)).map(([, p]) => p);
+const NOT_A_COUNT = /%|percent|proportion|share|fraction|ratio/i;
+
 /**
- * Variant (d)'s card-domain carrier: for each goal, its ONLY parent that is not an option or the decision — that node IS
- * the goal but for a name. A goal with two or more such parents has none. Pure.
+ * Do a money RATE and a COUNT compose to the goal's money-per-period unit? The card domain's unit half, read
+ * conservatively from the typed units PLoT receives: the goal's currency sits on exactly one factor (the rate), the
+ * other is a plain count (no currency, no percentage, no period), and the rate's period — when it names one — is the
+ * goal's. A rate with no period is the card's "confirm" case (CEE #2296), so it composes. Pure.
  */
-export function goalSoleParentIds(
-  nodes: readonly { id: string; kind?: unknown }[],
+function composesToGoal(goalUnit: string, unitA: string, unitB: string): boolean {
+  const currency = currencyOf(goalUnit);
+  const goalPeriods = periodsOf(goalUnit);
+  if (currency === undefined || goalPeriods.length !== 1) return false;
+  const [rate, count] = currencyOf(unitA) !== undefined ? [unitA, unitB] : [unitB, unitA];
+  if (currencyOf(rate) !== currency || currencyOf(count) !== undefined) return false;
+  if (NOT_A_COUNT.test(count) || periodsOf(count).length > 0 || count.trim() === '') return false;
+  const ratePeriods = periodsOf(rate);
+  return ratePeriods.length === 0 || (ratePeriods.length === 1 && ratePeriods[0] === goalPeriods[0]);
+}
+
+/**
+ * Variant (d)'s card-domain carriers (AIQ 5891608873; DL 5891633125; PR Review CR 5891899825): a parent of the goal
+ * (not an option, not the decision) carrying an inferred PRODUCT of two factors that is a reading of the goal itself —
+ * its units compose to the goal's unit, its two levels and the goal's are the USER's, and the product is within 5% of
+ * the goal's level. Served `ed49d44` run 4: `pro_plan_mrr` = £49/subscriber/month × 1,500 subscribers = £73,500 beside
+ * Olumi's £1,500 residual, goal £75,000/month. Whether the goal has other parents does not decide; the card domain does.
+ * PLoT reads typed units and levels only; CEE's predicate stays the authority, and a coincidental match withholds
+ * (fail closed). Pure.
+ */
+export function goalCarrierIds(
+  nodes: readonly { id: string; kind?: unknown; nonlinear_identity?: unknown; observed_state?: { raw_value?: unknown; source?: unknown; unit?: unknown } }[],
   edges: readonly { from?: unknown; to?: unknown }[],
 ): Set<string> {
-  const kindOf = new Map(nodes.map((n) => [n.id, n.kind]));
-  const sole = new Set<string>();
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const carriers = new Set<string>();
   for (const goal of nodes.filter((n) => n.kind === 'goal')) {
+    const target = userLevel(goal);
+    if (target === undefined || target === 0) continue;
     const parents = [...new Set(edges.filter((e) => e.to === goal.id && typeof e.from === 'string').map((e) => e.from as string))]
-      .filter((id) => kindOf.get(id) !== 'option' && kindOf.get(id) !== 'decision');
-    if (parents.length === 1) sole.add(parents[0]!);
+      .filter((id) => byId.get(id)?.kind !== 'option' && byId.get(id)?.kind !== 'decision');
+    for (const id of parents) {
+      const identity = byId.get(id)?.nonlinear_identity as { operation?: unknown; stated_in_brief?: unknown; factor_ids?: unknown } | undefined;
+      if (identity?.operation !== 'product' || identity.stated_in_brief !== false || !Array.isArray(identity.factor_ids)) continue;
+      if (identity.factor_ids.length !== 2 || !identity.factor_ids.every((f) => typeof f === 'string')) continue;
+      const [a, b] = (identity.factor_ids as string[]).map((f) => byId.get(f));
+      const levels = [userLevel(a), userLevel(b)];
+      if (levels.some((l) => l === undefined)) continue;
+      if (!composesToGoal(unitOf(goal), unitOf(a), unitOf(b))) continue;
+      const product = (levels[0] as number) * (levels[1] as number);
+      if (Math.abs(product - target) <= CARRIER_RECONCILIATION_TOLERANCE * Math.abs(target)) carriers.add(id);
+    }
   }
-  return sole;
+  return carriers;
 }
 
 /**

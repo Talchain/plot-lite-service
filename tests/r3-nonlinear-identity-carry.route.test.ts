@@ -119,7 +119,7 @@ import { createServer } from '../src/createServer.js';
 import { factorRowWithoutWalk, driverOrderUnderWithhold } from '../src/lib/goal-identity-withhold.js';
 
 import { NormalisationError, normaliseNode, readNonlinearIdentity } from '../src/normalisation/graph-normaliser.js';
-import { attachIdentityExecutionFrames, goalSoleParentIds, toISLNode } from '../src/integrations/isl/translator-v3.js';
+import { attachIdentityExecutionFrames, goalCarrierIds, toISLNode } from '../src/integrations/isl/translator-v3.js';
 import { computeResponseContentHash } from '../src/util/response-content-hash.js';
 
 const FIXTURE_DIR = resolve(__dirname, 'fixtures/paul-own-a295e4a1-20260927');
@@ -335,19 +335,43 @@ describe('R3-3 unit — normaliseNode / toISLNode carry the declaration or refus
     expect(notForwarded).toEqual([]);
   });
 
-  it('(d) goalSoleParentIds: a goal\'s ONLY non-option parent is its carrier; two parents → none; options and the decision never count', () => {
-    const nodes = [
-      { id: 'g', kind: 'goal' }, { id: 'c', kind: 'factor' }, { id: 'x', kind: 'factor' },
-      { id: 'opt', kind: 'option' }, { id: 'dec', kind: 'decision' },
-    ];
-    const edge = (from: string, to: string) => ({ from, to });
-    expect([...goalSoleParentIds(nodes, [edge('c', 'g'), edge('opt', 'g'), edge('dec', 'g')])]).toEqual(['c']);
-    expect([...goalSoleParentIds(nodes, [edge('c', 'g'), edge('x', 'g')])]).toEqual([]);
-    expect([...goalSoleParentIds(nodes, [edge('c', 'g'), edge('c', 'g')])]).toEqual(['c']);
-    expect([...goalSoleParentIds(nodes, [])]).toEqual([]);
+  // ⛔ The card domain (AIQ 5891608873; PR Review CR 5891899825): units compose to the goal's, the user's three levels,
+  // within 5% — however many parents the goal has. One row per class; each flips exactly one condition of the base.
+  describe('(d) goalCarrierIds — the card domain decides, not the parent count', () => {
+    const lvl = (raw: number, unit: string, source = 'brief_extraction') => ({ observed_state: { raw_value: raw, unit, source } });
+    const base = (o: { rate?: object; count?: object; goal?: object; secondParent?: boolean; stated?: boolean } = {}) => ({
+      nodes: [
+        { id: 'g', kind: 'goal', ...lvl(75000, 'GBP/month'), ...(o.goal ?? {}) },
+        { id: 'c', kind: 'outcome', nonlinear_identity: { operation: 'product', factor_ids: ['r', 'n'], stated_in_brief: o.stated ?? false } },
+        { id: 'r', kind: 'factor', ...lvl(49, 'GBP/subscriber/month'), ...(o.rate ?? {}) },
+        { id: 'n', kind: 'factor', ...lvl(1500, 'subscribers'), ...(o.count ?? {}) },
+        { id: 'x', kind: 'factor', ...lvl(1500, 'GBP/month', 'cee_inference') },
+        { id: 'opt', kind: 'option' },
+      ],
+      edges: [{ from: 'c', to: 'g' }, { from: 'opt', to: 'g' }, ...(o.secondParent === false ? [] : [{ from: 'x', to: 'g' }])],
+    });
+    const carriers = (o?: Parameters<typeof base>[0]) => { const g = base(o); return [...goalCarrierIds(g.nodes as any, g.edges)]; };
+
+    it('QUALIFIES beside another parent (served ed49d44 run 4: £49 × 1,500 = £73,500 ≈ £75,000, + Olumi\'s £1,500)', () => expect(carriers()).toEqual(['c']));
+    it('QUALIFIES as the sole parent too', () => expect(carriers({ secondParent: false })).toEqual(['c']));
+    it('QUALIFIES with no denominator on the rate (the card\'s confirm case: "GBP/month")', () => expect(carriers({ rate: lvl(49, 'GBP/month') })).toEqual(['c']));
+    it('QUALIFIES on a goal written "GBP MRR" (MRR names the month)', () => expect(carriers({ goal: lvl(75000, 'GBP MRR') })).toEqual(['c']));
+    it.each([
+      ['a sole parent with an OLUMI level (the count is cee_inference)', { secondParent: false, count: lvl(1500, 'subscribers', 'cee_inference') }],
+      ['the goal\'s level is Olumi\'s', { goal: lvl(75000, 'GBP/month', 'cee_inference') }],
+      ['the product misses the goal by more than 5% (£49 × 1,400 = £68,600)', { count: lvl(1400, 'subscribers') }],
+      ['the rate is a percentage, not money', { rate: lvl(49, '%') }],
+      ['the "count" carries money', { count: lvl(1500, 'GBP') }],
+      ['the count is a share', { count: lvl(1500, 'proportion') }],
+      ['the count has a period (new subscribers per month)', { count: lvl(1500, 'subscribers/month') }],
+      ['another currency (USD rate, GBP goal)', { rate: lvl(49, 'USD/subscriber/month') }],
+      ['a period mismatch (a yearly rate, a monthly goal)', { rate: lvl(49, 'GBP/subscriber/year') }],
+      ['the goal names no period', { goal: lvl(75000, 'GBP') }],
+      ['the product is STATED (the user\'s own — forwarded, evaluated)', { stated: true }],
+    ])('does NOT qualify: %s', (_label, o) => expect(carriers(o as any)).toEqual([]));
   });
 
-  it('(d) RED: an inferred product on the goal\'s sole carrier (a FACTOR) is NOT forwarded — said as unconfirmed', () => {
+  it('(d) RED: an inferred product on a card-domain goal carrier (a FACTOR) is NOT forwarded — said as unconfirmed', () => {
     const engine = [
       normaliseNode({ id: 'g', kind: 'goal', label: 'MRR' } as any),
       normaliseNode({ id: 'c', kind: 'factor', label: 'Pro MRR', nonlinear_identity: { ...PRODUCT, stated_in_brief: false } } as any),
@@ -823,14 +847,16 @@ describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the R
   });
 
   /**
-   * Served `ed49d44` run 2's shape on Paul's request: the goal `mrr`'s ONLY parent is `pro_plan_mrr` (a factor) carrying
-   * Olumi's inferred price × subscribers. `withSecondParent` keeps `other_mrr_growth → mrr` too: then it is not (d)'s.
+   * Served `ed49d44` shapes on Paul's request: `pro_plan_mrr` (a factor) carries Olumi's inferred price × subscribers into
+   * the goal `mrr`. `secondParent` keeps `other_mrr_growth → mrr` beside it (run 4's shape); `usersCount` makes the
+   * 1,500 subscribers the user's (as served) — the fixture's own count is Olumi's (`cee_inference`).
    */
-  const carrierRequest = (withSecondParent: boolean): any => {
+  const carrierRequest = (o: { secondParent: boolean; usersCount: boolean }): any => {
     const d = paulRequest();
     d.graph.nodes.push({ id: 'pro_plan_mrr', kind: 'factor', label: 'Pro plan MRR',
       nonlinear_identity: { operation: 'product', factor_ids: ['pro_plan_price', 'pro_paying_subscribers'], stated_in_brief: false } });
-    const keep = (e: any) => e.to !== 'mrr' || (withSecondParent && e.from === 'other_mrr_growth');
+    if (o.usersCount) d.graph.nodes.find((n: any) => n.id === 'pro_paying_subscribers').observed_state.source = 'brief_extraction';
+    const keep = (e: any) => e.to !== 'mrr' || (o.secondParent && e.from === 'other_mrr_growth');
     const template = d.graph.edges.find((e: any) => e.from === 'pro_plan_price' && e.to === 'mrr');
     d.graph.edges = [
       ...d.graph.edges.filter(keep),
@@ -840,27 +866,41 @@ describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the R
     ];
     return d;
   };
+  const unconfirmedOn = (body: any) => (body._meta?.identities_not_forwarded ?? [])
+    .filter((w: any) => w.reason === 'inferred_identity_unconfirmed').map((w: any) => w.node_id);
 
-  it('⭐ (d) SCOPE (AIQ 5891608873 · DL 5891633125): an inferred product on the goal\'s SOLE carrier is not sent; the goal\'s chance is withheld, naming the goal\'s target', async () => {
-    const res = await post(carrierRequest(false));
+  // PR Review CR 5891899825's discriminator: the card domain, not the parent count.
+  it('⭐ (d) SCOPE — QUALIFYING carrier BESIDE another parent (run 4: £49 × 1,500 ≈ £75k, + a second parent): not sent; the goal\'s chance withheld, naming the goal\'s target', async () => {
+    const res = await post(carrierRequest({ secondParent: true, usersCount: true }));
     expect(res.status).toBe(200);
     const body = await res.json();
     expect(islBodies).toHaveLength(1);
     expect(occurrences(islBodies[0])).toBe(0);
-    expect(body._meta?.identities_not_forwarded).toEqual([{ node_id: 'pro_plan_mrr', reason: 'inferred_identity_unconfirmed', frameless_node_ids: [] }]);
+    expect(unconfirmedOn(body)).toEqual(['pro_plan_mrr']);
     const opts: any[] = body.results ?? body.option_comparison ?? [];
-    expect(opts.filter((o) => o.probability_of_goal !== undefined)).toEqual([]);
+    expect(opts.filter((x) => x.probability_of_goal !== undefined)).toEqual([]);
     const withheld = (body.inference_warnings ?? []).filter((w: any) => w.code === 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED');
     expect(withheld.map((w: any) => w.node_ids)).toEqual([['pro_plan_mrr']]);
     expect(withheld[0].message).toBe("Not shown: Olumi reads 'Pro plan MRR' as 'Pro plan price' × 'Pro paying subscribers', but that hasn't been confirmed, so this run gives no chance of reaching the target for 'MRR'.");
   });
 
-  it('(d) SCOPE CONTRAST: the same carrier SHARING the goal with another parent is not (d)\'s — never said as unconfirmed', async () => {
-    const res = await post(carrierRequest(true));
+  it('⭐ (d) SCOPE — QUALIFYING SOLE carrier (run 2: nothing else feeds the goal): not sent, withheld', async () => {
+    const body = await (await post(carrierRequest({ secondParent: false, usersCount: true }))).json();
+    expect(occurrences(islBodies[0])).toBe(0);
+    expect(unconfirmedOn(body)).toEqual(['pro_plan_mrr']);
+  });
+
+  it('(d) SCOPE CONTRAST — NON-QUALIFYING SOLE carrier (the count is Olumi\'s): not (d)\'s — never said as unconfirmed', async () => {
+    const res = await post(carrierRequest({ secondParent: false, usersCount: false }));
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect((body._meta?.identities_not_forwarded ?? []).map((w: any) => w.reason)).not.toContain('inferred_identity_unconfirmed');
+    expect(unconfirmedOn(body)).toEqual([]);
     expect((body.inference_warnings ?? []).map((w: any) => w.message).join(' ')).not.toContain("hasn't been confirmed");
+  });
+
+  it('(d) SCOPE CONTRAST — NON-QUALIFYING carrier beside another parent (the count is Olumi\'s): not (d)\'s', async () => {
+    const body = await (await post(carrierRequest({ secondParent: true, usersCount: false }))).json();
+    expect(unconfirmedOn(body)).toEqual([]);
   });
 
   it('(d) CONTRAST: the same request with the goal\'s product STATED is sent to ISL once, evaluated, and nothing is withheld', async () => {
