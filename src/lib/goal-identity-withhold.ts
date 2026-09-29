@@ -158,3 +158,41 @@ export function withoutGoalDerivedVoi(
   for (const key of GOAL_DERIVED_VOI_KEYS) delete out[key];
   return out;
 }
+
+/**
+ * ⛔ R3 SCIENCE #72 5889219876 — ONE RULE under `goalIdentitiesNotEvaluated`: withhold what the WALK (the goal's
+ * links-only draws) computed; keep what the STRUCTURE computed (R3-5, #405).
+ *
+ * A factor row's quantities behind `importance_rank` / `sensitivity_score` / `elasticity` / `direction` come from the
+ * authority its `importance_basis` names (contracts/openapi.yaml): a structural basis keeps them; anything else
+ * (`isl_uncertainty`, ISL's Monte-Carlo ordering, or no disclosure) is the walk. Value of information, attribution
+ * stability, rank-flip rate, flip risk and the heuristic EVPI are always the walk's. `confidence` is kept only when
+ * its source is attested structural (`plot_unified_from_graph`); a bootstrap-blended confidence is the walk's.
+ * `influence_*` (structural influence) always stays.
+ */
+const STRUCTURAL_FACTOR_BASES: ReadonlySet<unknown> = new Set(['graph_structural', 'isl_structural']);
+const WALK_FACTOR_FIELDS = [
+  'value_of_information', 'attribution_stability', 'rank_flip_rate', 'flip_risk_category',
+  'evpi_percentage_points', 'evpi_method',
+] as const;
+const BASIS_DEPENDENT_FACTOR_FIELDS = ['sensitivity_score', 'elasticity', 'importance_rank', 'direction'] as const;
+const CONFIDENCE_FIELDS = ['confidence', 'confidence_source', 'confidence_provenance', 'confidence_components'] as const;
+const STRUCTURAL_CONFIDENCE_SOURCE = 'plot_unified_from_graph';
+
+export function isStructuralFactorBasis(basis: unknown): boolean {
+  return STRUCTURAL_FACTOR_BASES.has(basis);
+}
+
+/** A factor row less every quantity the walk computed (see above). The row object is copied, never mutated. */
+export function factorRowWithoutWalk<T extends object>(row: T): T {
+  const out = { ...row } as Record<string, unknown>;
+  for (const k of WALK_FACTOR_FIELDS) delete out[k];
+  if (!isStructuralFactorBasis(out.importance_basis)) for (const k of BASIS_DEPENDENT_FACTOR_FIELDS) delete out[k];
+  if (out.confidence_source !== STRUCTURAL_CONFIDENCE_SOURCE) for (const k of CONFIDENCE_FIELDS) delete out[k];
+  return out as T;
+}
+
+/** The driver order is the walk's only when its basis is ISL's Monte-Carlo ordering (`isl_uncertainty`). */
+export function driverOrderUnderWithhold<T extends { basis?: unknown }>(order: T | undefined, goalFiguresWithheld: boolean): T | undefined {
+  return goalFiguresWithheld && order?.basis === 'isl_uncertainty' ? undefined : order;
+}

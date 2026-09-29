@@ -109,7 +109,7 @@ import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js'
 import type { RobustnessDataForCee } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue } from '../../integrations/isl/types/isl-types.js';
 import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures, getIslIdentityEvaluations, getIslStructuralInfluence } from '../../integrations/isl/v2-envelope.js';
-import { goalIdentitiesNotEvaluated, goalIdentityWithheldMessage, limitsOnUnevaluatedIdentityPath, limitIdentityWithheldMessage, withoutGoalDerivedVoi } from '../../lib/goal-identity-withhold.js';
+import { goalIdentitiesNotEvaluated, goalIdentityWithheldMessage, limitsOnUnevaluatedIdentityPath, limitIdentityWithheldMessage, withoutGoalDerivedVoi, factorRowWithoutWalk, driverOrderUnderWithhold } from '../../lib/goal-identity-withhold.js';
 import { V2_RUN_ALLOWED_KEYS, islEnrichmentPassthrough } from './run-contract-keys.js';
 import { assessIslWireGeneration, logIslWireGenerationUnverified } from '../../integrations/isl/wire-generation.js';
 import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
@@ -3704,16 +3704,17 @@ function buildResponse(
   // deployed ISL builds (e.g. f3f5d92) the nested field is absent too:
   // edge_sensitivity then stays "computed, empty" and is explicitly marked
   // via the EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE inference warning below.
-  // ⛔ R3 SCIENCE #72 5889055195: the goal's sensitivity to each edge is computed on the same links-only walk — under
-  // an unevaluated goal identity it ranks inputs by a walk that contradicts the model's own declaration: withheld (the
-  // required array, empty). `factor_sensitivity` itself is NOT withheld here: its rows also carry R3-5's structural
-  // influence (`influence_*`, adopted even when ISL withholds the identity — #405); which of its fields are the walk's
-  // is R3's field-level call. What is RANKED by the walk from it is withheld below: the driver order, the
-  // evidence-priority card, the factor facts, the dominant factor and the brief's drivers.
+  // ⛔ R3 SCIENCE #72 5889055195 / 5889219876 — under an unevaluated goal identity, withhold what the WALK computed and
+  // keep what the STRUCTURE computed. The goal's per-edge sensitivity is the walk's: withheld (the required array,
+  // empty). Each factor row keeps its structural quantities (`influence_*`, R3-5 #405; rank / score / elasticity /
+  // direction when its `importance_basis` is structural) and loses the walk's (`factorRowWithoutWalk`). Everything
+  // built from the rows reads the PUBLISHED rows: the brief's drivers, the evidence-priority card, the factor facts,
+  // the dominant factor.
   const edgeSensitivity = optionFiguresInvalid ? [] : (sensitivityData?.edgeSensitivity
     ?? transformEdgeSensitivity(getIslEdgeSensitivity(islResult), fallbackNodeLabelMap));
   const factorSensitivity = sensitivityData?.factorSensitivity
     ?? transformFactorSensitivity(islResult?.factor_sensitivity);
+  const publishedFactorSensitivity = optionFiguresInvalid ? factorSensitivity?.map(factorRowWithoutWalk) : factorSensitivity;
 
   // ── Family-4 S1: the ONE canonical driver order + its attestation ────────
   //
@@ -3737,8 +3738,9 @@ function buildResponse(
   //     required on `SensitivityData`, so this branch is the only place the
   //     value can be absent);
   //   · ISL's own suppression disclosure ← read defensively off `islResult`.
-  // ⛔ R3 5888737291: the driver ranking comes from the same walk — withheld under an unevaluated goal identity.
-  const driverOrder = optionFiguresInvalid ? undefined : buildDriverOrder({
+  // ⛔ R3 5889219876: the driver ranking is withheld only when it is the walk's (basis `isl_uncertainty`); a structural
+  // order stays (R3-5). Built from the full rows, as before; see `driverOrderUnderWithhold` below.
+  const builtDriverOrder = buildDriverOrder({
     factors: factorSensitivity,
     structuralLeverIds:
       sensitivityData?.structuralLeverIds ?? interventionTargetIdsFromOptions(options),
@@ -3747,6 +3749,7 @@ function buildResponse(
     islSuppressedAttributions:
       sensitivityData?.islSuppressedAttributions ?? readIslSuppressedAttributions(islResult),
   });
+  const driverOrder = driverOrderUnderWithhold(builtDriverOrder, optionFiguresInvalid);
 
   // Fallback transforms for edge_e_values and conditional_winners when sensitivityData not pre-computed.
   // Edge E-values are NESTED at robustness.edge_e_values on the V2 wire (the
@@ -4438,7 +4441,7 @@ function buildResponse(
     critiques: critiquesOut,
     option_comparison: optionComparison,
     // Under an unevaluated goal identity the brief ranks no drivers and names no tipping point (same walk).
-    factor_sensitivity: optionFiguresInvalid ? undefined : factorSensitivity,
+    factor_sensitivity: publishedFactorSensitivity,
     // Family-4 S1b: the SAME object the response publishes, so
     // decision_brief.top_drivers[0] and driver_order.ranked_factor_ids[0]
     // cannot describe different orders.
@@ -4476,7 +4479,7 @@ function buildResponse(
     // unmeasured row #1 on a value copied from a different quantity. Read the
     // helper's JSDoc before changing this call.
     const epFactors: FactorInput[] = toEvidencePriorityFactorInputs(
-      filterInterventionOverrides(optionFiguresInvalid ? [] : (factorSensitivity ?? [])),
+      filterInterventionOverrides(publishedFactorSensitivity ?? []),
       graph?.edges,
     );
     const epCard = buildEvidencePriorityCard(epFactors);
@@ -4510,6 +4513,8 @@ function buildResponse(
         label: oc.label as string | undefined,
         outcome: oc.outcome as { p10?: number; p50?: number; p90?: number; mean?: number } | undefined,
       })),
+      // A factor fact states its row's attribution stability and confidence, both the walk's; `assembleFactObjects`
+      // would default them ('moderate' / 0.5) rather than omit them. So under the withhold there is no factor fact.
       factor_sensitivity: optionFiguresInvalid ? undefined : mapFactorSensitivityToFactsInput(factorSensitivity),
       critiques: critiquesOut?.map((c) => ({
         id: c.id ?? c.code,
@@ -4728,12 +4733,12 @@ function buildResponse(
     // empty or absent). Excluded from response_hash.
     conditional_winners: conditionalWinners ?? [],
     // Enrich factor_sensitivity with range_derivation_source from _meta (Task 7)
-    factor_sensitivity: factorSensitivity && meta.rangeDerivationSources
-      ? factorSensitivity.map(f => {
+    factor_sensitivity: publishedFactorSensitivity && meta.rangeDerivationSources
+      ? publishedFactorSensitivity.map(f => {
           const rds = meta.rangeDerivationSources![f.factor_id];
           return rds ? { ...f, range_derivation_source: rds } : f;
         })
-      : factorSensitivity,
+      : publishedFactorSensitivity,
     // ⭐ Family-4 S1 — THE canonical driver order + attestation, emitted as a
     // top-level sibling of factor_sensitivity[] (amendment §4.3). ADDITIVE:
     // nothing above or below changed shape or meaning. Present whenever
@@ -4773,7 +4778,7 @@ function buildResponse(
     // Dominant factor detection (B1) — computed from factor_sensitivity
     // NOTE: Deterministic. Excluded from response_hash.
     ...(() => {
-      const df = optionFiguresInvalid ? undefined : detectDominantFactor(factorSensitivity);
+      const df = detectDominantFactor(publishedFactorSensitivity);
       return df ? { dominant_factor: df } : {};
     })(),
 

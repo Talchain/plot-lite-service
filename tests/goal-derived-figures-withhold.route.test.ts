@@ -134,19 +134,42 @@ describe("route — the goal's sensitivity, value-of-information and robustness 
       expect(k in body.robustness, `robustness.${k}`).toBe(false);
     }
     expect(body.robustness.display_verdict).toBe('not_assessed');
-    // Tipping points and the driver ranking: none, and the brief ranks no drivers.
+    // Tipping points: none.
     expect(body.flip_thresholds).toEqual([]);
     expect(body.flip_thresholds_status).toBe('unavailable');
-    expect('driver_order' in body).toBe(false);
-    expect(body.decision_brief?.top_drivers ?? []).toEqual([]);
     // The goal's sensitivity to each factor / edge, per-factor stability, and what is built from them (R3 5889055195).
     // (conditional_winners is withheld too; this ISL answer carries none, so no row here can discriminate it.)
-    // factor_sensitivity rows stay: they also carry R3-5's structural influence (#405); the field-level split is R3's call.
+    // R3 5889219876 — ONE RULE: withhold what the walk computed, keep what the structure computed. On this answer every
+    // row's basis is ISL's STRUCTURAL influence (R3-5), so the driver order, each row's rank / score / elasticity /
+    // direction / influence and the brief's drivers are the control's; each row loses the walk's quantities.
+    islOverride = {};
+    const control = await run(REQUEST);
+    islOverride = { identity_evaluations: notEvaluated() };
+    expect(control.driver_order.basis).toBe('isl_structural');
+    expect(body.driver_order).toEqual(control.driver_order);
+    expect(body.decision_brief?.top_drivers).toEqual(control.decision_brief?.top_drivers);
+    const WALK = ['value_of_information', 'attribution_stability', 'rank_flip_rate', 'flip_risk_category', 'evpi_percentage_points', 'evpi_method'];
+    const STRUCTURE = ['factor_id', 'influence_score', 'influence_rank', 'influence_basis', 'importance_basis', 'sensitivity_score', 'elasticity', 'importance_rank', 'direction'];
+    expect(body.factor_sensitivity.length).toBe(control.factor_sensitivity.length);
+    for (const c of control.factor_sensitivity) {
+      const r = body.factor_sensitivity.find((f: any) => f.factor_id === c.factor_id);
+      for (const k of STRUCTURE) expect(r?.[k], `${c.factor_id}.${k}`).toEqual(c[k]);
+      for (const k of WALK) expect(k in r, `${c.factor_id}.${k}`).toBe(false);
+      // confidence only where it is attested structural (graph); a bootstrap-blended confidence is the walk's.
+      expect('confidence' in r, `${c.factor_id}.confidence`).toBe(c.confidence_source === 'plot_unified_from_graph');
+    }
+    // The walk-blended confidence is really present on the control (the row discriminates).
+    expect(control.factor_sensitivity.some((f: any) => f.confidence_source === 'plot_unified_from_isl_bootstrap')).toBe(true);
+    expect(control.factor_sensitivity.some((f: any) => typeof f.value_of_information === 'number' || typeof f.attribution_stability === 'string')).toBe(true);
     expect(body.edge_sensitivity).toEqual([]);
     expect(body.factor_stability).toEqual([]);
     expect(body.conditional_winners).toEqual([]);
+    // No option, robustness or factor fact: a factor fact states the walk's stability and confidence, and the fact
+    // mapper would default them ('moderate' / 0.5) rather than omit them.
     expect([...new Set((body.fact_objects ?? []).map((f: any) => f.fact_type))]).toEqual(['critique']);
-    expect((body.review_cards ?? []).map((c: any) => c.card_type)).not.toContain('evidence_priority');
+    // The evidence-priority card ranks by the rows' elasticity — structural here — so it stays, as on the control.
+    expect((body.review_cards ?? []).map((c: any) => c.card_type)).toEqual((control.review_cards ?? []).map((c: any) => c.card_type));
+    expect((control.review_cards ?? []).map((c: any) => c.card_type)).toContain('evidence_priority');
 
     // ONE reason, #416's, naming the node — and no other warning appears because of the withhold.
     expect(codes(body).filter((c) => c === WITHHELD)).toHaveLength(1);

@@ -116,6 +116,7 @@ vi.mock('../src/integrations/isl/index.ts', async () => {
 });
 
 import { createServer } from '../src/createServer.js';
+import { factorRowWithoutWalk, driverOrderUnderWithhold } from '../src/lib/goal-identity-withhold.js';
 
 import { NormalisationError, normaliseNode, readNonlinearIdentity } from '../src/normalisation/graph-normaliser.js';
 import { attachIdentityExecutionFrames, toISLNode } from '../src/integrations/isl/translator-v3.js';
@@ -901,14 +902,17 @@ describe('R3-A1 — an INFERRED identity ISL cannot evaluate for ANY reason is w
       expect(body.option_comparison).toEqual(c0Body.option_comparison.map(lessGoalFigures));
       expect((body.inference_warnings ?? []).filter((w: any) => w.code === 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED')
         .map((w: any) => w.node_ids)).toEqual([['mrr']]);
-      for (const block of ['factor_sensitivity', 'constraint_results']) {
+      for (const block of ['constraint_results']) {
         expect(body[block], block).toBeDefined();
         expect(JSON.stringify(body[block]), block).toBe(JSON.stringify(c0Body[block]));
       }
       // The same walk's driver ranking, tipping points and robustness facts are withheld with the figures (R3 SCIENCE
       // #72 5888737291); C0 publishes the ranking, so the row discriminates.
+      // The walk's quantities go, the structure's stay (R3 5889219876): each factor row is C0's less the walk's fields;
+      // the driver order is C0's unless its basis is the walk's.
       expect(c0Body.driver_order).toBeDefined();
-      expect('driver_order' in body).toBe(false);
+      expect(body.driver_order).toEqual(driverOrderUnderWithhold(c0Body.driver_order, true));
+      expect(body.factor_sensitivity).toEqual(c0Body.factor_sensitivity.map(factorRowWithoutWalk));
       expect(body.flip_thresholds).toEqual([]);
       expect(body.robustness).toMatchObject({ fragile_edges: [], robust_edges: [], display_verdict: 'not_assessed' });
       expect(body.edge_sensitivity).toEqual([]); // the goal's per-edge sensitivity, same walk (R3 5889055195)
