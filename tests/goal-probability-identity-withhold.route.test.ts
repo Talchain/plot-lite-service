@@ -193,7 +193,7 @@ describe('route — the goal\'s chance is withheld when a declared identity on i
     expect(options(body).filter((o: any) => 'probability_of_goal' in o)).toEqual([]);
     const w = warnings(body);
     expect(w.map((x: any) => x.node_ids)).toEqual([['mrr']]);
-    expect(w[0].message).toBe("Not shown: Olumi reads 'MRR' as 'Pro plan price' × 'Pro paying subscribers', but that hasn't been confirmed, so this run gives no chance of reaching the target for 'MRR'.");
+    expect(w[0].message).toBe("Not shown. Olumi reads 'MRR' as 'Pro plan price' × 'Pro paying subscribers', but that hasn't been confirmed, so this run gives no chance of reaching the target for 'MRR'.");
   });
 
   it('⭐ RED — declared, and ISL says nothing about it: silence is not evaluation, the chance is withheld', async () => {

@@ -844,7 +844,7 @@ describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the R
     expect(opts.filter((o) => o.probability_of_goal !== undefined)).toEqual([]);
     const withheld = (body.inference_warnings ?? []).filter((w: any) => w.code === 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED');
     expect(withheld.map((w: any) => w.node_ids)).toEqual([['mrr']]);
-    expect(withheld[0].message).toMatch(/^Not shown: Olumi reads '.+' as '.+' × '.+', but that hasn't been confirmed, so this run gives no chance of reaching the target for '.+'\.$/);
+    expect(withheld[0].message).toMatch(/^Not shown\. Olumi reads '.+' as '.+' × '.+', but that hasn't been confirmed, so this run gives no chance of reaching the target for '.+'\.$/);
   });
 
   /**
@@ -887,7 +887,7 @@ describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the R
     expect(opts.filter((x) => x.probability_of_goal !== undefined)).toEqual([]);
     const withheld = (body.inference_warnings ?? []).filter((w: any) => w.code === 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED');
     expect(withheld.map((w: any) => w.node_ids)).toEqual([['pro_plan_mrr']]);
-    expect(withheld[0].message).toBe("Not shown: Olumi reads 'Pro plan MRR' as 'Pro plan price' × 'Pro paying subscribers', but that hasn't been confirmed, so this run gives no chance of reaching the target for 'MRR'.");
+    expect(withheld[0].message).toBe("Not shown. Olumi reads 'Pro plan MRR' as 'Pro plan price' × 'Pro paying subscribers', but that hasn't been confirmed, so this run gives no chance of reaching the target for 'MRR'.");
   });
 
   it('⭐ (d) SCOPE — QUALIFYING SOLE carrier (run 2: nothing else feeds the goal): not sent, withheld', async () => {
@@ -916,7 +916,7 @@ describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the R
     expect(occurrences(islBodies[0])).toBe(0);
     expect(unconfirmedOn(body)).toEqual(['pro_plan_mrr']);
     const withheld = (body.inference_warnings ?? []).filter((w: any) => w.code === 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED');
-    expect(withheld.map((w: any) => w.message)).toEqual(["Not shown: Olumi reads 'Pro plan MRR' as 'Pro plan price' × 'Pro paying subscribers', but that hasn't been confirmed, so this run gives no chance of reaching the target for 'Monthly recurring revenue'."]);
+    expect(withheld.map((w: any) => w.message)).toEqual(["Not shown. Olumi reads 'Pro plan MRR' as 'Pro plan price' × 'Pro paying subscribers', but that hasn't been confirmed, so this run gives no chance of reaching the target for 'Monthly recurring revenue'."]);
   });
 
   it('(d) CONTRAST: the same request with the goal\'s product STATED is sent to ISL once, evaluated, and nothing is withheld', async () => {
