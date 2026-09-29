@@ -41,3 +41,5 @@ The diff is exactly those two entries (+1/−16 lines). No option row, probabili
 
 The path-level diff of the actual body against this file was reviewed leaf by leaf. Every other differing leaf is one `stable()` or `withoutRequestHashes()` drops (build, timings, request ids, uuids, hashes). The CONTROL test's full-body equality is the proof.
 - **AIQ cap (#72 5883542574):** an unmeasured top-driver confidence never yields the `confident` tone. `readiness_reasons` gains the soft `TOP_DRIVER_UNMEASURED` (third element). The tone stays `tempered` and the copy is unchanged here, because a higher-priority reason leads it. This was re-derived by the same leaf-by-leaf diff; it is the only non-volatile leaf that moved.
+
+**Ledger `audience` (2026-09-29, R3-B, AIQ #72 5884364585, DL 5884241382): HAND-EDITED, not re-recorded.** Every assumptions-ledger row now carries a typed `audience`. Both rows here are `plot_normaliser` diagnostics, so both are `"audience": "internal"`, and the ledger gains `"user_count": 0` and `"user_high_impact_count": 0`. The diff is exactly those four leaves (+7/−3 lines). The CONTROL test's full-body equality is the proof.

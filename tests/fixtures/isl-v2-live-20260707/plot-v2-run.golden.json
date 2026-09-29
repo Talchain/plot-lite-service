@@ -770,7 +770,8 @@
           "to_value": 0.61,
           "reason": "Edge Tech Lead in Place → Technical Quality and Architecture has 61% chance of flipping decision",
           "impact": "high",
-          "impact_reason_code": "FRAGILE_EDGE"
+          "impact_reason_code": "FRAGILE_EDGE",
+          "audience": "user"
         },
         {
           "dedup_key": "isl_engine:flagged:edge:out_technical_quality->goal_productivity:switch_probability",
@@ -783,7 +784,8 @@
           "to_value": 0.569,
           "reason": "Edge Technical Quality and Architecture → Increase Team Productivity has 57% chance of flipping decision",
           "impact": "high",
-          "impact_reason_code": "FRAGILE_EDGE"
+          "impact_reason_code": "FRAGILE_EDGE",
+          "audience": "user"
         },
         {
           "dedup_key": "isl_engine:flagged:edge:fac_dev_headcount->risk_coordination:switch_probability",
@@ -796,7 +798,8 @@
           "to_value": 0.487,
           "reason": "Edge Developer Headcount Added → Team Coordination Overhead has 49% chance of flipping decision",
           "impact": "high",
-          "impact_reason_code": "FRAGILE_EDGE"
+          "impact_reason_code": "FRAGILE_EDGE",
+          "audience": "user"
         },
         {
           "dedup_key": "isl_engine:flagged:edge:fac_dev_headcount->out_technical_quality:switch_probability",
@@ -809,7 +812,8 @@
           "to_value": 0.375,
           "reason": "Edge Developer Headcount Added → Technical Quality and Architecture has 38% chance of flipping decision",
           "impact": "high",
-          "impact_reason_code": "FRAGILE_EDGE"
+          "impact_reason_code": "FRAGILE_EDGE",
+          "audience": "user"
         },
         {
           "dedup_key": "isl_engine:flagged:edge:risk_coordination->goal_productivity:switch_probability",
@@ -822,7 +826,8 @@
           "to_value": 0.307,
           "reason": "Edge Team Coordination Overhead → Increase Team Productivity has 31% chance of flipping decision",
           "impact": "high",
-          "impact_reason_code": "FRAGILE_EDGE"
+          "impact_reason_code": "FRAGILE_EDGE",
+          "audience": "user"
         },
         {
           "dedup_key": "isl_engine:flagged:edge:out_throughput->goal_productivity:switch_probability",
@@ -835,7 +840,8 @@
           "to_value": 0.281,
           "reason": "Edge Development Throughput → Increase Team Productivity has 28% chance of flipping decision",
           "impact": "high",
-          "impact_reason_code": "FRAGILE_EDGE"
+          "impact_reason_code": "FRAGILE_EDGE",
+          "audience": "user"
         },
         {
           "dedup_key": "isl_engine:flagged:node:fac_hiring_cost:confidence",
@@ -848,7 +854,8 @@
           "to_value": 0.44075,
           "reason": "Factor Hiring and Salary Cost has low confidence (44%)",
           "impact": "high",
-          "impact_reason_code": "HIGH_INFLUENCE_FACTOR"
+          "impact_reason_code": "HIGH_INFLUENCE_FACTOR",
+          "audience": "user"
         },
         {
           "dedup_key": "isl_engine:flagged:node:fac_team_maturity:confidence",
@@ -861,13 +868,16 @@
           "to_value": 0.44455,
           "reason": "Factor Team Technical Maturity has low confidence (44%)",
           "impact": "high",
-          "impact_reason_code": "HIGH_INFLUENCE_FACTOR"
+          "impact_reason_code": "HIGH_INFLUENCE_FACTOR",
+          "audience": "user"
         }
       ],
       "total_count": 8,
       "high_impact_count": 8,
       "medium_impact_count": 0,
-      "low_impact_count": 0
+      "low_impact_count": 0,
+      "user_count": 8,
+      "user_high_impact_count": 8
     },
     "thresholds_used": {
       "headline_clear_winner_delta": 0.2,
@@ -1576,7 +1586,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:503c9b221da9a82b"
+    "response_content_hash": "rch_v2:77413ad0529b8c66"
   },
   "meta": {
     "seed_used": "2034401427",

@@ -367,7 +367,8 @@
           "to_value": "null",
           "reason": "Non-canonical fields stripped before ISL: unit",
           "impact": "low",
-          "impact_reason_code": "STRUCTURAL_ONLY"
+          "impact_reason_code": "STRUCTURAL_ONLY",
+          "audience": "internal"
         },
         {
           "dedup_key": "plot_normaliser:normalised:global:unknown:constraint.value.gc_churn",
@@ -380,13 +381,16 @@
           "to_value": 0.1,
           "reason": "normalised range=[0,100] source=unit_percent",
           "impact": "low",
-          "impact_reason_code": "STRUCTURAL_ONLY"
+          "impact_reason_code": "STRUCTURAL_ONLY",
+          "audience": "internal"
         }
       ],
       "total_count": 2,
       "high_impact_count": 0,
       "medium_impact_count": 0,
-      "low_impact_count": 2
+      "low_impact_count": 2,
+      "user_count": 0,
+      "user_high_impact_count": 0
     },
     "thresholds_used": {
       "headline_clear_winner_delta": 0.2,

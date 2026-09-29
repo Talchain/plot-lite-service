@@ -317,11 +317,16 @@ export interface M1Coaching {
       reason: string;
       impact: 'high' | 'medium' | 'low';
       impact_reason_code: 'AFFECTS_WINNER' | 'HIGH_INFLUENCE_FACTOR' | 'FRAGILE_EDGE' | 'OUTCOME_MODIFIER' | 'STRUCTURAL_ONLY' | 'COSMETIC';
+      /** `user`: an assumption of this model the user can check; `internal`: a process diagnostic (see `ledgerAudience`). */
+      audience: 'user' | 'internal';
     }>;
     total_count: number;
     high_impact_count: number;
     medium_impact_count: number;
     low_impact_count: number;
+    /** `audience: 'user'` rows only: the counts a user-facing surface may show. */
+    user_count: number;
+    user_high_impact_count: number;
   };
 
   thresholds_used?: {

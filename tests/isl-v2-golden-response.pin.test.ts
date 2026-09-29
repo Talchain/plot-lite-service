@@ -671,6 +671,13 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //         UPDATE_GOLDEN diff is EXACTLY those two ledger entries leaving,
     //         the ledger counts (10→8, high 9→8, low 1→0), plus this hash;
     //         `response_hash` UNMOVED.)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:503c9b221da9a82b');
+    //  aud-   rch_v2:77413ad0529b8c66 (R3-B, AIQ #72 5884364585 / DL 5884241382:
+    //  ience  every ledger row carries a typed `audience`. All 8 rows here are
+    //  2026-  ISL fragile-edge switch_probability or measured non-lever node
+    //  09-29  confidence, so all are `user`. UPDATE_GOLDEN diff is EXACTLY the 8
+    //         `audience: "user"` fields, `user_count: 8`,
+    //         `user_high_impact_count: 8`, plus this hash; `response_hash`
+    //         UNMOVED.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:77413ad0529b8c66');
   });
 });
