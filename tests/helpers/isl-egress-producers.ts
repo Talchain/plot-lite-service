@@ -279,6 +279,22 @@ const OPTIONS: OptionV3[] = [
   { id: 'opt_b', label: 'Hold', interventions: { fac_headcount: { value: 0.2 } } },
 ] as unknown as OptionV3[];
 
+/**
+ * TEMPORAL step 2 (PLoT #424 → ISL #216): the option states a likely RANGE for the value it sets,
+ * carried in raw units with the node's affine map exactly as Phase 4a attaches it. Without this
+ * producer the pairing is blind to `options[].intervention_ranges` (the same defect class the
+ * 2.762 block below names). Raw frame 0–100: the point 0.8 is 80, and 64–100 has median 80.
+ */
+const OPTIONS_WITH_RANGE: OptionV3[] = [
+  {
+    id: 'opt_a', label: 'Hire', interventions: { fac_headcount: { value: 0.8 } },
+    intervention_ranges: {
+      fac_headcount: { low: 64, high: 100, meaning: 'likely_range', normalisation: { raw_at_zero: 0, raw_at_one: 100 } },
+    },
+  },
+  { id: 'opt_b', label: 'Hold', interventions: { fac_headcount: { value: 0.2 } } },
+] as unknown as OptionV3[];
+
 /** Golden-path constraints: `constraint_id` present, `weight` absent. */
 const CONSTRAINTS: GoalConstraint[] = [
   { constraint_id: 'c1', node_id: 'con_cost_cap', operator: '<=', value: 0.7, label: 'Cost cap' },
@@ -538,11 +554,11 @@ function buildV2UserStatedRangeRequest(): ISLRobustnessRequestV3 {
   return request;
 }
 
-function buildV2Request(constraints: GoalConstraint[]): ISLRobustnessRequestV3 {
+function buildV2Request(constraints: GoalConstraint[], options: OptionV3[] = OPTIONS): ISLRobustnessRequestV3 {
   const graph = buildGraph();
   const request = toISLRobustnessRequest(
     graph,
-    OPTIONS,
+    options,
     'goal_margin',
     'req_slice2_pairing',
     2000,
@@ -586,10 +602,10 @@ function enabledService(): ReturnType<typeof createISLService> {
   return createISLService();
 }
 
-async function runV2Base(constraints: GoalConstraint[]): Promise<EgressCapture[]> {
+async function runV2Base(constraints: GoalConstraint[], options: OptionV3[] = OPTIONS): Promise<EgressCapture[]> {
   await newClient().request({
     endpoint: '/api/v1/robustness/analyze/v2',
-    body: buildV2Request(constraints),
+    body: buildV2Request(constraints, options),
     requestId: 'req_slice2_pairing',
   });
   return takeCaptured();
@@ -683,6 +699,16 @@ export const PRODUCERS: ProducerSpec[] = [
     liveness: 'live',
     note: 'Same producer with a caller-supplied goal_constraints[].weight, so the second knownUndeclared exemption is observable rather than latent.',
     run: () => runV2Base(CONSTRAINTS_WITH_WEIGHT),
+  },
+  {
+    name: 'v2-run-intervention-ranges',
+    endpoint: '/api/v1/robustness/analyze/v2',
+    site: 'routes/v2/run.ts → islService.callAnalysisEndpoint (an option states a likely range; TEMPORAL step 2)',
+    liveness: 'live',
+    note:
+      'PLoT #424 forwards options[].intervention_ranges {low, high, meaning, normalisation}, declared by ISL #216 ' +
+      '(pinned here at 04836e20). Without this producer the key would be structurally unobservable to the gate.',
+    run: () => runV2Base(CONSTRAINTS, OPTIONS_WITH_RANGE),
   },
   {
     name: 'v2-run-goal-threshold-level',

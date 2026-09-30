@@ -21,9 +21,9 @@
   "isl": {
     "repo": "Talchain/Inference-Service-Layer",
     "ref": "staging",
-    "sha": "707a81628f30757195acdc24b11618aa51fb5212",
-    "committed_at": "2026-09-29T00:45:37Z",
-    "pinned_by": "R1 S4 (B) deliberate re-pin, 2026-09-29 (R3 SCIENCE for MG's PLoT #406, #72 5881478000): 56c35468 -> 707a8162, the served ISL with #209 (goal_threshold_strict) and #212 (AIQ tie band). It declares RobustnessRequestV2.goal_threshold_strict, which #406's egress sends; the 56c35468 pin predates it. The previous pinned_by note (R1 S3, 2026-09-28) is superseded; its history is in git."
+    "sha": "04836e20b0ba12f38417c17a12eeb91a0d05ccdd",
+    "committed_at": "2026-09-30T14:22:04Z",
+    "pinned_by": "TEMPORAL step 2 deliberate re-pin, 2026-09-30 (olumi-programme-docs #75; R3 5911436566, AIQ 5912321226, DL 5913196989): 707a8162 -> 04836e20, ISL staging with #216, which declares InterventionOption.intervention_ranges (TEMPORAL step 1). PLoT #424 sends it; the 707a8162 pin predates it. The previous pinned_by note (R1 S4) is superseded; its history is in git."
   },
   "runtime": {
     "python": "^3.11 (pyproject.toml:10)",
@@ -36,18 +36,18 @@
     "isl_openapi_json": {
       "vendored_as": "tests/fixtures/isl-pinned/isl-openapi.json",
       "upstream_path": "openapi.json",
-      "sha256": "1351b74bcbccafd58a378055709998050a1edd77a3a5d98376df8f1863fdaeb2",
+      "sha256": "e37cd9bb312ed79c59eab44fc6dce3ec90f6f892116f990709626352a18a1251",
       "what_it_is": "ISL's committed, MACHINE-GENERATED OpenAPI document (scripts/generate_openapi.py -> FastAPI app.openapi()). It is Pydantic's own description of the mounted request models, not a hand-written copy — which is why the pairing may consume it hermetically. ISL CI (.github/workflows/openapi-validation.yml) runs `generate_openapi.py --check` on every PR touching src/api, src/models, pyproject or the spec, so it cannot drift from the models without ISL going red.",
       "what_it_is_NOT": "It is not evidence about DEPLOYED ISL. It describes the app as built at this sha."
     }
   },
   "source_sha256": {
-    "_note": "The model + router files every claim in the pairing is derived from. The Python replay driver verifies each of these against the clone it is pointed at and REFUSES to run on a mismatch, so a transcript can never be produced from bytes other than these. Review S4: src/api/robustness.py is pinned too — the mounted_request_models handler cite names a LINE in it, and a hand-maintained line number in another repo drifts silently. It drifted again at this re-pin (2.749): analyze_robustness_v2 578 -> 579 -> 582, analyze_counterfactual 255 -> 263. RE-DERIVE every line cite in this file at each re-pin; never carry one forward. src/models/range_fit.py was ADDED to this list at the 2.749 re-pin: robustness_v2.py and response_v2.py now import UserStatedRange / RangeFitDisclosure from it (ROADMAP 2.720), so it is load-bearing for BOTH the request and the response closure — without an entry here it could change without the pin noticing, which is the exact hole this list exists to close. R1 S3 re-pin (2026-09-28): the model import closure (robustness_v2 / requests / response_v2) re-derived at 56c35468 by an AST walk; 5 files ADDED because the closure now reaches them: src/models/identity_evaluation.py, src/models/node_level.py, src/models/structural_influence.py, src/utils/secure_logging.py, src/utils/tracing.py. Line cites re-derived: analyze_robustness_v2 582 -> 587; causal.py 263/164/1211, threshold.py:22 and main.py 771/777-794/792 unchanged.",
+    "_note": "The model + router files every claim in the pairing is derived from. The Python replay driver verifies each of these against the clone it is pointed at and REFUSES to run on a mismatch, so a transcript can never be produced from bytes other than these. Review S4: src/api/robustness.py is pinned too — the mounted_request_models handler cite names a LINE in it, and a hand-maintained line number in another repo drifts silently. It drifted again at this re-pin (2.749): analyze_robustness_v2 578 -> 579 -> 582, analyze_counterfactual 255 -> 263. RE-DERIVE every line cite in this file at each re-pin; never carry one forward. src/models/range_fit.py was ADDED to this list at the 2.749 re-pin: robustness_v2.py and response_v2.py now import UserStatedRange / RangeFitDisclosure from it (ROADMAP 2.720), so it is load-bearing for BOTH the request and the response closure — without an entry here it could change without the pin noticing, which is the exact hole this list exists to close. R1 S3 re-pin (2026-09-28): the model import closure (robustness_v2 / requests / response_v2) re-derived at 56c35468 by an AST walk; 5 files ADDED because the closure now reaches them: src/models/identity_evaluation.py, src/models/node_level.py, src/models/structural_influence.py, src/utils/secure_logging.py, src/utils/tracing.py. Line cites re-derived: analyze_robustness_v2 582 -> 587; causal.py 263/164/1211, threshold.py:22 and main.py 771/777-794/792 unchanged. TEMPORAL step 2 re-pin (2026-09-30, 707a8162 -> 04836e20): the import closure is unchanged (#216 adds no model imports); 4 files changed bytes: src/api/robustness.py, src/models/response_v2.py, src/models/robustness_v2.py, src/models/structural_influence.py. Line cites re-derived: analyze_robustness_v2 587 -> 588; main.py include 771 -> 772; causal.py 263/164/1211, threshold.py:22 and main.py 777-794/792 unchanged.",
     "src/api/main.py": "bc600d5cca3a888ebe580ad36e225449e15de0f3d0e6f56263cb52e23f2ba800",
-    "src/models/robustness_v2.py": "19e7d7e6c51870e5aeed88d115f1419173f2798ef249025caa88703451a62880",
+    "src/models/robustness_v2.py": "44bd1373aaf14108a61ac8505f43f48c95b03cf8b713085d1271dd1dc645e054",
     "src/models/range_fit.py": "a3bf7e6052a9facee579ee4c967b80a1c430244f539a0c48c1f00ea528ce76bd",
     "src/models/requests.py": "e652db133fd5985cc25cb42d4fd6b8d59554f4c291d87a622df30b323cc0c0ba",
-    "src/models/response_v2.py": "7e51256973c228a2984d925fc129558aa16bc49e8ad3c1bdebfe53e0f2c84c31",
+    "src/models/response_v2.py": "186915022c195ef6279f6bd5c7328f9920176234455222dd683242baf0311b58",
     "src/models/shared.py": "0e5014895ec203375646dea9db8f035f05a625e86eec340c713195ebf0e7b812",
     "src/models/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "src/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -57,10 +57,10 @@
     "src/utils/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "src/utils/correlation.py": "e8845552739dd174fbead62d72dccb128ffac0c1e4b1ebcbfbbc95b1cd2927d4",
     "src/utils/security_validators.py": "0cdcb577701bfff50057e4df863d34199613a3595df017d1256b8069f14e1211",
-    "src/api/robustness.py": "40be05e8ea40c5225d0a2fe60fe975562c9ccf5f8fe3cd5b6016a98ea66bf962",
+    "src/api/robustness.py": "f5e9067c732dac08b4a3f85ab9a2d0c256b18b466692cee543de0933ff51bfd1",
     "src/models/identity_evaluation.py": "ff67bfbe3ac68d8d35a3f8cdfd96a437605908900f22ed949c721e7f5d8e98cc",
     "src/models/node_level.py": "645f9c6b47c555c8706e4825ee0e97a5deb32f6803099f6077e817129d978f96",
-    "src/models/structural_influence.py": "04b47a32090d67a805c596f65785c79fdc36c68276bb5bdcc45195b3fa44182d",
+    "src/models/structural_influence.py": "842b1f80a50b699379a77986dee9d7f7a3ac97a5683031d22d5896cead8eecd1",
     "src/utils/secure_logging.py": "b12d637d0fc0dc8c9beb6610f4997597f614696cf8c06716113702bfca29ed5a",
     "src/utils/tracing.py": "7f8174efb74a1c9e777f62a849267617a22911c6c410000b9fb19df905d1921a"
   },
@@ -69,7 +69,7 @@
     "/api/v1/robustness/analyze/v2": {
       "model": "RobustnessRequestV2",
       "module": "src/models/robustness_v2.py",
-      "handler": "src/api/robustness.py:587 analyze_robustness_v2",
+      "handler": "src/api/robustness.py:588 analyze_robustness_v2",
       "extra_policy": "ignore on 13 of the 16 classes in the RobustnessRequestV2 tree at 56c35468 (explicit); EXCEPT ExecutionFrameV2 and NonlinearIdentityV2, which are extra='forbid' (an unknown key inside either is a 422, not a drop), and RawRange (R1 S2), whose extra is unset (pydantic default ignore: same runtime behaviour, not a declared contract). Derived by walking model_fields at runtime, 2026-09-28."
     },
     "/api/v1/causal/counterfactual": {
@@ -81,7 +81,7 @@
   },
   "unmounted_at_this_pin": {
     "_note": "Paths PLoT still sends to that src/api/main.py does NOT include_router at this sha (the include lines are present but commented out, 'Disabled for pilot', lines 777-794). Absent from the vendored openapi.json path list, independently — re-verified at the 2.749 re-pin: the OLD and NEW openapi path sets are IDENTICAL (10 paths), so this re-pin mounts nothing new and unmounts nothing. Re-verified at the R1 S3 re-pin (56c35468): the old and new openapi path sets are IDENTICAL (10 paths).",
-    "/api/v1/causal/validate": "@router.post at src/api/causal.py:164; `router` is never included (only `causal_counterfactual_router` is, src/api/main.py:771)",
+    "/api/v1/causal/validate": "@router.post at src/api/causal.py:164; `router` is never included (only `causal_counterfactual_router` is, src/api/main.py:772)",
     "/api/v1/causal/sensitivity/detailed": "@router.post at src/api/causal.py:1211; same unincluded router. WITHDRAWN under ROADMAP 2.704 at this sha — the handler answers 501 and computes nothing.",
     "/api/v1/analysis/thresholds": "src/api/threshold.py:22; threshold_router include commented at src/api/main.py:792"
   }
