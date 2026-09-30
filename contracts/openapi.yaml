@@ -5754,6 +5754,32 @@ components:
           type: object
           additionalProperties:
             $ref: '#/components/schemas/interventionValueV3'
+        intervention_ranges:
+          type: object
+          description: |
+            TEMPORAL step 2. Per node the option SETS, the user's stated range for that
+            value, in the same raw units as the point. Optional; absent by default. Each key
+            must also be in `interventions`, else 422 INVALID_INTERVENTION_RANGE. Forwarded to
+            ISL (quartiles of a lognormal for 'likely_range'); the node's frame is widened
+            above the range's fitted P99. A limit on the node is withheld for this option
+            (`range_limits_withheld`) unless ISL confirms it sampled the range.
+          additionalProperties:
+            type: object
+            required: [low, high, meaning]
+            properties:
+              low:
+                type: number
+                minimum: 0
+                exclusiveMinimum: true
+                description: Stated good case (raw units).
+              high:
+                type: number
+                description: Stated bad case (raw units, > low).
+              meaning:
+                type: string
+                minLength: 1
+                maxLength: 64
+                description: What the user's words say the range is. ISL samples only 'likely_range'.
 
     interventionValueV3:
       type: object
@@ -6119,6 +6145,23 @@ components:
                       cvar_10/p05. `>= 0` by construction, and a genuine `0` for
                       an option that wins every draw (a measured zero, not an
                       absence).
+              range_limits_withheld:
+                type: array
+                description: |
+                  TEMPORAL step 2, fail closed. Limits whose probability (and this option's
+                  joint) were withheld because the option stated a range for the limit's node
+                  and ISL did not confirm sampling it. Absent when nothing was withheld.
+                items:
+                  type: object
+                  required: [constraint_id, node_id, reason]
+                  properties:
+                    constraint_id:
+                      type: string
+                    node_id:
+                      type: string
+                    reason:
+                      type: string
+                      enum: [range_not_sampled, range_reading_mismatch]
               constraint_margins:
                 type: array
                 description: |

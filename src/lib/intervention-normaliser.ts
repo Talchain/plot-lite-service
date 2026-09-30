@@ -15,6 +15,7 @@
 
 import type { EngineNodeV3, OptionV3, InterventionValueV3, RepairRecord, ConstraintLevelDomain, WithheldOptionRecord } from '../types/engine-v3.js';
 import { finiteNum } from '../util/numeric.js';
+import { interventionRangeP99, type InterventionRangeV3 } from './intervention-range.js';
 import {
   PERCENT_UNIT_TOKENS,
   canonicaliseUnit,
@@ -624,11 +625,23 @@ function collectInterventionValues(options: OptionV3[]): Map<string, number[]> {
     for (const [factorId, intervention] of Object.entries(option.interventions)) {
       const existing = valuesByFactor.get(factorId) ?? [];
       existing.push(intervention.value);
+      pushRangeCeiling(existing, option, factorId);
       valuesByFactor.set(factorId, existing);
     }
   }
 
   return valuesByFactor;
+}
+
+/**
+ * TEMPORAL step 2, R3 #75 5911436566 (3): NEVER TRUNCATE. When an option states a range for a
+ * value it sets, that range's fitted P99 joins the values the node's frame is derived from, so
+ * a spread-derived frame (min/max + 20% padding) sits strictly above it and the point, the range
+ * and the limit all share one affine map. Absent ranges push nothing: byte-identical.
+ */
+function pushRangeCeiling(values: number[], option: OptionV3, factorId: string): void {
+  const range = option.intervention_ranges?.[factorId];
+  if (range !== undefined) values.push(interventionRangeP99(range));
 }
 
 /**
@@ -725,6 +738,7 @@ function buildFallbackRanges(
       if (!context.factors.has(factorId)) {
         const existing = valuesByFactor.get(factorId) ?? [];
         existing.push(intervention.value);
+        pushRangeCeiling(existing, option, factorId);
         valuesByFactor.set(factorId, existing);
       }
     }
@@ -923,11 +937,28 @@ export function normaliseOptions(
       }
     }
 
-    return {
+    const normalisedOption: OptionV3 = {
       id: option.id,
       label: option.label,
       interventions: normalisedInterventions,
     };
+    // TEMPORAL step 2: the range stays in RAW units and carries the node's affine map — the SAME
+    // `range` object the point was normalised with above. A zero-width map cannot carry a range
+    // honestly, so that range is not forwarded; ISL then cannot echo it and PLoT withholds the
+    // limit (fail closed), never scoring it at the point.
+    if (option.intervention_ranges !== undefined) {
+      const carried: Record<string, InterventionRangeV3> = {};
+      for (const [factorId, stated] of Object.entries(option.intervention_ranges)) {
+        const factorContext = context.factors.get(factorId);
+        const range: NormalisationRange = factorContext
+          ? factorContext.range
+          : fallbackRanges.get(factorId) ?? { min: 0, max: 1, source: 'default' };
+        if (!(range.max > range.min)) continue;
+        carried[factorId] = { ...stated, normalisation: { raw_at_zero: range.min, raw_at_one: range.max } };
+      }
+      if (Object.keys(carried).length > 0) normalisedOption.intervention_ranges = carried;
+    }
+    return normalisedOption;
   });
 
   // Build repair records from transforms (one per factor)

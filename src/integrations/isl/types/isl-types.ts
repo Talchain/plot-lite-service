@@ -1020,6 +1020,19 @@ export interface ISLOptionComparisonResult {
   /** Per-option constraint analysis (present when goal_constraints sent) */
   constraint_analysis?: ISLConstraintAnalysis;
   /**
+   * TEMPORAL step 2 (ISL #216): the stated ranges ISL SAMPLED to score this option's own limits.
+   * Present iff a limit row was scored from a range. PLoT withholds any limit on a node it sent a
+   * range for and does not find here (an older ISL drops the request field silently).
+   */
+  sampled_intervention_ranges?: Array<{
+    node_id: string;
+    meaning: string;
+    family: string;
+    coverage: number;
+    low: number;
+    high: number;
+  }>;
+  /**
    * Per-option downside / tail-risk block (ISL `DownsideV2`, B2 — #91/#92,
    * hardened by #124/#125). ABSENT (key omitted, never `null`) when ISL could
    * not compute all three components honestly.
