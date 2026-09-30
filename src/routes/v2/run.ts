@@ -86,7 +86,7 @@ import { compileConstraintNodes } from '../../normalisation/constraint-compiler.
 import { filterTemporalConstraints } from '../../normalisation/constraint-filter.js';
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
-import type { RawGoalConstraint, InternalMetadata } from '../../types/engine-v3.js';
+import type { RawGoalConstraint, InternalMetadata, RangeLimitWithheld } from '../../types/engine-v3.js';
 import { withdrawInferredUnevaluatedIdentities, attachIdentityExecutionFrames, goalCarrierIds, attachChangeFrameRawRanges, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, correlatedFactorIdsOf, zeroFactorsHeldExact, zeroFactorHeldWarnings, exactInputOptionIds, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
@@ -202,6 +202,7 @@ import { deriveConfidenceTier, reconcileConfidenceTier } from '../../trust/confi
 import { detectDominantFactor } from '../../trust/factor-dominance.js';
 import type { IdentifiabilityAssessment } from '../../types/engine-v3.js';
 import { readInterventionValue } from '../../lib/intervention-value.js';
+import { readInterventionRange, type InterventionRangeV3 } from '../../lib/intervention-range.js';
 import {
   normaliseOptionsForISL,
   denormaliseISLResult,
@@ -1466,13 +1467,69 @@ export function normalizeInterventions(
  * Normalize all options' interventions.
  */
 function normalizeOptions(
-  options: Array<{ id: string; label: string; interventions: Record<string, any> }>
+  options: Array<{ id: string; label: string; interventions: Record<string, any>; intervention_ranges?: unknown }>
 ): OptionV3[] {
-  return options.map(opt => ({
-    id: opt.id,
-    label: opt.label,
-    interventions: normalizeInterventions(opt.interventions),
-  }));
+  return options.map(opt => {
+    const normalised: OptionV3 = {
+      id: opt.id,
+      label: opt.label,
+      interventions: normalizeInterventions(opt.interventions),
+    };
+    // TEMPORAL step 2: carried ONLY when present, so an option without a range is
+    // byte-identical. The ingress guard above has already refused any malformed entry.
+    const ranges = readInterventionRanges(opt.intervention_ranges);
+    if (ranges !== undefined) normalised.intervention_ranges = ranges;
+    return normalised;
+  });
+}
+
+/**
+ * TEMPORAL step 2: the limits to withhold for ONE option because it stated a range for the
+ * limit's node and ISL did not echo sampling that node. Empty when the option stated no range,
+ * so every range-free request is byte-identical.
+ */
+function rangeLimitsWithheld(
+  option: OptionV3 | undefined,
+  islOption: { sampled_intervention_ranges?: Array<{ node_id: string }> } | undefined,
+  constraintAnalysis: { constraints?: unknown } | undefined,
+  goalConstraints: GoalConstraint[] | undefined,
+): RangeLimitWithheld[] {
+  const stated = option?.intervention_ranges;
+  if (stated === undefined || Object.keys(stated).length === 0) return [];
+  const echoed = new Set((islOption?.sampled_intervention_ranges ?? []).map((s) => s.node_id));
+  const missing = new Set(Object.keys(stated).filter((nodeId) => !echoed.has(nodeId)));
+  if (missing.size === 0) return [];
+  const rows = Array.isArray(constraintAnalysis?.constraints)
+    ? (constraintAnalysis!.constraints as ISLConstraintResult[])
+    : [];
+  const ids = resolveConstraintIds(rows, goalConstraints);
+  const out: RangeLimitWithheld[] = [];
+  rows.forEach((row, i) => {
+    if (!missing.has(row.node_id)) return;
+    out.push({
+      constraint_id: ids[i] ?? `${row.node_id}_${row.operator}`,
+      node_id: row.node_id,
+      reason: 'range_not_sampled',
+    });
+  });
+  return out;
+}
+
+/** The validated per-node ranges, or undefined when none were stated. */
+function readInterventionRanges(raw: unknown): Record<string, InterventionRangeV3> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<string, InterventionRangeV3> = {};
+  for (const nodeId of Object.keys(raw as Record<string, unknown>).sort()) {
+    const range = readInterventionRange((raw as Record<string, unknown>)[nodeId]);
+    if (range === undefined) {
+      throw new Error(
+        `normalizeOptions: malformed intervention range for node '${nodeId}' — ` +
+        'the Phase 1a++ ingress guard must refuse it before normalisation.',
+      );
+    }
+    out[nodeId] = range;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 // -----------------------------------------------------------------------------
@@ -3598,6 +3655,23 @@ function buildResponse(
         // per affected node further below.
         let deliveredProbs = constraintProbs;
         let deliveredMargins = constraintMargins;
+        // TEMPORAL step 2 — FAIL CLOSED per option: a limit on a node this option sent a range
+        // for, which ISL did not confirm sampling, would be scored at the option's point.
+        const rangeWithheld = rangeLimitsWithheld(option, r, constraintAnalysis, goalConstraints);
+        if (rangeWithheld.length > 0) {
+          const withheldIds = new Set(rangeWithheld.map((w) => w.constraint_id));
+          if (deliveredProbs !== undefined) {
+            const kept = Object.entries(deliveredProbs).filter(([id]) => !withheldIds.has(id));
+            deliveredProbs = kept.length > 0 ? Object.fromEntries(kept) : undefined;
+          }
+          deliveredMargins = deliveredMargins?.filter((m) => !withheldIds.has(m.constraint_id));
+          result.range_limits_withheld = rangeWithheld;
+          logger?.warn({
+            event: 'constraint_probability_withheld_range_not_sampled',
+            option_id: optionId,
+            constraint_ids: [...withheldIds],
+          });
+        }
         if (suppressConstraintProbabilities) {
           logger?.warn({
             event: 'constraint_probability_suppressed',
@@ -3613,7 +3687,7 @@ function buildResponse(
           deliveredMargins = constraintMargins?.filter((m) => !suppressedConstraintIds.has(m.constraint_id));
         }
         // B5: "all your limits met" only when EVERY limit is scored.
-        if (jointProb !== undefined && unscoredConstraintIds.length === 0) {
+        if (jointProb !== undefined && unscoredConstraintIds.length === 0 && rangeWithheld.length === 0) {
           result.probability_of_joint_goal = jointProb;
         } else if (jointProb !== undefined) {
           logger?.warn({
@@ -5996,6 +6070,42 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                   source: 'validation',
                   affected_option_ids: [optionId],
                   affected_node_ids: [factorKey],
+                  blocks_analysis: true,
+                }],
+                body.graph,
+                body.options,
+                requestId,
+                requestComputedAt,
+              ));
+            }
+          }
+          // TEMPORAL step 2: a stated range must be well formed AND sit on a node the option
+          // sets. A malformed range is refused here, never forwarded half-formed and never
+          // dropped silently (a drop would score the option at its point: a false 100% / 0%).
+          for (const option of body.options) {
+            const ranges = (option as { intervention_ranges?: unknown })?.intervention_ranges;
+            if (ranges === undefined) continue;
+            const optionId = String((option as { id?: unknown })?.id ?? '');
+            const interventions = (option as { interventions?: Record<string, unknown> })?.interventions ?? {};
+            const entries = ranges && typeof ranges === 'object' && !Array.isArray(ranges)
+              ? Object.entries(ranges as Record<string, unknown>)
+              : [['', ranges] as [string, unknown]];
+            for (const [nodeKey, raw] of entries) {
+              const valid = nodeKey !== '' && readInterventionRange(raw) !== undefined;
+              const setsNode = nodeKey !== '' && Object.prototype.hasOwnProperty.call(interventions, nodeKey);
+              if (valid && setsNode) continue;
+              return reply.status(422).send(buildBlockedResponse(
+                `Invalid intervention range: options[id=${optionId}].intervention_ranges['${nodeKey}']`,
+                [{
+                  id: randomUUID(),
+                  code: 'INVALID_INTERVENTION_RANGE',
+                  severity: 'blocker',
+                  message: setsNode || nodeKey === ''
+                    ? `Option '${optionId}' has an invalid range for node '${nodeKey}'. It needs finite numbers 0 < low < high and a stated meaning.`
+                    : `Option '${optionId}' states a range for node '${nodeKey}', which it does not set in its interventions.`,
+                  source: 'validation',
+                  affected_option_ids: [optionId],
+                  affected_node_ids: nodeKey === '' ? [] : [nodeKey],
                   blocks_analysis: true,
                 }],
                 body.graph,

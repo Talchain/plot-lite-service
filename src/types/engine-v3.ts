@@ -7,6 +7,8 @@
  * @see Integration Alignment Implementation Brief v1.1
  */
 
+import type { InterventionRangeV3 } from '../lib/intervention-range.js';
+
 // CIL Phase 1: Canonical types and constants from shared schema package
 import {
   LIMITS,
@@ -521,6 +523,13 @@ export interface OptionV3 {
    * REQUIRED and must be non-empty.
    */
   interventions: Record<string, InterventionValueV3>;
+  /**
+   * TEMPORAL step 2: per node the option SETS, the user's stated range for that value, in the
+   * same raw units as the point. Optional and absent by default; a request without it is
+   * byte-identical. Forwarded to ISL, which samples it for this option's own limit on that node
+   * and echoes `sampled_intervention_ranges`; without the echo the limit is withheld.
+   */
+  intervention_ranges?: Record<string, InterventionRangeV3>;
 }
 
 // -----------------------------------------------------------------------------
@@ -2307,6 +2316,13 @@ export interface DownsideStatsV3 {
 /**
  * Per-option comparison result.
  */
+/** TEMPORAL step 2: one limit withheld for one option because its stated range was not sampled. */
+export interface RangeLimitWithheld {
+  constraint_id: string;
+  node_id: string;
+  reason: 'range_not_sampled';
+}
+
 export interface OptionComparisonResultV3 {
   option_id: string;
   option_label: string;
@@ -2398,6 +2414,14 @@ export interface OptionComparisonResultV3 {
    * gate as constraint_probabilities).
    */
   constraint_margins?: ConstraintMargin[];
+
+  /**
+   * TEMPORAL step 2 — FAIL CLOSED. The limits whose probability (and this option's joint) PLoT
+   * withheld because the option stated a range for the limit's node and ISL did not confirm
+   * sampling it (`sampled_intervention_ranges`). Scoring such a limit would read the option's
+   * single point: a false 100% / 0%. Absent when nothing was withheld for this reason.
+   */
+  range_limits_withheld?: RangeLimitWithheld[];
 
   /**
    * Producer-owned trust marker (A3): AND over the `decision_grade` of the

@@ -506,6 +506,20 @@ export interface ISLOptionV3 {
   id: string;
   label?: string;
   interventions: Record<string, number>;
+  /**
+   * TEMPORAL step 2 (ISL #216 `InterventionOption.intervention_ranges`): per node the option
+   * sets, the stated range in RAW units + its meaning + the node's affine map. Present only when
+   * stated; ISL samples it for this option's own limit on that node and echoes
+   * `sampled_intervention_ranges`.
+   */
+  intervention_ranges?: Record<string, ISLInterventionRange>;
+}
+
+export interface ISLInterventionRange {
+  low: number;
+  high: number;
+  meaning: string;
+  normalisation?: { raw_at_zero: number; raw_at_one: number };
 }
 
 /**
@@ -1156,11 +1170,22 @@ export function toISLInterventions(
  * Translate internal option to ISL format.
  */
 export function toISLOption(option: OptionV3): ISLOptionV3 {
-  return {
+  const islOption: ISLOptionV3 = {
     id: option.id,
     label: option.label,
     interventions: toISLInterventions(option.interventions),
   };
+  if (option.intervention_ranges !== undefined && Object.keys(option.intervention_ranges).length > 0) {
+    islOption.intervention_ranges = Object.fromEntries(
+      Object.keys(option.intervention_ranges).sort().map((nodeId) => {
+        const r = option.intervention_ranges![nodeId];
+        const forwarded: ISLInterventionRange = { low: r.low, high: r.high, meaning: r.meaning };
+        if (r.normalisation !== undefined) forwarded.normalisation = { ...r.normalisation };
+        return [nodeId, forwarded];
+      }),
+    );
+  }
+  return islOption;
 }
 
 /**
