@@ -29,6 +29,8 @@ import type { FastifyInstance } from 'fastify';
 let capturedISLRequestBody: any = null;
 /** When false, the mock behaves like an ISL that silently drops the field (no echo). */
 let islEchoesRanges = true;
+/** The coverage the mock ISL echoes (ISL's RATIFIED_COVERAGE is 0.5). */
+let islEchoCoverage = 0.5;
 
 const PROB: Record<string, number> = { opt_liftshift: 0.628, opt_phased: 0.905, opt_booked: 0.0 };
 
@@ -63,7 +65,7 @@ const mockISLService = {
             ...(islEchoesRanges && ranged.length > 0
               ? {
                   sampled_intervention_ranges: ranged.map(([nodeId, r]: [string, any]) => ({
-                    node_id: nodeId, meaning: r.meaning, family: 'lognormal', coverage: 0.5, low: r.low, high: r.high,
+                    node_id: nodeId, meaning: r.meaning, family: 'lognormal', coverage: islEchoCoverage, low: r.low, high: r.high,
                   })),
                 }
               : {}),
@@ -242,6 +244,20 @@ describe('TEMPORAL step 2 — PLoT forwards per-option duration ranges and fails
     expect(served(json, 'opt_booked').constraint_probabilities?.gc_downtime).toBe(0);
     expect(served(json, 'opt_booked').range_limits_withheld).toBeUndefined();
     islEchoesRanges = true;
+  });
+
+  it('F5b: an echo read at another coverage than the frame was widened for is withheld (R3 on #424)', async () => {
+    islEchoesRanges = true;
+    islEchoCoverage = 0.8;
+    const { json } = await run(body());
+    const row = served(json, 'opt_liftshift');
+    expect(row.constraint_probabilities?.gc_downtime).toBeUndefined();
+    expect(row.probability_of_joint_goal).toBeUndefined();
+    expect(row.range_limits_withheld).toEqual([
+      { constraint_id: 'gc_downtime', node_id: 'fac_downtime', reason: 'range_reading_mismatch' },
+    ]);
+    expect(served(json, 'opt_booked').constraint_probabilities?.gc_downtime).toBe(0);
+    islEchoCoverage = 0.5;
   });
 
   it.each([

@@ -44,7 +44,14 @@ export function readInterventionRange(raw: unknown): InterventionRangeV3 | undef
   return { low, high, meaning };
 }
 
-// Standard-normal quantiles. The stated bounds are the fitted QUARTILES (ISL RATIFIED_COVERAGE 0.5).
+/**
+ * The reading PLoT's frame widening assumes: the stated bounds are the fitted QUARTILES (ISL
+ * `RATIFIED_COVERAGE` 0.5, R3 #75 5909972020). ISL echoes the coverage it used; a mismatch means
+ * the frame may not sit above that reading's P99, so the limit is withheld (R3 on #424).
+ */
+export const INTERVENTION_RANGE_COVERAGE = 0.5;
+
+// Standard-normal quantiles for that coverage (z at 0.75) and for the P99.
 const Z75 = 0.6744897501960817;
 const Z99 = 2.3263478740408408;
 

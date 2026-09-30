@@ -202,7 +202,11 @@ import { deriveConfidenceTier, reconcileConfidenceTier } from '../../trust/confi
 import { detectDominantFactor } from '../../trust/factor-dominance.js';
 import type { IdentifiabilityAssessment } from '../../types/engine-v3.js';
 import { readInterventionValue } from '../../lib/intervention-value.js';
-import { readInterventionRange, type InterventionRangeV3 } from '../../lib/intervention-range.js';
+import {
+  INTERVENTION_RANGE_COVERAGE,
+  readInterventionRange,
+  type InterventionRangeV3,
+} from '../../lib/intervention-range.js';
 import {
   normaliseOptionsForISL,
   denormaliseISLResult,
@@ -1490,26 +1494,36 @@ function normalizeOptions(
  */
 function rangeLimitsWithheld(
   option: OptionV3 | undefined,
-  islOption: { sampled_intervention_ranges?: Array<{ node_id: string }> } | undefined,
+  islOption: { sampled_intervention_ranges?: Array<{ node_id: string; coverage?: number }> } | undefined,
   constraintAnalysis: { constraints?: unknown } | undefined,
   goalConstraints: GoalConstraint[] | undefined,
 ): RangeLimitWithheld[] {
   const stated = option?.intervention_ranges;
   if (stated === undefined || Object.keys(stated).length === 0) return [];
-  const echoed = new Set((islOption?.sampled_intervention_ranges ?? []).map((s) => s.node_id));
-  const missing = new Set(Object.keys(stated).filter((nodeId) => !echoed.has(nodeId)));
-  if (missing.size === 0) return [];
+  const echoedCoverage = new Map(
+    (islOption?.sampled_intervention_ranges ?? []).map((s) => [s.node_id, s.coverage] as const),
+  );
+  // Fail closed on either: no echo, or an echo read at a coverage the frame was not widened for.
+  const reasonByNode = new Map<string, RangeLimitWithheld['reason']>();
+  for (const nodeId of Object.keys(stated)) {
+    if (!echoedCoverage.has(nodeId)) reasonByNode.set(nodeId, 'range_not_sampled');
+    else if (echoedCoverage.get(nodeId) !== INTERVENTION_RANGE_COVERAGE) {
+      reasonByNode.set(nodeId, 'range_reading_mismatch');
+    }
+  }
+  if (reasonByNode.size === 0) return [];
   const rows = Array.isArray(constraintAnalysis?.constraints)
     ? (constraintAnalysis!.constraints as ISLConstraintResult[])
     : [];
   const ids = resolveConstraintIds(rows, goalConstraints);
   const out: RangeLimitWithheld[] = [];
   rows.forEach((row, i) => {
-    if (!missing.has(row.node_id)) return;
+    const reason = reasonByNode.get(row.node_id);
+    if (reason === undefined) return;
     out.push({
       constraint_id: ids[i] ?? `${row.node_id}_${row.operator}`,
       node_id: row.node_id,
-      reason: 'range_not_sampled',
+      reason,
     });
   });
   return out;

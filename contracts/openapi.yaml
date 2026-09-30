@@ -6161,7 +6161,7 @@ components:
                       type: string
                     reason:
                       type: string
-                      enum: [range_not_sampled]
+                      enum: [range_not_sampled, range_reading_mismatch]
               constraint_margins:
                 type: array
                 description: |

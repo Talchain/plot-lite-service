@@ -2320,7 +2320,11 @@ export interface DownsideStatsV3 {
 export interface RangeLimitWithheld {
   constraint_id: string;
   node_id: string;
-  reason: 'range_not_sampled';
+  /**
+   * range_not_sampled: ISL did not echo the range. range_reading_mismatch: ISL echoed a coverage
+   * other than the one PLoT widened the frame for, so the frame may not cover that reading.
+   */
+  reason: 'range_not_sampled' | 'range_reading_mismatch';
 }
 
 export interface OptionComparisonResultV3 {
