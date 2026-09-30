@@ -288,6 +288,29 @@ describe('TEMPORAL step 2 — PLoT forwards per-option duration ranges and fails
     }
   });
 
+  it('F5f (P0 PARTNER re-verdict (c)): the same two carriers stay closed under range_reading_mismatch', async () => {
+    islEchoesRanges = true;
+    islEchoCoverage = 0.8;
+    const saved = PROB;
+    try {
+      for (const withheld of [
+        { opt_liftshift: 0.62813, opt_phased: 0.90517 },
+        { opt_liftshift: 0.01371, opt_phased: 0.01729 },
+      ]) {
+        PROB = { ...saved, ...withheld };
+        const { json } = await run(body());
+        const text = JSON.stringify(json);
+        for (const v of Object.values(withheld)) expect(text, `withheld ${v} leaked`).not.toContain(String(v));
+        expect(text).not.toContain('GOAL_FEASIBILITY_LOW');
+        expect((json.constraint_results ?? []).map((c: any) => c.constraint_id)).not.toContain('gc_downtime');
+        expect(served(json, 'opt_liftshift').range_limits_withheld?.[0]?.reason).toBe('range_reading_mismatch');
+      }
+    } finally {
+      PROB = saved;
+      islEchoCoverage = 0.5;
+    }
+  });
+
   it('F5e control: WITH the echo the sampled figures reach the top-level block', async () => {
     islEchoesRanges = true;
     const saved = PROB;
