@@ -32,7 +32,7 @@ let islEchoesRanges = true;
 /** The coverage the mock ISL echoes (ISL's RATIFIED_COVERAGE is 0.5). */
 let islEchoCoverage = 0.5;
 
-const PROB: Record<string, number> = { opt_liftshift: 0.628, opt_phased: 0.905, opt_booked: 0.0 };
+let PROB: Record<string, number> = { opt_liftshift: 0.628, opt_phased: 0.905, opt_booked: 0.0 };
 
 const mockISLService = {
   isEnabled(): boolean { return true; },
@@ -258,6 +258,48 @@ describe('TEMPORAL step 2 — PLoT forwards per-option duration ranges and fails
     ]);
     expect(served(json, 'opt_booked').constraint_probabilities?.gc_downtime).toBe(0);
     islEchoCoverage = 0.5;
+  });
+
+  it('F5c (P0 PARTNER on #424): the top-level block never carries a limit withheld for an option', async () => {
+    islEchoesRanges = false;
+    const { json } = await run(body());
+    expect((json.constraint_results ?? []).map((c: any) => c.constraint_id)).not.toContain('gc_downtime');
+    expect(json.constraints_status).toBe('unavailable');
+    islEchoesRanges = true;
+  });
+
+  it('F5d (P0 PARTNER on #424): a withheld figure reaches NO user-facing path — no feasibility claim from it', async () => {
+    islEchoesRanges = false;
+    const saved = PROB;
+    try {
+      for (const withheld of [
+        { opt_liftshift: 0.62813, opt_phased: 0.90517 },
+        { opt_liftshift: 0.01371, opt_phased: 0.01729 },
+      ]) {
+        PROB = { ...saved, ...withheld };
+        const { json } = await run(body());
+        const text = JSON.stringify(json);
+        for (const v of Object.values(withheld)) expect(text, `withheld ${v} leaked`).not.toContain(String(v));
+        expect(text).not.toContain('GOAL_FEASIBILITY_LOW');
+      }
+    } finally {
+      PROB = saved;
+      islEchoesRanges = true;
+    }
+  });
+
+  it('F5e control: WITH the echo the sampled figures reach the top-level block', async () => {
+    islEchoesRanges = true;
+    const saved = PROB;
+    PROB = { ...saved, opt_liftshift: 0.62813 };
+    try {
+      const { json } = await run(body());
+      const top = (json.constraint_results ?? []).find((c: any) => c.constraint_id === 'gc_downtime');
+      expect(top?.probability).toBe(0.62813);
+      expect(json.constraints_status).toBe('computed');
+    } finally {
+      PROB = saved;
+    }
   });
 
   it.each([

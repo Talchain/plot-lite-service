@@ -92,7 +92,12 @@ export function generateM1Coaching(
   // artefact, and FIX #1 already withholds the SAME number from the top-level
   // wire block — emitting GOAL_FEASIBILITY_LOW from it would contradict that
   // 'unavailable' verdict. Mirrors the wire gate's decision exactly.
-  constraintTargetDirectionSuspect?: boolean
+  constraintTargetDirectionSuspect?: boolean,
+  // TEMPORAL step 2 (P0 PARTNER on #424): TRUE when at least one option's joint was WITHHELD
+  // because its stated range was not sampled. That option's chance of meeting all limits is
+  // UNKNOWN, so "no option has a strong probability of meeting all stated constraints" cannot
+  // be claimed from the others: the gate abstains.
+  constraintJointUnknownForSomeOption?: boolean
 ): M1Coaching | null {
   const startTime = performance.now();
 
@@ -126,7 +131,8 @@ export function generateM1Coaching(
       goalConstraints &&
       goalConstraints.length > 0 &&
       !constraintTargetsUnreliable &&
-      !constraintTargetDirectionSuspect
+      !constraintTargetDirectionSuspect &&
+      !constraintJointUnknownForSomeOption
     ) {
       const jointProbGate = applyJointProbabilityGate(
         readiness, islResult, thresholds, modelCritiques
