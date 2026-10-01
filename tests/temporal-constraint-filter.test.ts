@@ -300,9 +300,10 @@ describe('filterTemporalConstraints', () => {
     expect(result.filtered).toHaveLength(2);
   });
 
-  // Edge case: value exactly 1.0 with temporal unit on goal node → NOT filtered
-  // (value must be > 1.0, not >= 1.0)
-  it('does not filter value=1.0 even with temporal unit on goal node', () => {
+  // Edge case: value exactly 1.0 with a temporal unit on a goal node. AMENDED (F1b D3, F5 5930871304): with NO declared
+  // scale it is filtered like 12 months (forwarded raw it read as 1.0 on the [0,1] score: trivially true); with a
+  // producer-declared scale (`goal_threshold_cap`) it is forwarded for the normaliser to scale.
+  it('value=1.0 with a temporal unit: filtered, with or without a declared cap (CODEX CR 5931449776)', () => {
     const constraints: RawGoalConstraint[] = [{
       constraint_id: 'c12',
       node_id: 'goal_mid_market_success',
@@ -310,9 +311,82 @@ describe('filterTemporalConstraints', () => {
       value: 1.0,
       unit: 'months',
     }];
-    const result = filterTemporalConstraints(constraints, ALL_NODES);
+    const bare = filterTemporalConstraints(constraints, ALL_NODES);
+    expect(bare.passed).toHaveLength(0);
+    expect(bare.filtered).toEqual([{ constraint_id: 'c12', node_id: 'goal_mid_market_success', reason: 'temporal_against_normalised_goal' }]);
+    const declared = filterTemporalConstraints(constraints, ALL_NODES, undefined, new Map([['goal_mid_market_success', { goal_threshold_cap: 12 }]]));
+    expect(declared.passed).toHaveLength(0);
+    expect(declared.filtered).toHaveLength(1);
+  });
+});
 
-    expect(result.passed).toHaveLength(1);
-    expect(result.filtered).toHaveLength(0);
+describe('F1b D3 (F5 5930871304): a temporal limit on a normalised node never flips on its value', () => {
+  const downtime = (value: number): RawGoalConstraint[] => [{ constraint_id: 'dt', node_id: 'outcome_retention', operator: '<=', value, unit: 'weeks' }];
+
+  it('RED: "≤ 1 week" and "≤ 2 weeks" on an outcome with no declared scale are filtered alike', () => {
+    for (const v of [2, 1, 0.5]) {
+      const r = filterTemporalConstraints(downtime(v), ALL_NODES);
+      expect(r.passed, `value ${v}`).toHaveLength(0);
+      expect(r.filtered, `value ${v}`).toEqual([{ constraint_id: 'dt', node_id: 'outcome_retention', reason: 'temporal_against_normalised_goal' }]);
+    }
+  });
+
+  it('RED (DL #427 condition + CODEX CR 5931449776): with a declared cap (12), 1, 2 and 24 weeks are ALL filtered alike', () => {
+    const declared = new Map([['outcome_retention', { goal_threshold_cap: 12 }]]);
+    for (const v of [24, 2, 1]) {
+      const r = filterTemporalConstraints(downtime(v), ALL_NODES, undefined, declared);
+      expect(r.passed, `value ${v}`).toHaveLength(0);
+      expect(r.filtered, `value ${v}`).toEqual([{ constraint_id: 'dt', node_id: 'outcome_retention', reason: 'temporal_against_normalised_goal' }]);
+    }
+  });
+
+  it('CONTROL: a non-temporal ≤ 1 limit on the same outcome is untouched', () => {
+    const r = filterTemporalConstraints([{ constraint_id: 'x', node_id: 'outcome_retention', operator: '<=', value: 1, unit: 'ratio' }], ALL_NODES);
+    expect(r.passed).toHaveLength(1);
+    expect(r.filtered).toHaveLength(0);
+  });
+
+  it('CONTROL: a temporal limit on a FACTOR (not normalised) is untouched', () => {
+    const r = filterTemporalConstraints([{ constraint_id: 'f', node_id: 'fac_customer_churn', operator: '<=', value: 1, unit: 'weeks' }], ALL_NODES);
+    expect(r.passed).toHaveLength(1);
+  });
+});
+
+/**
+ * ⛔ BY STRUCTURE, NOT A LIST (DL 5931936029 → 5932184568; CODEX 5931878824 + 5932134950): a duration is decided by the
+ * ONE unit table, trimmed + case-folded. The units PLoT really scores on a goal/outcome keep their meaning.
+ */
+describe('F1b D3 structure: every duration the unit table knows is dropped, at any value and any cap', () => {
+  const limit = (unit: string, value: number): RawGoalConstraint[] => [{ constraint_id: 'u', node_id: 'outcome_retention', operator: '<=', value, unit }];
+  const declared = new Map([['outcome_retention', { goal_threshold_cap: 12 }]]);
+  const DURATIONS = ['hour', 'hours', 'HOURS', 'minutes', 'minute', 'seconds', 'second', 'quarter', ' Weeks ', 'Days\t', 'YEAR'];
+
+  it('RED: every duration the table knows, padded or upper-cased → out of scope alike, at any value, with or without a cap', () => {
+    for (const unit of DURATIONS) {
+      for (const [v, meta] of [[1, undefined], [2, undefined], [1, declared], [24, declared]] as const) {
+        const r = filterTemporalConstraints(limit(unit, v), ALL_NODES, undefined, meta);
+        expect(r.passed, `${JSON.stringify(unit)} ${v} cap=${meta !== undefined}`).toHaveLength(0);
+        expect(r.filtered, `${JSON.stringify(unit)} ${v}`).toEqual([{ constraint_id: 'u', node_id: 'outcome_retention', reason: 'temporal_against_normalised_goal' }]);
+      }
+    }
+  });
+
+  it('CONTROL: no unit, ratio 1.1 (NRR above 110%), percent, fraction → forwarded with their existing meaning', () => {
+    for (const [unit, v] of [[undefined, 0.8], ['ratio', 1.1], ['%', 20], ['fraction', 0.3], ['probability', 0.5]] as const) {
+      const r = filterTemporalConstraints([{ constraint_id: 'u', node_id: 'outcome_retention', operator: '<=', value: v, ...(unit !== undefined ? { unit } : {}) }], ALL_NODES);
+      expect(r.passed, String(unit)).toHaveLength(1);
+      expect(r.filtered, String(unit)).toHaveLength(0);
+    }
+  });
+
+  it('CONTROL (CODEX 5932134950): a goal\'s own GBP / count target under a covering declared cap is forwarded, no warning', () => {
+    const goalCap = new Map([['goal_mid_market_success', { goal_threshold_cap: 100_000 }]]);
+    for (const unit of ['£', 'GBP', 'count']) {
+      const log = mockLogger();
+      const r = filterTemporalConstraints([{ constraint_id: 'g', node_id: 'goal_mid_market_success', operator: '>=', value: 85_000, unit }], ALL_NODES, log, goalCap);
+      expect(r.passed, unit).toHaveLength(1);
+      expect(r.filtered, unit).toHaveLength(0);
+      expect(r.warnings, unit).toHaveLength(0);
+    }
   });
 });
