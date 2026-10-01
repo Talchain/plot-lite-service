@@ -152,6 +152,6 @@ describe('/v2/run emits the ISL draw-structure key on every Run (no flag)', () =
     const res = await app.inject({ method: 'POST', url: '/v2/run', headers: { 'content-type': 'application/json' }, payload: body() });
     const json = JSON.parse(res.body) as Mut;
     expect(islBodies, 'precondition: ISL was asked once, and refused').toHaveLength(1);
-    expect(json._meta?.evidence?.isl_draw_structure_key ?? null).toBeNull();
+    expect(json._meta?.evidence?.isl_draw_structure_key).toBeUndefined();
   });
 });

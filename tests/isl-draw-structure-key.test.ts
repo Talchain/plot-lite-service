@@ -3,8 +3,9 @@
  *
  * CEE may say a rerun's movement was caused by the user's edit (`C1_attributable`) only when both Runs drew their samples
  * the same way, and it may only COMPARE two of these digests, never recompute them. So PLoT emits
- * `_meta.evidence.isl_draw_structure_key` ALWAYS (unlike `_meta.payloads`, gated by `UI_CANONICAL_META`), computed on the
- * exact body the ISL client sends.
+ * `_meta.evidence.isl_draw_structure_key` on every analysed Run (unlike `_meta.payloads`, gated by `UI_CANONICAL_META`),
+ * computed on the exact body the ISL client sends. With no analysed exchange the key is OMITTED (never `null`), so the
+ * byte-identity pins keep their bytes; CEE reads absent as unrecorded.
  *
  * The structural cases are CEE #2410's rows (R3 #75 5920859011; SCIENCE/DSK 5934059958), moved here with the authority.
  */
