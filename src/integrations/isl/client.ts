@@ -76,6 +76,12 @@ export interface ISLRequestResult<T> {
   data: T;
   /** Request ID echoed back by ISL in X-Request-Id response header */
   islEchoedRequestId: string | null;
+  /**
+   * M2 cause: the draw structure of the EXACT body this successful exchange sent (`lib/isl-draw-structure-key.ts`).
+   * Returned with the data so the caller binds it to the exchange that produced its result — never to an earlier
+   * failed attempt (PLoT #430 overflow P2: 503 → 200 retry).
+   */
+  drawStructureKey?: string | null;
 }
 
 /**
@@ -295,6 +301,7 @@ export class ISLClient {
         const responseData = JSON.parse(responseText) as T;
         const islEchoedRequestId = response.headers.get('x-request-id') ?? null;
         const responseHash = computeOlumiHash(responseData);
+        const drawStructureKey = islDrawStructureKey(body);
         recordDownstreamCall({
           service: 'isl',
           endpoint,
@@ -309,7 +316,7 @@ export class ISLClient {
           requestDigest,
           responseDigest: computePayloadDigest(responseText, responseData),
           // M2 cause: the draw structure of the exact body sent (one authority; CEE compares, never recomputes).
-          drawStructureKey: islDrawStructureKey(body),
+          drawStructureKey,
         });
 
         // ROADMAP 1.209: the ISL circuit breaker had ZERO writers until now, so
@@ -317,7 +324,7 @@ export class ISLClient {
         // something. This is the success half.
         recordIslSuccess();
 
-        return { data: responseData, islEchoedRequestId };
+        return { data: responseData, islEchoedRequestId, drawStructureKey };
       } catch (error) {
         // P1.1: Wrap errors in appropriate ISL error types
         let wrappedError: Error;

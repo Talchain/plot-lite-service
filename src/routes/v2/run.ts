@@ -1920,6 +1920,12 @@ interface MetaParams {
   /** Variant (b): inferred identities not forwarded to ISL (frameless) — _meta.identities_not_forwarded */
   identitiesNotForwarded?: import('../../integrations/isl/translator-v3.js').IdentityNotForwarded[];
   /**
+   * M2 cause: the draw-structure key of the request whose response IS the analysed result, bound where `islResult` is
+   * taken (never the first attempt: a 503 → 200 retry or a 422 identity-withdrawal re-ask sends a different exchange).
+   * `_meta.evidence.isl_draw_structure_key`; null when there is no successful primary exchange.
+   */
+  islDrawStructureKey?: string | null;
+  /**
    * PLoT #419 (AIQ #72 5889873087, one carrier): the goal identities not evaluated, decided ONCE by the route on the
    * graph and ISL answer it analysed — the same value gates M1 coaching, the M2 review and every published figure.
    * Absent only on paths that decide nothing earlier (then `buildResponse` decides it from its own inputs).
@@ -5191,7 +5197,8 @@ function buildResponse(
           isl_request_digest: primaryIslCall?.request_digest ?? null,
           isl_response_digest: primaryIslCall?.response_digest ?? null,
           // M2 cause (CEE #2410): always on, unlike `_meta.payloads` — the ONE authority on the request's draw structure.
-          isl_draw_structure_key: primaryIslCall?.draw_structure_key ?? null,
+          // Bound to the exchange that produced the result, not to `primaryIslCall` (the FIRST attempt, maybe a 503).
+          isl_draw_structure_key: meta.islDrawStructureKey ?? null,
           // Lane 29 (spec §2.1): wire-generation assertion result. Pure
           // re-assessment of the same envelope the boundary warning used
           // (denormalisation only rewrites option outcomes — the markers and
@@ -8506,6 +8513,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let islFallbackExecuted = false;
         let computedAt: string | undefined;
         let islEchoedRequestId: string | null = null;
+        // M2 cause: the draw-structure key of the exchange whose response becomes `islResult` (set with it, below).
+        let islResultDrawStructureKey: string | null = null;
         // Retryability from ISL response (service-computed, status-aware)
         let islResponseRetryable: boolean | undefined;
 
@@ -8619,6 +8628,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             islSuccess = true;
             islStatusCode = 200;
             islEchoedRequestId = response.isl_echoed_request_id ?? null;
+            islResultDrawStructureKey = response.isl_draw_structure_key ?? null;
             // Capture timestamp when ISL response received (before any PLoT processing).
             // The V2 wire carries this as top-level `timestamp` (the V1-era
             // `computed_at` is never emitted on V2 — verified live 2026-07-06,
@@ -10071,6 +10081,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             ],
             withheldOptions: withheldOptionRecords,
             identitiesNotForwarded,
+            islDrawStructureKey: islResultDrawStructureKey,
             goalIdentityWithheld,
             clampedEffects: clampedEffectsFound,
             identityDerivedFrames,

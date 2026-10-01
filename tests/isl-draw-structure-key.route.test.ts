@@ -8,6 +8,8 @@ import type { FastifyInstance } from 'fastify';
 import { createServer } from '../src/createServer.js';
 import { __setIslComputeAdmissionForTest } from '../src/integrations/isl/compute-admission.js';
 import { islDrawStructureKey } from '../src/lib/isl-draw-structure-key.js';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const ISL_HOST = 'https://isl-dsk.test.local';
 type Mut = Record<string, any>;
@@ -37,6 +39,8 @@ const body = (edit: (b: Mut) => void = () => {}): Mut => {
 };
 
 let islBodies: Mut[] = [];
+/** Answers for the next `/robustness/analyze` attempts, consumed in order; then the computed envelope (200). */
+let robustnessQueue: Array<{ status: number; body: unknown }> = [];
 function seedAdmission(): void {
   __setIslComputeAdmissionForTest({
     status: 'ok', skew: false,
@@ -63,7 +67,13 @@ describe('/v2/run emits the ISL draw-structure key on every Run (no flag)', () =
       if (String(url).includes('isl-dsk.test.local')) {
         let parsed: Mut = {};
         try { parsed = JSON.parse(init?.body ?? '{}'); } catch { /* ignore */ }
-        if (String(url).includes('/robustness/analyze')) islBodies.push(parsed);
+        if (String(url).includes('/robustness/analyze')) {
+          islBodies.push(parsed);
+          const queued = robustnessQueue.shift();
+          if (queued !== undefined) {
+            return new Response(JSON.stringify(queued.body), { status: queued.status, headers: { 'content-type': 'application/json' } });
+          }
+        }
         const envelope = {
           options: ((parsed.options as Mut[] | undefined) ?? []).map((opt, idx) => ({
             option_id: opt.option_id ?? opt.id, label: 'x', win_probability: idx === 0 ? 0.72 : 0.28,
@@ -86,7 +96,7 @@ describe('/v2/run emits the ISL draw-structure key on every Run (no flag)', () =
     await app?.close();
     for (const k of ['ISL_ENABLE', 'ISL_BASE_URL', 'ISL_API_KEY', 'RATE_LIMIT_ENABLED', 'CEE_ORCHESTRATOR_ENABLED']) delete process.env[k];
   });
-  beforeEach(() => { islBodies = []; seedAdmission(); });
+  beforeEach(() => { islBodies = []; robustnessQueue = []; seedAdmission(); });
 
   async function keyOf(payload: Mut): Promise<{ key: unknown; sent: Mut | undefined; meta: Mut }> {
     const res = await app.inject({ method: 'POST', url: '/v2/run', headers: { 'content-type': 'application/json' }, payload });
@@ -109,5 +119,39 @@ describe('/v2/run emits the ISL draw-structure key on every Run (no flag)', () =
     const addLink = (await keyOf(body((b) => { b.graph.edges.push({ from: 'fac_cost', to: 'fac_demand', exists_probability: 1, strength: { mean: 0.2, std: 0.1 } }); }))).key;
     expect(meanEdit).toBe(base);
     expect(addLink).not.toBe(base);
+  });
+  // ⛔ PLoT #430 overflow P2 (5935944093): the evidence was bound to the FIRST attempt (`primaryIslCall`), so a retry
+  // that succeeded emitted `null` (the failed attempt records no key). It is now the key of the exchange whose
+  // response IS the analysed result.
+  it('RED (P2): 503 then 200 on a retry — the key is the successful exchange\'s, never null', async () => {
+    robustnessQueue = [{ status: 503, body: { error: 'service_unavailable' } }];
+    const { key } = await keyOf(body());
+    expect(islBodies.length, 'precondition: ISL was asked twice (the 503, then the retry)').toBeGreaterThanOrEqual(2);
+    expect(key).toMatch(/^[0-9a-f]{64}$/);
+    expect(key).toBe(islDrawStructureKey(islBodies[1]));
+  });
+
+  it('RED (P2): 422 identity withdrawal then 200 — the key is the RE-ASKED request\'s (the identity withdrawn), not the first', async () => {
+    const a15 = JSON.parse(readFileSync(resolve(__dirname, 'fixtures/r3-intermediate-carrier-dl-a15.request.json'), 'utf8')) as Mut;
+    const parts = ['pro_plan_mrr', 'pro_plan_monthly_price', 'pro_paying_subscribers'];
+    robustnessQueue = [{ status: 422, body: { critiques: [{
+      id: 'crit-a15-inconsistent', code: 'IDENTITY_NOT_EVALUATED', severity: 'blocker', source: 'validation',
+      message: 'pro_plan_mrr cannot be computed exactly (identity_inconsistent)', affected_node_ids: parts,
+      identity: { node_id: 'pro_plan_mrr', operation: 'product', participants: parts.slice(1), withheld_reason: 'identity_inconsistent',
+        reconstructed: 50000, stated: 75000, mismatch_share: 0.3333 },
+    }] } }];
+    const { key, meta } = await keyOf(a15);
+    expect(islBodies.length, 'precondition: asked, refused (422), asked again once').toBeGreaterThanOrEqual(2);
+    expect((meta.identities_not_forwarded as Mut[] | undefined)?.map((w) => w.node_id), 'precondition: the withdrawal ran').toEqual(['pro_plan_mrr']);
+    expect(islDrawStructureKey(islBodies[1]), 'precondition: withdrawing the identity changes the draw structure').not.toBe(islDrawStructureKey(islBodies[0]));
+    expect(key).toBe(islDrawStructureKey(islBodies[1]));
+  });
+
+  it('CONTROL: no successful exchange (a 422 nothing can withdraw) — no key rides the failure envelope', async () => {
+    robustnessQueue = [{ status: 422, body: { critiques: [{ code: 'GRAPH_INVALID', severity: 'blocker', message: 'x' }] } }];
+    const res = await app.inject({ method: 'POST', url: '/v2/run', headers: { 'content-type': 'application/json' }, payload: body() });
+    const json = JSON.parse(res.body) as Mut;
+    expect(islBodies, 'precondition: ISL was asked once, and refused').toHaveLength(1);
+    expect(json._meta?.evidence?.isl_draw_structure_key ?? null).toBeNull();
   });
 });
