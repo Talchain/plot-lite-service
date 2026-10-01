@@ -70,6 +70,8 @@ export interface DownstreamCall {
   requestDigest?: PayloadDigest;
   /** Lane PLoT-R3 (2.13): digest of the exact response bytes received */
   responseDigest?: PayloadDigest;
+  /** M2 cause (CEE #2410): the request's ISL draw structure (`lib/isl-draw-structure-key.ts`), computed on the exact body */
+  drawStructureKey?: string | null;
   /** 2.13 gap D: request id the downstream service echoed back (x-request-id), null if absent */
   echoedRequestId?: string | null;
 }
@@ -328,6 +330,7 @@ export function getDownstreamCallsForLog(requestId: string): Array<{
   error_body?: string;
   request_digest?: PayloadDigest;
   response_digest?: PayloadDigest;
+  draw_structure_key?: string | null;
 }> {
   return getDownstreamCalls(requestId).map((call) => ({
     service: call.service,
@@ -345,6 +348,7 @@ export function getDownstreamCallsForLog(requestId: string): Array<{
     // Lane PLoT-R3 (2.13): additive digest passthrough for _meta.evidence
     ...(call.requestDigest && { request_digest: call.requestDigest }),
     ...(call.responseDigest && { response_digest: call.responseDigest }),
+    ...(call.drawStructureKey !== undefined && { draw_structure_key: call.drawStructureKey }),
   }));
 }
 

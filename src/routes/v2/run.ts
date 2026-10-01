@@ -5190,6 +5190,8 @@ function buildResponse(
           isl_build: typeof islResult?.build === 'string' ? islResult.build : null,
           isl_request_digest: primaryIslCall?.request_digest ?? null,
           isl_response_digest: primaryIslCall?.response_digest ?? null,
+          // M2 cause (CEE #2410): always on, unlike `_meta.payloads` — the ONE authority on the request's draw structure.
+          isl_draw_structure_key: primaryIslCall?.draw_structure_key ?? null,
           // Lane 29 (spec §2.1): wire-generation assertion result. Pure
           // re-assessment of the same envelope the boundary warning used
           // (denormalisation only rewrites option outcomes — the markers and

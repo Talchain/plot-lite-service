@@ -3763,6 +3763,12 @@ export interface EvidenceCaptureV1 {
   /** Digest of the exact response bytes ISL returned; null when unavailable */
   isl_response_digest: PayloadDigestV3 | null;
   /**
+   * M2 cause (CEE #2410; DL 5934513210): sha256 of the DRAW STRUCTURE of the primary ISL request
+   * (`lib/isl-draw-structure-key.ts`): equal on two Runs ⇔ ISL drew their samples the same way, so a shared seed pairs
+   * them. Opaque: CEE compares two of these for equality and never recomputes. null when ISL was not called.
+   */
+  isl_draw_structure_key?: string | null;
+  /**
    * Lane 29 (spec §2.1): result of the ISL wire-generation assertion —
    * true when the primary ISL response declared its version markers
    * (build / engine_version / version=2.x / timestamp) AND every applicable

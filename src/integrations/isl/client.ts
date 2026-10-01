@@ -14,6 +14,7 @@ import type { ISLHealthResponse } from './types/isl-types.js';
 import { computeOlumiHash } from '../../util/canonical.js';
 import { recordIslSuccess, recordIslFailure, shouldAllowIslCall } from '../isl-circuit-breaker.js';
 import { recordDownstreamCall, sanitizePayloadForDebug, computePayloadDigest } from '../../util/downstream-tracker.js';
+import { islDrawStructureKey } from '../../lib/isl-draw-structure-key.js';
 // ROADMAP 2.202: the backoff series now lives behind decideIslRetry (which
 // still derives it from islRetryBackoffMs — the single source is unchanged).
 import { ISL_TIMEOUT_MS, ISL_HEALTH_CHECK_TIMEOUT_MS, resolveIslMaxRetries } from '../../config/timeouts.js';
@@ -307,6 +308,8 @@ export class ISLClient {
           // Lane PLoT-R3 (2.13): digests of the exact bytes exchanged
           requestDigest,
           responseDigest: computePayloadDigest(responseText, responseData),
+          // M2 cause: the draw structure of the exact body sent (one authority; CEE compares, never recomputes).
+          drawStructureKey: islDrawStructureKey(body),
         });
 
         // ROADMAP 1.209: the ISL circuit breaker had ZERO writers until now, so
