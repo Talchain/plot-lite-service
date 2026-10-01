@@ -216,6 +216,7 @@ import {
   constraintsNeedNormalisation,
   isChangeFrame,
   constraintsHavePercentPointValue,
+  constraintsHaveDeclaredQuantityUnderCap,
   constraintsNeedPercentTargetFrame,
   collectScaleFrameByNodeId,
   isIdentityRange,
@@ -7887,7 +7888,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // "already normalised"), so its presence alone invokes the normaliser. Siblings are read
           // exactly as before: the gate itself ignores change frames (`constraintsNeedNormalisation`).
           const anyChangeFrame = activeGoalConstraints.some((c) => isChangeFrame(c.value_frame));
-          if (gateNeedsNorm || anyNonIdentityScale || anyPercentPointValue || anyPercentTargetFrame || anyChangeFrame) {
+          // F1b (DL 5932454064): a declared quantity under a declared cap ("≤ 1 points" under cap 12) reads on that cap
+          // at ANY value. Invocation only: the forward-raw rung asks the SAME predicate, and siblings keep their reading.
+          const anyDeclaredQuantityUnderCap = constraintsHaveDeclaredQuantityUnderCap(
+            activeGoalConstraints,
+            constraintUnitsByConstraintId,
+            goalThresholdMetaByNodeId,
+          );
+          if (gateNeedsNorm || anyNonIdentityScale || anyPercentPointValue || anyPercentTargetFrame || anyChangeFrame || anyDeclaredQuantityUnderCap) {
             const constraintNormResult = normaliseGoalConstraints(
               activeGoalConstraints,
               filteredGraph.nodes,
