@@ -282,6 +282,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "islSuppressedAttributions",
   "isl_analysis_status",
   "isl_build",
+  "isl_draw_structure_key",
   "isl_echoed",
   "isl_ms",
   "isl_request",

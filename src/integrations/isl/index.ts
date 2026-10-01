@@ -99,6 +99,8 @@ export interface ISLAnalysisResult<T> {
   latency_ms: number;
   /** Request ID echoed back by ISL (from X-Request-Id response header), if any */
   isl_echoed_request_id?: string | null;
+  /** M2 cause: the draw-structure key of the exact request whose response is `data` (null on failure). */
+  isl_draw_structure_key?: string | null;
 }
 
 /**
@@ -681,7 +683,7 @@ export function createISLService(): ISLService {
       const currentClient = new ISLClient(currentConfig);
 
       try {
-        const { data, islEchoedRequestId } = await currentClient.request<T>({
+        const { data, islEchoedRequestId, drawStructureKey } = await currentClient.request<T>({
           endpoint,
           body,
           requestId,
@@ -693,6 +695,7 @@ export function createISLService(): ISLService {
           data,
           latency_ms: Date.now() - startMs,
           isl_echoed_request_id: islEchoedRequestId,
+          isl_draw_structure_key: drawStructureKey ?? null,
         };
       } catch (error) {
         const err = error as Error;
