@@ -998,17 +998,23 @@ export function buildConstraintTargetUnreliableMessage(
     }
 
     // NON-ROOT ARM (and the unproved default). States the limit is recorded and
-    // was not scored, forecloses the remedy that cannot work, and prescribes
-    // nothing. Claim-safe on the same rules as every sibling: names the node,
-    // says what was and was not compared, never quotes the withheld probability.
+    // was not scored, and prescribes nothing. Claim-safe on the same rules as
+    // every sibling: names the node, says what was and was not compared, never
+    // quotes the withheld probability.
+    //
+    // ⛔ IT NO LONGER SAYS "setting a current value would not change that" (CEE F1b
+    // 52f8cd, B6p; Paul's 1 Oct test `96c6f5f4`, RCA D6). That was true before
+    // `isObservedBaselineLevelTarget`: a non-root LEVEL target is now anchored by
+    // `observed_state.baseline`, which CEE writes from the user's "today's level"
+    // (`level-limit-baseline.ts`). In one response CEE asked "What is quarterly
+    // revenue today?" while this sentence told the user it would not help:
+    // contradictory remedies. The action is CEE's ONE blocker list's to state.
     return (
       `The target on "${nodeLabel}" can't be scored against this model: "${nodeLabel}" is ` +
       `calculated from the factors feeding into it, so the analysis produces a modelled ` +
       `change for it, not a reading on the same scale as your target. ` +
       withheld +
-      `Setting a current value for "${nodeLabel}" would not change that — it is calculated ` +
-      `from its inputs, so it has no measured starting point of its own to anchor to. Your ` +
-      `limit is recorded and was left unscored rather than scored against the wrong number.`
+      `Your limit is recorded and was left unscored rather than scored against the wrong number.`
     );
   }
   const because = reasons.includes('target_base_defaulted')

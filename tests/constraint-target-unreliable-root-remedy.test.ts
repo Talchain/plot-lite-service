@@ -423,3 +423,11 @@ describe('WIRE — the CONSTRAINT_TARGET_UNRELIABLE sentence the user actually r
     expect(nonRoot.message).not.toContain(IMPOSSIBLE_REMEDY);
   });
 });
+
+describe('B6p (F1b, Paul 1 Oct D6): the non-root arm never contradicts the today\'s-level ask', () => {
+  it('RED: a non-root target\'s message no longer says a current value "would not change that"', () => {
+    const nonRoot = buildConstraintTargetUnreliableMessage('Quarterly revenue', ['sample_frame_unanchored'], undefined, false);
+    expect(nonRoot).not.toMatch(/would not change that|no measured starting point/);
+    expect(nonRoot).toContain('Your limit is recorded and was left unscored');
+  });
+});
