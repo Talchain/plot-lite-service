@@ -16,6 +16,11 @@
  * and stated ranges, factor correlations, and the analysis switches. NOT in the key: values that do not change what is
  * drawn (a strength mean or std off 0, a prior's bounds, an intervention level, the seed). Same definition as CEE #2410's
  * `islDrawStructureKey`, now owned here. `null` when the body is not an analysis request (no graph).
+ *
+ * ⛔ DEPENDS ON ISL (SCIENCE/DSK 5935983506; overflow P1 5935944093): "a mean or std does not change what is drawn" holds
+ * only once ISL samples synchronously (inverse-CDF truncated normal, the strength uniform drawn every iteration). With
+ * rejection sampling it does NOT, so this key must not license C1 until that ISL change is deployed (merge order: ISL →
+ * this PR → CEE #2410).
  */
 import { createHash } from 'node:crypto';
 
