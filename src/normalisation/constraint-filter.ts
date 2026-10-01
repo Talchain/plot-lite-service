@@ -118,25 +118,21 @@ export function filterTemporalConstraints(
       continue;
     }
 
-    // --- DROP RULE 2: probability-domain node + value > 1 + temporal unit ---
+    // --- DROP RULE 2: probability-domain node + temporal unit (any value, any cap) ---
     // Goal/outcome/risk scores are normalised to [0,1]. A constraint like
     // "goal_X <= 12 months" produces P(goal_score <= 12) = 1.0 trivially.
     // Only drop when ALL three conditions are met — value > 1 alone is legitimate
     // (e.g., NRR above 110% = value 1.1).
     const isTemporalUnit = typeof unit === 'string' && TEMPORAL_UNITS.has(unit.toLowerCase());
     const isProbabilityNode = PROBABILITY_DOMAIN_KINDS.has(nodeKind);
-    // ⛔ THE VALUE NEVER DECIDES (F1b D3, CEE 52f8cd; F5 5930871304; DL condition on #427 5931024377). "Migration
-    // downtime ≤ 1 week" on an outcome with no cap was forwarded RAW as 1.0 on the [0,1] score — a trivially true limit —
-    // while "≤ 2 weeks" on the same node was dropped here: one week flipped the run's limit reason and its leader verdict.
-    // A time unit is a reading of the normalised node ONLY on a producer-declared scale (CEE's `goal_threshold_cap`) the
-    // value lies within — then the normaliser scales it, at any value (the same in-domain test as the safety gate below).
-    // Otherwise it is dropped, at any value.
-    const scaledInDomain = (() => {
-      const cap = goalThresholdMetaByNodeId?.get(node_id)?.goal_threshold_cap;
-      return typeof cap === 'number' && Number.isFinite(cap) && cap > 0 && value >= 0 && value <= cap;
-    })();
-
-    if (isProbabilityNode && isTemporalUnit && !scaledInDomain) {
+    // ⛔ THE VALUE NEVER DECIDES, AND NEITHER DOES A CAP (F1b D3, CEE 52f8cd; F5 5930871304; DL 5931024377; CODEX CR
+    // 5931449776). "Migration downtime ≤ 1 week" on an outcome was forwarded RAW as 1.0 on the [0,1] score — trivially
+    // true — while "≤ 2 weeks" was dropped here: one week flipped the run's limit reason and its leader verdict. A declared
+    // `goal_threshold_cap` does not rescue it: that cap is the GOAL THRESHOLD's own scale (e.g. £/month), not a time scale,
+    // and the consumer forwards a value ≤ 1 raw past the cap anyway (`run.ts` normalisation gate + the forward-raw rung):
+    // cap 12 sent 1 week as 1.0 and 2 weeks as 0.167. A time unit is no reading of a normalised node: dropped at ANY value
+    // and ANY cap, as out of scope — the leader is named with the honest "your … limit was not tested" caveat.
+    if (isProbabilityNode && isTemporalUnit) {
       const record: FilteredConstraintRecord = {
         constraint_id,
         node_id,
