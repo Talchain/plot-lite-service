@@ -1552,6 +1552,33 @@ function percentRangeForValue(value: number, percentExtent = 100): Normalisation
  * genuine precondition ("the rung would rescale this"), so it stays correct if
  * the gate's own bounds ever move, instead of encoding today's off-by-one.
  */
+/**
+ * ⛔ F1b (DL 5932454064): THE single predicate for "this constraint states a QUANTITY on a node whose producer declared
+ * the scale". The unit is a count, a currency, or a token the unit table does not know (never none, %, or
+ * fraction/ratio), and the node carries a finite positive `goal_threshold_cap`. Such a value is a raw user quantity on
+ * that cap at ANY magnitude: "≤ 1 points" under cap 12 is 1/12, never 1.0 (the top of the normalised score).
+ * Before this, the reading flipped at 1 (2 opened the gate; 1 was forwarded raw) and depended on batch-mates.
+ * That is 2.957's defect for every declared unit. Read by BOTH the route's invocation disjunct
+ * ({@link constraintsHaveDeclaredQuantityUnderCap}) and the forward-raw rung, so the two cannot drift.
+ */
+export function isDeclaredQuantityUnderCap(unit: string | undefined, nodeMeta: GoalThresholdNodeMeta | undefined): boolean {
+  const cap = nodeMeta?.goal_threshold_cap;
+  if (!(typeof cap === 'number' && Number.isFinite(cap) && cap > 0)) return false;
+  if (canonicaliseUnit(unit) === undefined) return false;
+  const scale = unitScale(unit);
+  return scale !== 'percent' && scale !== 'fraction';
+}
+
+/** Route invocation disjunct for {@link isDeclaredQuantityUnderCap}: any constraint in the batch states one. */
+export function constraintsHaveDeclaredQuantityUnderCap(
+  constraints: GoalConstraint[],
+  unitsByConstraintId: Map<string, string> | undefined,
+  goalThresholdMetaByNodeId: Map<string, GoalThresholdNodeMeta> | undefined,
+): boolean {
+  if (unitsByConstraintId === undefined || goalThresholdMetaByNodeId === undefined) return false;
+  return constraints.some((c) => isDeclaredQuantityUnderCap(unitsByConstraintId.get(c.constraint_id), goalThresholdMetaByNodeId.get(c.node_id)));
+}
+
 export function constraintsHavePercentPointValue(
   constraints: GoalConstraint[],
   unitsByConstraintId: Map<string, string> | undefined,
@@ -2356,6 +2383,9 @@ export function normaliseGoalConstraints(
       // `c` is in the node's own unit — so neither may take the forward-raw rung.
       !isChangeFrame(value_frame) &&
       !isPercentPointValue(unit, value) &&
+      // F1b: a declared quantity under a declared cap is never "already in [0,1]" — same predicate as the route's
+      // invocation disjunct (`constraintsHaveDeclaredQuantityUnderCap`).
+      !isDeclaredQuantityUnderCap(unit, nodeMeta) &&
       // The '%' rung reads a FRAMED target's own frame, so a fractional '%'
       // there is NOT "already in [0,1]" on the target's scale (0.04 = 4% is 0.2
       // on a frame of 20). Forwarding it raw here while the gate-open arm
