@@ -125,8 +125,17 @@ export function filterTemporalConstraints(
     // (e.g., NRR above 110% = value 1.1).
     const isTemporalUnit = typeof unit === 'string' && TEMPORAL_UNITS.has(unit.toLowerCase());
     const isProbabilityNode = PROBABILITY_DOMAIN_KINDS.has(nodeKind);
+    // ⛔ …AND a temporal value ≤ 1 with NO producer-declared scale for the node (F1b D3, CEE 52f8cd; F5 5930871304).
+    // "Migration downtime ≤ 1 week" on an outcome with no cap was forwarded RAW as 1.0 on the [0,1] score — a trivially
+    // true limit — while "≤ 2 weeks" on the same node was dropped here. One week's difference flipped the run's limit
+    // reason and its leader verdict. With no declared scale a time unit is no reading of the normalised node at ANY
+    // value. A declared scale (CEE's `goal_threshold_cap`) is still forwarded and scaled by the normaliser.
+    const declaredScale = (() => {
+      const cap = goalThresholdMetaByNodeId?.get(node_id)?.goal_threshold_cap;
+      return typeof cap === 'number' && Number.isFinite(cap) && cap > 0;
+    })();
 
-    if (isProbabilityNode && value > 1.0 && isTemporalUnit) {
+    if (isProbabilityNode && isTemporalUnit && (value > 1.0 || !declaredScale)) {
       const record: FilteredConstraintRecord = {
         constraint_id,
         node_id,

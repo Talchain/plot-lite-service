@@ -300,9 +300,10 @@ describe('filterTemporalConstraints', () => {
     expect(result.filtered).toHaveLength(2);
   });
 
-  // Edge case: value exactly 1.0 with temporal unit on goal node → NOT filtered
-  // (value must be > 1.0, not >= 1.0)
-  it('does not filter value=1.0 even with temporal unit on goal node', () => {
+  // Edge case: value exactly 1.0 with a temporal unit on a goal node. AMENDED (F1b D3, F5 5930871304): with NO declared
+  // scale it is filtered like 12 months (forwarded raw it read as 1.0 on the [0,1] score: trivially true); with a
+  // producer-declared scale (`goal_threshold_cap`) it is forwarded for the normaliser to scale.
+  it('value=1.0 with a temporal unit: filtered with no declared scale, forwarded with one', () => {
     const constraints: RawGoalConstraint[] = [{
       constraint_id: 'c12',
       node_id: 'goal_mid_market_success',
@@ -310,9 +311,34 @@ describe('filterTemporalConstraints', () => {
       value: 1.0,
       unit: 'months',
     }];
-    const result = filterTemporalConstraints(constraints, ALL_NODES);
+    const bare = filterTemporalConstraints(constraints, ALL_NODES);
+    expect(bare.passed).toHaveLength(0);
+    expect(bare.filtered).toEqual([{ constraint_id: 'c12', node_id: 'goal_mid_market_success', reason: 'temporal_against_normalised_goal' }]);
+    const declared = filterTemporalConstraints(constraints, ALL_NODES, undefined, new Map([['goal_mid_market_success', { goal_threshold_cap: 12 }]]));
+    expect(declared.passed).toHaveLength(1);
+    expect(declared.filtered).toHaveLength(0);
+  });
+});
 
-    expect(result.passed).toHaveLength(1);
-    expect(result.filtered).toHaveLength(0);
+describe('F1b D3 (F5 5930871304): a temporal limit on a normalised node never flips on its value', () => {
+  const downtime = (value: number): RawGoalConstraint[] => [{ constraint_id: 'dt', node_id: 'outcome_retention', operator: '<=', value, unit: 'weeks' }];
+
+  it('RED: "≤ 1 week" and "≤ 2 weeks" on an outcome with no declared scale are filtered alike', () => {
+    for (const v of [2, 1, 0.5]) {
+      const r = filterTemporalConstraints(downtime(v), ALL_NODES);
+      expect(r.passed, `value ${v}`).toHaveLength(0);
+      expect(r.filtered, `value ${v}`).toEqual([{ constraint_id: 'dt', node_id: 'outcome_retention', reason: 'temporal_against_normalised_goal' }]);
+    }
+  });
+
+  it('CONTROL: a non-temporal ≤ 1 limit on the same outcome is untouched', () => {
+    const r = filterTemporalConstraints([{ constraint_id: 'x', node_id: 'outcome_retention', operator: '<=', value: 1, unit: 'ratio' }], ALL_NODES);
+    expect(r.passed).toHaveLength(1);
+    expect(r.filtered).toHaveLength(0);
+  });
+
+  it('CONTROL: a temporal limit on a FACTOR (not normalised) is untouched', () => {
+    const r = filterTemporalConstraints([{ constraint_id: 'f', node_id: 'fac_customer_churn', operator: '<=', value: 1, unit: 'weeks' }], ALL_NODES);
+    expect(r.passed).toHaveLength(1);
   });
 });
