@@ -125,17 +125,18 @@ export function filterTemporalConstraints(
     // (e.g., NRR above 110% = value 1.1).
     const isTemporalUnit = typeof unit === 'string' && TEMPORAL_UNITS.has(unit.toLowerCase());
     const isProbabilityNode = PROBABILITY_DOMAIN_KINDS.has(nodeKind);
-    // ⛔ …AND a temporal value ≤ 1 with NO producer-declared scale for the node (F1b D3, CEE 52f8cd; F5 5930871304).
-    // "Migration downtime ≤ 1 week" on an outcome with no cap was forwarded RAW as 1.0 on the [0,1] score — a trivially
-    // true limit — while "≤ 2 weeks" on the same node was dropped here. One week's difference flipped the run's limit
-    // reason and its leader verdict. With no declared scale a time unit is no reading of the normalised node at ANY
-    // value. A declared scale (CEE's `goal_threshold_cap`) is still forwarded and scaled by the normaliser.
-    const declaredScale = (() => {
+    // ⛔ THE VALUE NEVER DECIDES (F1b D3, CEE 52f8cd; F5 5930871304; DL condition on #427 5931024377). "Migration
+    // downtime ≤ 1 week" on an outcome with no cap was forwarded RAW as 1.0 on the [0,1] score — a trivially true limit —
+    // while "≤ 2 weeks" on the same node was dropped here: one week flipped the run's limit reason and its leader verdict.
+    // A time unit is a reading of the normalised node ONLY on a producer-declared scale (CEE's `goal_threshold_cap`) the
+    // value lies within — then the normaliser scales it, at any value (the same in-domain test as the safety gate below).
+    // Otherwise it is dropped, at any value.
+    const scaledInDomain = (() => {
       const cap = goalThresholdMetaByNodeId?.get(node_id)?.goal_threshold_cap;
-      return typeof cap === 'number' && Number.isFinite(cap) && cap > 0;
+      return typeof cap === 'number' && Number.isFinite(cap) && cap > 0 && value >= 0 && value <= cap;
     })();
 
-    if (isProbabilityNode && isTemporalUnit && (value > 1.0 || !declaredScale)) {
+    if (isProbabilityNode && isTemporalUnit && !scaledInDomain) {
       const record: FilteredConstraintRecord = {
         constraint_id,
         node_id,

@@ -331,6 +331,20 @@ describe('F1b D3 (F5 5930871304): a temporal limit on a normalised node never fl
     }
   });
 
+  it('RED (DL #427 condition): on a DECLARED scale (cap 12) "≤ 1 week" and "≤ 2 weeks" are forwarded alike', () => {
+    const declared = new Map([['outcome_retention', { goal_threshold_cap: 12 }]]);
+    for (const v of [2, 1]) {
+      const r = filterTemporalConstraints(downtime(v), ALL_NODES, undefined, declared);
+      expect(r.passed, `value ${v}`).toHaveLength(1);
+      expect(r.filtered, `value ${v}`).toHaveLength(0);
+    }
+  });
+
+  it('CONTROL: beyond the declared scale (cap 12, 24 weeks) it is no reading → filtered', () => {
+    const r = filterTemporalConstraints(downtime(24), ALL_NODES, undefined, new Map([['outcome_retention', { goal_threshold_cap: 12 }]]));
+    expect(r.filtered).toEqual([{ constraint_id: 'dt', node_id: 'outcome_retention', reason: 'temporal_against_normalised_goal' }]);
+  });
+
   it('CONTROL: a non-temporal ≤ 1 limit on the same outcome is untouched', () => {
     const r = filterTemporalConstraints([{ constraint_id: 'x', node_id: 'outcome_retention', operator: '<=', value: 1, unit: 'ratio' }], ALL_NODES);
     expect(r.passed).toHaveLength(1);
