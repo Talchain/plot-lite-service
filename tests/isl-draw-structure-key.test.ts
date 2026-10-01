@@ -59,6 +59,8 @@ describe('islDrawStructureKey: what changes how ISL draws, and what does not', (
     expect(K(isl((r) => { r.parameter_uncertainties[0].distribution = 'point_mass'; }))).not.toBe(base);
     expect(K(isl((r) => { r.options[0].interventions.fac_ads = 0.1; }))).not.toBe(base);
     expect(K(isl((r) => { r.graph.nodes[1].epsilon_std = 0.05; }))).not.toBe(base);
+    // CEE #2410 CR 5921519604: a prior added to a factor with no observed value (PLoT adds a uniform draw) is a new draw.
+    expect(K(isl((r) => { r.parameter_uncertainties.push({ node_id: 'fac_ads', distribution: 'uniform', range_min: 0.02, range_max: 0.04 }); }))).not.toBe(base);
   });
 
   it('ORDER IS STRUCTURE: the same edges, or the same nodes, in another order (ISL draws in list order)', () => {
