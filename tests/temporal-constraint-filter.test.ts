@@ -351,3 +351,42 @@ describe('F1b D3 (F5 5930871304): a temporal limit on a normalised node never fl
     expect(r.passed).toHaveLength(1);
   });
 });
+
+/**
+ * ⛔ BY STRUCTURE, NOT A LIST (DL 5931936029 → 5932184568; CODEX 5931878824 + 5932134950): a duration is decided by the
+ * ONE unit table, trimmed + case-folded. The units PLoT really scores on a goal/outcome keep their meaning.
+ */
+describe('F1b D3 structure: every duration the unit table knows is dropped, at any value and any cap', () => {
+  const limit = (unit: string, value: number): RawGoalConstraint[] => [{ constraint_id: 'u', node_id: 'outcome_retention', operator: '<=', value, unit }];
+  const declared = new Map([['outcome_retention', { goal_threshold_cap: 12 }]]);
+  const DURATIONS = ['hour', 'hours', 'HOURS', 'minutes', 'minute', 'seconds', 'second', 'quarter', ' Weeks ', 'Days\t', 'YEAR'];
+
+  it('RED: every duration the table knows, padded or upper-cased → out of scope alike, at any value, with or without a cap', () => {
+    for (const unit of DURATIONS) {
+      for (const [v, meta] of [[1, undefined], [2, undefined], [1, declared], [24, declared]] as const) {
+        const r = filterTemporalConstraints(limit(unit, v), ALL_NODES, undefined, meta);
+        expect(r.passed, `${JSON.stringify(unit)} ${v} cap=${meta !== undefined}`).toHaveLength(0);
+        expect(r.filtered, `${JSON.stringify(unit)} ${v}`).toEqual([{ constraint_id: 'u', node_id: 'outcome_retention', reason: 'temporal_against_normalised_goal' }]);
+      }
+    }
+  });
+
+  it('CONTROL: no unit, ratio 1.1 (NRR above 110%), percent, fraction → forwarded with their existing meaning', () => {
+    for (const [unit, v] of [[undefined, 0.8], ['ratio', 1.1], ['%', 20], ['fraction', 0.3], ['probability', 0.5]] as const) {
+      const r = filterTemporalConstraints([{ constraint_id: 'u', node_id: 'outcome_retention', operator: '<=', value: v, ...(unit !== undefined ? { unit } : {}) }], ALL_NODES);
+      expect(r.passed, String(unit)).toHaveLength(1);
+      expect(r.filtered, String(unit)).toHaveLength(0);
+    }
+  });
+
+  it('CONTROL (CODEX 5932134950): a goal\'s own GBP / count target under a covering declared cap is forwarded, no warning', () => {
+    const goalCap = new Map([['goal_mid_market_success', { goal_threshold_cap: 100_000 }]]);
+    for (const unit of ['£', 'GBP', 'count']) {
+      const log = mockLogger();
+      const r = filterTemporalConstraints([{ constraint_id: 'g', node_id: 'goal_mid_market_success', operator: '>=', value: 85_000, unit }], ALL_NODES, log, goalCap);
+      expect(r.passed, unit).toHaveLength(1);
+      expect(r.filtered, unit).toHaveLength(0);
+      expect(r.warnings, unit).toHaveLength(0);
+    }
+  });
+});

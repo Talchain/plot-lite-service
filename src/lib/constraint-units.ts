@@ -112,7 +112,8 @@ export type UnitScale =
   | 'duration_weeks'
   | 'duration_days'
   | 'duration_hours'
-  | 'duration_minutes';
+  | 'duration_minutes'
+  | 'duration_seconds';
 
 /**
  * THE SINGLE TABLE. Every index below is DERIVED from it — there is no second
@@ -169,6 +170,8 @@ const UNIT_SCALE_TABLE: readonly {
   { scale: 'duration_days', dimension: 'duration', tokens: ['days', 'day'] },
   { scale: 'duration_hours', dimension: 'duration', tokens: ['hours', 'hour'] },
   { scale: 'duration_minutes', dimension: 'duration', tokens: ['minutes', 'minute'] },
+  // A NEW GROUP (safe in the fail-closed direction, above): CODEX 5931878824 named seconds beside minutes/hours.
+  { scale: 'duration_seconds', dimension: 'duration', tokens: ['seconds', 'second'] },
 ];
 
 /** Reverse index, DERIVED from `UNIT_SCALE_TABLE` (never a second hand-list). */

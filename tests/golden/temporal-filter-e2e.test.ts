@@ -287,6 +287,30 @@ describe('Temporal Constraint Filter E2E', () => {
     }
   });
 
+  it('F1b D3 structure (CODEX 5931878824): through the ROUTE, ≤ 1 hour and ≤ 2 hours (no deadline) never reach ISL', async () => {
+    for (const value of [1, 2]) {
+      capturedISLRequestBody = null;
+      const res = await fetch(`${baseUrl}/v2/run`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          graph: GRAPH, options: OPTIONS, goal_node_id: 'goal', seed: '42',
+          goal_constraints: [
+            { constraint_id: 'goal-hours', node_id: 'goal', operator: '<=', value, unit: 'hours' },
+            { constraint_id: 'churn-cap', node_id: 'factor-b', operator: '<=', value: 0.04 },
+          ],
+        }),
+      });
+      expect(res.status, `value ${value}`).toBe(200);
+      expect(capturedISLRequestBody, `value ${value}`).not.toBeNull();
+      const ids = (capturedISLRequestBody.goal_constraints ?? []).map((c: any) => c.constraint_id);
+      expect(ids, `value ${value}`).not.toContain('goal-hours');
+      expect(ids, `value ${value}`).toContain('churn-cap');
+      const body = await res.json() as any;
+      expect(body._meta?.filtered_constraints, `value ${value}`).toEqual([{ constraint_id: 'goal-hours', node_id: 'goal', reason: 'temporal_against_normalised_goal' }]);
+    }
+  });
+
   it('constraint arriving via graph node with deadline_metadata → surfaced in _meta.filtered_constraints (B1-8)', async () => {
     capturedISLRequestBody = null;
 
