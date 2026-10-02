@@ -201,6 +201,17 @@ const ENDPOINT_MANIFEST: ManifestRow[] = [
       'index.ts and the withdrawn v1 analysis routes. Listed so the exhaustiveness scan below has a home for it ' +
       'rather than being loosened to ignore it.',
   },
+  {
+    endpoint: '/api/v1/robustness/decision-flip/v2',
+    reachability: 'call-site-not-captured',
+    plotLiveness: 'live',
+    islMounted: false,
+    why:
+      'SCIENCE ROBUSTNESS (EXPERIMENT; SCIENCE/DSK, #85). routes/v2/run.ts calls it only when a /v2/run body carries ' +
+      '`decision_flip` (decision-flip-forward.ts), reusing the Run\'s own ISL request as `request`. NOT MOUNTED at ' +
+      'this pin: the route is ISL #220, unmerged; until it is served the call answers a typed ' +
+      '`decision_flip_unavailable` (ISL_ERROR 404), never a Run. Route rows: tests/decision-flip-forward.route.test.ts.',
+  },
 ];
 
 const manifestByEndpoint = new Map(ENDPOINT_MANIFEST.map((r) => [r.endpoint, r]));
@@ -905,11 +916,14 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
       // Slice 6 flagged this by reading the code. The pinned model now says it.
     });
 
-    it('exactly ONE live producer targets an endpoint ISL does not mount at the pin', () => {
+    it('exactly TWO live call sites target an endpoint ISL does not mount at the pin', () => {
       const liveUnmounted = ENDPOINT_MANIFEST.filter((r) => r.plotLiveness === 'live' && !r.islMounted)
         .map((r) => r.endpoint)
         .sort();
-      expect(liveUnmounted).toEqual(['/api/v1/causal/validate']);
+      expect(liveUnmounted).toEqual(['/api/v1/causal/validate', '/api/v1/robustness/decision-flip/v2']);
+      // 2 Oct 2026 (SCIENCE ROBUSTNESS, EXPERIMENT): '/api/v1/robustness/decision-flip/v2' joined BY DESIGN — ISL #220
+      // adds it, unmerged; PLoT calls it only for a body carrying `decision_flip`, which no producer sends yet, and an
+      // unmounted route answers a typed `decision_flip_unavailable` (never a Run, never a 5xx). Re-pin when #220 serves.
       // Was TWO until 2026-08-26. '/api/v1/analysis/thresholds' left this list
       // because its call site was DELETED (Lane 3) — not because ISL mounted it.
       // '/api/v1/causal/validate' remains live-against-unmounted BY DECISION: see

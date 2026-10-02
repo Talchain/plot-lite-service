@@ -5500,6 +5500,32 @@ components:
             would fail the whole analysis).
             When omitted, ISL runs the maximiser UNATTESTED and discloses this via
             GOAL_DIRECTION_UNATTESTED. PLoT never infers it from a node label.
+        decision_flip:
+          type: object
+          additionalProperties: false
+          required: [links]
+          description: |
+            SCIENCE ROBUSTNESS (EXPERIMENT). On demand only: PLoT builds the ISL request exactly as for a Run, asks ISL
+            for the recommendation's tipping point per link (POST /api/v1/robustness/decision-flip/v2) and returns
+            {decision_flip, decision_flip_unavailable, meta} INSTEAD of a Run. The block is ISL's, forwarded verbatim
+            behind a structural guard (method = affine_crn_replicates_v1); CEE strict-parses it (@talchain/schemas
+            DecisionFlipBlockV1). Any failure is a typed decision_flip_unavailable reason on a 200.
+          properties:
+            links:
+              type: array
+              minItems: 1
+              maxItems: 12
+              items:
+                type: object
+                additionalProperties: false
+                required: [from_id, to_id]
+                properties:
+                  from_id: { type: string, minLength: 1 }
+                  to_id: { type: string, minLength: 1 }
+            replicates:
+              type: integer
+              minimum: 2
+              maximum: 8
         goal_threshold_strict:
           type: boolean
           description: |

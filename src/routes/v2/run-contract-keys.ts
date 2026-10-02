@@ -39,6 +39,9 @@ export const V2_RUN_ALLOWED_KEYS: ReadonlySet<string> = new Set([
   // R1 S4 (B) (R3 #72 5879133964; ISL #209): the producer's attested STRICT comparator for the goal target.
   // BOTH gates must know this key — this allowlist AND runV3Schema.properties — and contracts/openapi.yaml.
   'goal_threshold_strict',
+  // SCIENCE ROBUSTNESS (EXPERIMENT; SCIENCE/DSK): on demand, the recommendation's tipping point per link instead of a
+  // Run. BOTH gates (this allowlist + runV3Schema.properties) and contracts/openapi.yaml. See decision-flip-forward.ts.
+  'decision_flip',
 ]);
 
 // ISL top-level correlated-factors ENRICHMENT outputs (capability #100 + VOI
