@@ -112,6 +112,7 @@ import type { ISLConstraintResult, ISLEdgeEValue } from '../../integrations/isl/
 import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures, getIslIdentityEvaluations, getIslStructuralInfluence } from '../../integrations/isl/v2-envelope.js';
 import { goalIdentitiesNotEvaluated, goalIdentityWithheldMessage, limitsOnUnevaluatedIdentityPath, limitIdentityWithheldMessage, withoutGoalDerivedVoi, factorRowWithoutWalk, driverOrderUnderWithhold, coachingWithoutWalk, clampedEffects, clampedEffectWithheldMessage, clampedEffectDisclosedMessage } from '../../lib/goal-identity-withhold.js';
 import { V2_RUN_ALLOWED_KEYS, islEnrichmentPassthrough } from './run-contract-keys.js';
+import { DECISION_FLIP_BODY_SCHEMA, ISL_DECISION_FLIP_PATH, decisionFlipIslBody, decisionFlipResponse } from './decision-flip-forward.js';
 import { assessIslWireGeneration, logIslWireGenerationUnverified } from '../../integrations/isl/wire-generation.js';
 import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
 import { orchestrateCeeReview } from '../../cee/orchestrator.js';
@@ -1716,6 +1717,9 @@ const runV3Schema = {
           },
         },
       },
+      // SCIENCE ROBUSTNESS (EXPERIMENT): on demand, the recommendation's tipping point per link instead of a Run.
+      // BOTH gates must know this key (V2_RUN_ALLOWED_KEYS + here) and contracts/openapi.yaml. See decision-flip-forward.ts.
+      decision_flip: DECISION_FLIP_BODY_SCHEMA,
     },
   },
 };
@@ -8587,6 +8591,23 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               // imply an attempt ladder that the client may never run.
               single_attempt_worst_case_ms: worstCaseMs(1, baseCallTimeoutMs),
             });
+          }
+          // SCIENCE ROBUSTNESS (EXPERIMENT): a decision-flip request reuses THIS ISL request (the same translation a Run
+          // sends) and the same budget clamp, asks ISL for the tipping points instead, and returns before any analysis.
+          // The block goes back VERBATIM behind a structural guard; CEE strict-parses it (decision-flip-forward.ts).
+          if (body.decision_flip) {
+            const flip = await islService.callAnalysisEndpoint<unknown>(
+              ISL_DECISION_FLIP_PATH,
+              decisionFlipIslBody(islRequest, body.decision_flip),
+              requestId,
+              baseCallTimeoutMs,
+              configuredMaxRetries,
+              undefined,
+              baseCallBudget
+            );
+            const chain = buildRequestIdChain(hasExplicitRequestId, requestId, true, flip.isl_echoed_request_id ?? null);
+            reply.header('X-Olumi-Request-Id-Chain', buildRequestIdChainHeader(chain)!);
+            return reply.send(decisionFlipResponse(flip, requestId));
           }
           let response = await islService.callAnalysisEndpoint<any>(
             '/api/v1/robustness/analyze/v2',
