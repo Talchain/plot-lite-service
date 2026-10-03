@@ -90,9 +90,11 @@ describe('decision_flip on /v2/run — forward ISL\'s block verbatim, typed reas
 
 
   // Baselines are captured RED-first from the PR head. Preserve every wire byte
-  // after replacing only runtime entropy: UUIDs, timestamps and elapsed times.
+  // after replacing only runtime entropy: UUIDs, timestamps, elapsed times and the
+  // build id (the commit the suite runs at: a baseline must not pin one commit).
   const stableWire = (wire: string): string => JSON.stringify(JSON.parse(wire, (key, value) => {
     if (typeof value === 'number' && /(?:_ms|Ms)$/.test(key)) return '<elapsed>';
+    if (typeof value === 'string' && (key === 'build' || key === 'plot_build')) return '<build>';
     if (typeof value === 'string') return value
       .replace(/\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/gi, '<uuid>')
       .replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z\b/g, '<timestamp>');
