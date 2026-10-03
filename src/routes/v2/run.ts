@@ -9650,6 +9650,15 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             const factorFlipMapping = mapIslFactorFlipValues(islResult?.factor_flip_values, {
               graph: filteredGraph,
               factorSensitivity: factorSensitivity as { factor_id: string; factor_label?: string }[] | undefined,
+              // R5-4: no flip row on an option-controlled lever. It is the same combined D-U predicate the
+              // sensitivity/EVPI egress uses: the structural union ∪ ISL's stamp.
+              optionLeverIds: new Set([
+                ...structuralLeverIds,
+                ...((factorSensitivity ?? []) as Array<{ factor_id?: string; node_id?: string; zero_reason?: string | null }>)
+                  .filter((f) => isOptionControlledLever(f, structuralLeverIds))
+                  .map((f) => factorIdOf(f))
+                  .filter((id): id is string => id != null),
+              ]),
               // ISL design R3: its closed-form search runs in the EXPECTED-VALUE
               // world, which need not agree with the sampled MC recommendation.
               // Passed so disagreement is COUNTED and logged rather than assumed
