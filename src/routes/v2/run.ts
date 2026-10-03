@@ -5927,6 +5927,21 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
       // so every response for the same request shares the same computed_at value.
       const requestComputedAt = new Date().toISOString();
 
+      // Every post-schema refusal shares the flip transport contract. Keep the
+      // ordinary Run builder/status/arguments intact; a flip never carries its
+      // blocked envelope. ISL_ERROR is the existing generic unavailable reason
+      // for engine admission; input/compute refusals use ISL_REJECTED.
+      const sendBlockedResponse = (httpStatus: number, ...args: Parameters<typeof buildBlockedResponse>) => {
+        if (body.decision_flip) {
+          return reply.send(decisionFlipResponse({ error: {
+            code: httpStatus >= 500 ? 'ISL_ERROR' : 'ISL_REJECTED',
+            status: httpStatus,
+            retryable: httpStatus >= 500,
+          } }, requestId));
+        }
+        return reply.status(httpStatus).send(buildBlockedResponse(...args));
+      };
+
       try {
         // =================================================================
         // Phase 0: Categorical Integrity Detection (audit C1-A)
@@ -6053,14 +6068,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 }
               }
             }
-            return reply.status(422).send(buildBlockedResponse(
+            return sendBlockedResponse(422,
               'Categorical integrity check failed',
               detectionBlockers,
               body.graph,
               optionLabels,
               requestId,
               requestComputedAt,
-            ));
+            );
           }
           // Non-blocker critiques accumulate for the success-path response.
           // Messages are generic; structural data lives in affected_*_ids.
@@ -6159,7 +6174,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             for (const [factorKey, raw] of Object.entries(interventions as Record<string, unknown>)) {
               if (readInterventionValue(raw) !== undefined) continue;
               const optionId = String((option as { id?: unknown })?.id ?? '');
-              return reply.status(422).send(buildBlockedResponse(
+              return sendBlockedResponse(422,
                 `Invalid intervention value: options[id=${optionId}].interventions['${factorKey}'] must be a finite number`,
                 [{
                   id: randomUUID(),
@@ -6180,7 +6195,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 body.options,
                 requestId,
                 requestComputedAt,
-              ));
+              );
             }
           }
           // TEMPORAL step 2: a stated range must be well formed AND sit on a node the option
@@ -6198,7 +6213,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               const valid = nodeKey !== '' && readInterventionRange(raw) !== undefined;
               const setsNode = nodeKey !== '' && Object.prototype.hasOwnProperty.call(interventions, nodeKey);
               if (valid && setsNode) continue;
-              return reply.status(422).send(buildBlockedResponse(
+              return sendBlockedResponse(422,
                 `Invalid intervention range: options[id=${optionId}].intervention_ranges['${nodeKey}']`,
                 [{
                   id: randomUUID(),
@@ -6216,7 +6231,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 body.options,
                 requestId,
                 requestComputedAt,
-              ));
+              );
             }
           }
         }
@@ -6260,7 +6275,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         } catch (err) {
           if (err instanceof NormalisationError) {
             // Return 422 with V2RunError for normalization failures
-            return reply.status(422).send(buildBlockedResponse(
+            return sendBlockedResponse(422,
               `Normalization failed: ${err.message}`,
               [{
                 id: randomUUID(),
@@ -6275,7 +6290,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               undefined,
               requestId,
               requestComputedAt,
-            ));
+            );
           }
           throw err;
         }
@@ -6309,7 +6324,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const NON_CAUSAL_NODE_KINDS = ['option', 'decision'];
 
         if (!body.goal_node_id || body.goal_node_id.trim() === '') {
-          return reply.status(422).send(buildBlockedResponse(
+          return sendBlockedResponse(422,
             'Goal node is required',
             [{
               id: randomUUID(),
@@ -6323,14 +6338,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             undefined,
             requestId,
             requestComputedAt,
-          ));
+          );
         }
 
         // Check goal exists in original normalized graph (before filtering)
         const goalNode = normalizedGraph.nodes.find(n => n.id === body.goal_node_id);
 
         if (!goalNode) {
-          return reply.status(422).send(buildBlockedResponse(
+          return sendBlockedResponse(422,
             `Goal node "${body.goal_node_id}" not found in graph`,
             [{
               id: randomUUID(),
@@ -6345,12 +6360,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             undefined,
             requestId,
             requestComputedAt,
-          ));
+          );
         }
 
         // Check if goal is a non-causal kind (would be filtered out)
         if (NON_CAUSAL_NODE_KINDS.includes(goalNode.kind)) {
-          return reply.status(422).send(buildBlockedResponse(
+          return sendBlockedResponse(422,
             `Goal node "${body.goal_node_id}" is a ${goalNode.kind} node`,
             [{
               id: randomUUID(),
@@ -6365,7 +6380,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             undefined,
             requestId,
             requestComputedAt,
-          ));
+          );
         }
 
         // =================================================================
@@ -6375,7 +6390,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // the count further, but the limit applies before any compilation or filtering.
         // ISL evaluates each constraint via Monte Carlo — unbounded arrays are a DoS vector.
         if (Array.isArray(body.goal_constraints) && body.goal_constraints.length > MAX_CONSTRAINTS) {
-          return reply.status(422).send(buildBlockedResponse(
+          return sendBlockedResponse(422,
             `Too many constraints: ${body.goal_constraints.length} (max ${MAX_CONSTRAINTS})`,
             [{
               id: randomUUID(),
@@ -6389,7 +6404,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             normalizedOptions,
             requestId,
             requestComputedAt,
-          ));
+          );
         }
 
         // =================================================================
@@ -6434,7 +6449,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               requirement = 'must be a finite number';
             }
             if (badField) {
-              return reply.status(422).send(buildBlockedResponse(
+              return sendBlockedResponse(422,
                 `Invalid constraint shape: goal_constraints[${i}].${badField} ${requirement}`,
                 [{
                   id: randomUUID(),
@@ -6450,7 +6465,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 normalizedOptions,
                 requestId,
                 requestComputedAt,
-              ));
+              );
             }
           }
         }
@@ -6996,14 +7011,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
         // Check for blocker-severity constraint critiques
         if (constraintValidation.blockers.length > 0) {
-          return reply.status(422).send(buildBlockedResponse(
+          return sendBlockedResponse(422,
             'Constraint validation failed',
             constraintValidation.blockers,
             filteredGraph,
             normalizedOptions,
             requestId,
             requestComputedAt,
-          ));
+          );
         }
 
         // =================================================================
@@ -7066,14 +7081,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
 
         // If preflight failed, return 422 with V2RunError
         if (!preflight.passed) {
-          return reply.status(422).send(buildBlockedResponse(
+          return sendBlockedResponse(422,
             'Preflight validation failed',
             [...preflight.blockers, ...preflight.warnings],
             filteredGraph,
             normalizedOptions,
             requestId,
             requestComputedAt,
-          ));
+          );
         }
 
         // Apply deduplication if preflight produced deduplicated options
@@ -7181,7 +7196,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               withheld: withheldOptionRecords.map((r) => ({ option_id: r.option_id, factor_id: r.factor_id, reason: r.reason })),
             });
             if (survivors.length < 2) {
-              return reply.status(422).send(buildBlockedResponse(
+              return sendBlockedResponse(422,
                 'Options withheld: fewer than two options can be analysed at the levels they state',
                 [
                   ...clampWarnings,
@@ -7207,7 +7222,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                 // so a consumer can say WHICH option was withheld and why —
                 // never a generic "analysis failed".
                 withheldOptionRecords,
-              ));
+              );
             }
             preflight.warnings.push(...clampWarnings);
             repairs = repairs.concat(withheldClampRepairs);
@@ -7349,7 +7364,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             edge_count: causalDirectedEdgeCount,
             option_count: causalOptionCount,
           });
-          return reply.status(admissionOutcome.httpStatus).send(buildBlockedResponse(
+          return sendBlockedResponse(admissionOutcome.httpStatus,
             'Analysis engine unavailable',
             [{
               id: randomUUID(),
@@ -7367,7 +7382,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             normalizedOptions,
             requestId,
             requestComputedAt,
-          ));
+          );
         }
         const admissionResolution = admissionOutcome.resolution;
 
@@ -7410,7 +7425,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             unique_parameter_uncertainties: uniqueParamUncertainties,
             admission_status: admissionResolution.status,
           });
-          return reply.status(422).send(buildBlockedResponse(
+          return sendBlockedResponse(422,
             'Graph too complex to analyse',
             [{
               id: randomUUID(),
@@ -7424,7 +7439,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             normalizedOptions,
             requestId,
             requestComputedAt,
-          ));
+          );
         }
 
         const depthPlanInput: DepthPlanInput = {
@@ -7512,7 +7527,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             n_samples_floor: ADAPTIVE_N_SAMPLES_FLOOR,
             admission_status: admissionResolution.status,
           });
-          return reply.status(422).send(buildBlockedResponse(
+          return sendBlockedResponse(422,
             'Graph too complex to analyse',
             [{
               id: randomUUID(),
@@ -7526,7 +7541,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             normalizedOptions,
             requestId,
             requestComputedAt,
-          ));
+          );
         }
 
         // Depth actually used everywhere below. When reduced, originalNSamples
@@ -7628,6 +7643,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const islService = getISLService();
 
         if (!islService.isEnabled()) {
+          if (body.decision_flip) {
+            return reply.send(decisionFlipResponse({ error: {
+              code: 'ISL_NOT_ENABLED', retryable: false,
+            } }, requestId));
+          }
           const totalMs = performance.now() - startTime;
 
           // Include preflight warnings (e.g., scale mismatch) and any Phase 0
@@ -8179,7 +8199,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               request_id: requestId,
               conflicts: dupResult.conflicts,
             });
-            return reply.status(422).send(buildBlockedResponse(
+            return sendBlockedResponse(422,
               'Conflicting duplicate edges',
               dupResult.conflicts.map((c) => ({
                 id: randomUUID(),
@@ -8194,7 +8214,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               normalizedOptions,
               requestId,
               requestComputedAt,
-            ));
+            );
           }
           if (dupResult.coalesced.length > 0) {
             filteredGraph.edges = dupResult.edges as typeof filteredGraph.edges;
@@ -8482,7 +8502,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             errors: islValidationErrors,
           });
 
-          return reply.status(422).send(buildBlockedResponse(
+          return sendBlockedResponse(422,
             'ISL request validation failed',
             islValidationErrors.map((msg) => ({
               id: randomUUID(),
@@ -8496,7 +8516,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             normalizedOptions,
             requestId,
             requestComputedAt,
-          ));
+          );
         }
 
         // Log ISL request
@@ -8785,6 +8805,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             error: (err as Error).message,
             status: islStatusCode,
           });
+          if (body.decision_flip) {
+            return reply.send(decisionFlipResponse({ error: {
+              code: 'ISL_ERROR',
+              status: err instanceof ISLHttpError ? err.status : undefined,
+              retryable: retryableFromIslStatus(islStatusCode),
+            } }, requestId));
+          }
         }
 
         islMs = performance.now() - islStart;
@@ -10151,6 +10178,13 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           error: (err as Error).message,
           stack: (err as Error).stack,
         });
+        if (body.decision_flip) {
+          // There is no upstream HTTP response here. Do not fabricate one or
+          // extend the transport vocabulary for a local assembly exception.
+          return reply.send(decisionFlipResponse({ error: {
+            code: 'ISL_ERROR', retryable: true,
+          } }, requestId));
+        }
 
         // Outermost safety net: guarantee V2RunError on any unexpected throw.
         // error.v1 must never leak from this endpoint.
