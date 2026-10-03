@@ -3818,11 +3818,11 @@ paths:
                   brief: "Should we increase our marketing budget to improve revenue?"
       responses:
         '200':
-          description: OK - Analysis complete (may be available or unavailable)
+          description: OK - Run analysis, opaque decision-flip block, or typed flip unavailability
           content:
             application/json:
               schema:
-                $ref: '#/components/schemas/runResponseV3'
+                $ref: '#/components/schemas/runOrDecisionFlipResponseV3'
               examples:
                 computed:
                   summary: Analysis fully computed
@@ -5500,6 +5500,32 @@ components:
             would fail the whole analysis).
             When omitted, ISL runs the maximiser UNATTESTED and discloses this via
             GOAL_DIRECTION_UNATTESTED. PLoT never infers it from a node label.
+        decision_flip:
+          type: object
+          additionalProperties: false
+          required: [links]
+          description: |
+            SCIENCE ROBUSTNESS (EXPERIMENT). On demand only: PLoT builds the ISL request exactly as for a Run, asks ISL
+            for the recommendation's tipping point per link (POST /api/v1/robustness/decision-flip/v2) and returns
+            {decision_flip, decision_flip_unavailable, meta} INSTEAD of a Run. The block is ISL's, forwarded verbatim
+            behind a structural guard (method = affine_crn_replicates_v1); CEE strict-parses it (@talchain/schemas
+            DecisionFlipBlockV1). Any failure is a typed decision_flip_unavailable reason on a 200.
+          properties:
+            links:
+              type: array
+              minItems: 1
+              maxItems: 12
+              items:
+                type: object
+                additionalProperties: false
+                required: [from_id, to_id]
+                properties:
+                  from_id: { type: string, minLength: 1 }
+                  to_id: { type: string, minLength: 1 }
+            replicates:
+              type: integer
+              minimum: 2
+              maximum: 8
         goal_threshold_strict:
           type: boolean
           description: |
@@ -5846,6 +5872,66 @@ components:
               description: >-
                 Producer-owned claim-safe phrase (wording
                 provisional_doctrine_v0, no numbers).
+
+    runOrDecisionFlipResponseV3:
+      description: >-
+        Ordinary Run responses retain runResponseV3. Requests carrying decision_flip
+        instead return the opaque ISL block or the typed unavailable carrier.
+      oneOf:
+        - $ref: '#/components/schemas/runResponseV3'
+        - $ref: '#/components/schemas/decisionFlipResponseV1'
+
+    decisionFlipResponseV1:
+      description: >-
+        Transport envelope only. ISL owns the opaque science block; CEE validates
+        DecisionFlipBlockV1. PLoT adds no science fields or leader authority.
+      type: object
+      additionalProperties: false
+      required: [decision_flip, decision_flip_unavailable, meta]
+      properties:
+        meta:
+          type: object
+          additionalProperties: false
+          required: [request_id]
+          properties:
+            request_id:
+              type: string
+        decision_flip:
+          type: object
+          nullable: true
+          additionalProperties: true
+          description: ISL block forwarded verbatim, or null when unavailable.
+        decision_flip_unavailable:
+          type: object
+          nullable: true
+          additionalProperties: false
+          required: [reason, status, retryable]
+          properties:
+            reason:
+              type: string
+              enum: [ISL_TIMEOUT, ISL_NETWORK_ERROR, ISL_REJECTED, ISL_ERROR, ISL_NOT_ENABLED, DECISION_FLIP_MALFORMED]
+              description: Existing transport reasons; ISL_ERROR also covers local availability failures.
+            status:
+              type: integer
+              nullable: true
+              description: Refusal HTTP status, or null when no HTTP response exists.
+            retryable:
+              type: boolean
+      oneOf:
+        - properties:
+            decision_flip:
+              type: object
+            decision_flip_unavailable:
+              type: object
+              nullable: true
+              enum: [null]
+        - properties:
+            decision_flip:
+              type: object
+              nullable: true
+              enum: [null]
+            decision_flip_unavailable:
+              type: object
 
     runResponseV3:
       type: object

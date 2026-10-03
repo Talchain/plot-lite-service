@@ -992,6 +992,12 @@ export interface RunRequestV3 {
   goal_threshold_strict?: unknown;
 
   /**
+   * SCIENCE ROBUSTNESS (EXPERIMENT): on demand, ask ISL for the recommendation's tipping point per link instead of a
+   * Run; the response is `{decision_flip, decision_flip_unavailable, meta}` (src/routes/v2/decision-flip-forward.ts).
+   */
+  decision_flip?: { links: Array<{ from_id: string; to_id: string }>; replicates?: number };
+
+  /**
    * Original decision description/brief.
    * When provided, CEE can generate contextualised review output
    * (e.g., "Hiring a senior developer is recommended for your goal

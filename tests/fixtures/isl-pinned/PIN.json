@@ -83,6 +83,7 @@
     "_note": "Paths PLoT still sends to that src/api/main.py does NOT include_router at this sha (the include lines are present but commented out, 'Disabled for pilot', lines 777-794). Absent from the vendored openapi.json path list, independently — re-verified at the 2.749 re-pin: the OLD and NEW openapi path sets are IDENTICAL (10 paths), so this re-pin mounts nothing new and unmounts nothing. Re-verified at the R1 S3 re-pin (56c35468): the old and new openapi path sets are IDENTICAL (10 paths).",
     "/api/v1/causal/validate": "@router.post at src/api/causal.py:164; `router` is never included (only `causal_counterfactual_router` is, src/api/main.py:771)",
     "/api/v1/causal/sensitivity/detailed": "@router.post at src/api/causal.py:1211; same unincluded router. WITHDRAWN under ROADMAP 2.704 at this sha — the handler answers 501 and computes nothing.",
-    "/api/v1/analysis/thresholds": "src/api/threshold.py:22; threshold_router include commented at src/api/main.py:792"
+    "/api/v1/analysis/thresholds": "src/api/threshold.py:22; threshold_router include commented at src/api/main.py:792",
+    "/api/v1/robustness/decision-flip/v2": "Absent at this sha altogether (not a commented include): added by ISL #220 (SCIENCE ROBUSTNESS, EXPERIMENT, unmerged). PLoT calls it only for a /v2/run body carrying decision_flip, which no producer sends yet; re-pin when #220 is served."
   }
 }
