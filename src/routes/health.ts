@@ -17,6 +17,14 @@ import { getIslCircuitBreakerStats } from '../integrations/isl-circuit-breaker.j
 import { getRouteCallerSnapshot } from '../observability/routeCallerTelemetry.js';
 import { WEIGHT_SCHEMAS, DEFAULT_WEIGHT_SCHEMA, type WeightSchemaVersion } from '../engine/weight-schema.js';
 import { getBeliefSpreadCapability } from '../engine/belief-spread.js';
+// The contract-health manifest, published on /health. Imported from the
+// RUNTIME-RESOLVED module, never derived from the package.json pin — see the
+// block at the /health return for why that distinction is the whole point.
+import {
+  SCHEMA_PACKAGE_VERSION,
+  SCHEMA_SHA,
+  CONTRACT_MANIFEST_SHA,
+} from '@talchain/schemas';
 
 export interface HealthRoutesOptions {
   enableTestRoutes?: boolean;
@@ -86,6 +94,63 @@ export async function registerHealthRoutes(app: FastifyInstance, opts: HealthRou
       // src/observability/routeCallerTelemetry.ts; the /health 4 KiB budget
       // enforced below must never be what decides whether this is present.
       route_callers: getRouteCallerSnapshot(),
+      // ⭐ THE CONTRACT THIS BOX IS ACTUALLY RUNNING — published because
+      // SCHEMA-VERSION SKEW IS THIS ESTATE'S DOMINANT CROSS-CUTTING RISK AND
+      // WAS, UNTIL THIS FIELD, UNMEASURABLE FROM OUTSIDE THE BOX.
+      //
+      // `CLAUDE.md` states the risk: each repo pins its own `@talchain/schemas`,
+      // the versions drift, and a consumer on an older version SILENTLY DROPS
+      // fields it does not know — coaching, evidence and enrichment have all
+      // been lost this way. A value that validates at the producer vanishes at
+      // the consumer with no error anywhere.
+      //
+      // CEE published these four on /healthz first (#1606, live on staging).
+      // PLoT is the SECOND of two comparable producers, which is what makes
+      // `compareHealthManifest` usable across the CEE→PLoT hop at all: one
+      // producer can only ever be compared with itself.
+      //
+      // ⚠ THE RUNTIME-RESOLVED VERSION, NOT THE PIN. `package.json:86` is a
+      // DECLARATION; the loaded module is the FACT, and they diverge exactly
+      // when it matters — a stale `node_modules`, a hoisted duplicate, a
+      // vendored tarball re-cut under the same version string. This repo's
+      // `@talchain/schemas` IS a vendored tarball, and the divergence is live
+      // TODAY: the vendored 0.55.0 carries `CONTRACT_MANIFEST_SHA = 088fb46a…`
+      // while olumi-schemas `main`, also calling itself 0.55.0, carries
+      // `4d3b0995…`. One version string, two adoption manifests — precisely
+      // the case these digests exist to catch, and one a pin-derived value
+      // could never see.
+      //
+      // ⚠ NOT NESTED, DELIBERATELY. The four keys and their names are fixed by
+      // the contract (`@talchain/schemas` `HEALTH_MANIFEST_FIELDS`): "a nested
+      // object is easy to add and easy for a load balancer / smoke test to
+      // never look at. Top-level fields sit next to `build` and get read."
+      // `parseHealthManifest()` parses them `.strict()`, so a typo fails
+      // loudly instead of being silently ignored.
+      //
+      // ⚠ NAMED APART FROM THIS REPO'S EXISTING `*_schema_version` FIELDS, NOT
+      // ALIGNED WITH THEM (CLAUDE.md trap 21). `request_schema_version: 'v3'`,
+      // `review_pass_schema_version: 1`, `weight_schema`/`edge_schema_version`
+      // and `facts_schema_version` are per-domain FORMAT LABELS, and /version's
+      // `version: '1.5.0'` is PLoT's own package version. None of them is a
+      // contract package version. These four answer a different question and
+      // must never be reconciled with those.
+      //
+      // Non-secret by construction: a semver string and two sha256 digests over
+      // PUBLIC contract bytes. Never a key, a host, a path or a magnitude.
+      // `/health` is unauthenticated by declaration (contracts/openapi.yaml:64
+      // `security: []`) and by measurement (staging returns 200 with no bearer,
+      // while `/v1/health` returns 401), so this was weighed as public output.
+      schema_write_version: SCHEMA_PACKAGE_VERSION,
+      // DELIBERATELY CONSERVATIVE: exactly what this service writes. PLoT's
+      // boundary schemas are tolerant-additive and would in practice read more
+      // than one release line, but a wider claim is one this change cannot
+      // substantiate, and this field is the input to `compareHealthManifest`'s
+      // reader-first deploy gate — a writer may only be promoted once every
+      // downstream reader lists its release line. An unearned entry would
+      // silently WIDEN that gate. Widen it only with evidence, per version.
+      schema_read_versions: [SCHEMA_PACKAGE_VERSION],
+      schema_sha: SCHEMA_SHA,
+      contract_manifest_sha: CONTRACT_MANIFEST_SHA,
       // Dev-only documentation of defaults for CI drift checks (add-only)
       ...(process.env.NODE_ENV === 'production' ? {} : {
         flags_doc: {
@@ -107,6 +172,21 @@ export async function registerHealthRoutes(app: FastifyInstance, opts: HealthRou
       // and silently dropping it under budget pressure would turn "no calls
       // recorded" into "no counter present" without anyone noticing.
       route_callers: getRouteCallerSnapshot(),
+      // ⭐ KEPT IN THE DEGRADED PAYLOAD TOO — the same argument as
+      // `route_callers` above, and it is the reason this is not a copy-paste of
+      // CEE's /healthz change. `parseHealthManifest()` throws on ANY missing
+      // key, so emitting these four only in the full payload would make them
+      // VANISH ENTIRELY at the first budget overflow — and every reader would
+      // then read "this producer is broken" rather than "this producer
+      // degraded". Partial emission is indistinguishable from a broken
+      // producer, which is exactly the failure mode the manifest exists to
+      // detect. Four fields, ~238 bytes; headroom measured at 2,475 bytes
+      // against live staging, so this is about the future, not the present.
+      // Forced and asserted in tests/health.contract-manifest.test.ts.
+      schema_write_version: SCHEMA_PACKAGE_VERSION,
+      schema_read_versions: [SCHEMA_PACKAGE_VERSION],
+      schema_sha: SCHEMA_SHA,
+      contract_manifest_sha: CONTRACT_MANIFEST_SHA,
     };
     return minimal;
   });
