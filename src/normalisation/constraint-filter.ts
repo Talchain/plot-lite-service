@@ -19,7 +19,7 @@
  *
  * Drop rules (any match → remove):
  *   1. deadline_metadata is present (reliable CEE temporal signal)
- *   2. node_id targets goal/outcome/risk AND value > 1.0 AND unit is temporal
+ *   2. node_id targets goal/outcome/risk AND the unit is a duration the unit table knows (any value, any cap)
  *
  * Safety gate (warn, don't drop):
  *   - Targets goal/outcome/risk AND value outside [0,1] AND unit is NOT temporal
@@ -35,18 +35,27 @@ import type {
   FilteredConstraintRecord,
 } from '../types/engine-v3.js';
 import { isPercentUnit, type GoalThresholdNodeMeta } from '../lib/intervention-normaliser.js';
+import { dimensionOfScale, unitScale } from '../lib/constraint-units.js';
 
 // Node kinds whose scores are in probability domain (expected [0,1] range).
 // Constraints with large values + temporal units on these nodes are non-evaluable.
 const PROBABILITY_DOMAIN_KINDS = new Set(['goal', 'outcome', 'risk']);
 
-// Temporal unit tokens (case-insensitive). Includes both singular and plural forms.
-const TEMPORAL_UNITS = new Set([
-  'months', 'month',
-  'days', 'day',
-  'weeks', 'week',
-  'years', 'year',
-]);
+/**
+ * ⛔ BY STRUCTURE, NOT A LIST (F1b D3; DL 5931936029 → corrected 5932184568; CODEX 5931878824 + 5932134950). A DURATION
+ * is read off the ONE unit table (`lib/constraint-units.ts`, trimmed + case-folded: seconds … years), never a list
+ * here. On a normalised (goal/outcome/risk) node it is OUT OF SCOPE at any value and any cap — time is not a modelled
+ * dimension, so the model cannot test it (reason `temporal_against_normalised_goal`).
+ * Everything else keeps its tested path: none / % / fraction-ratio-probability as today; a currency, count or other unit
+ * under a covering declared cap is scaled (P0-C1) or scored from the modelled distribution (P0-C2); and a unit with NO
+ * declared scale still meets the default-range suppression + CONSTRAINT_TARGET_UNRELIABLE (a units repair is owed, the
+ * leader stays withheld). Dropping those as out of scope too would NAME the leader past a limit the user can repair
+ * (9 pinned rows: 'points' / 'USD' with and without a cap, Paul's 20/% chain, doctrine B), so they are out of reach here.
+ */
+function isDurationUnit(unit: unknown): boolean {
+  const scale = unitScale(unit);
+  return scale !== undefined && dimensionOfScale(scale) === 'duration';
+}
 
 export interface ConstraintFilterResult {
   /** Constraints that passed the filter (safe to forward to ISL) */
@@ -118,15 +127,21 @@ export function filterTemporalConstraints(
       continue;
     }
 
-    // --- DROP RULE 2: probability-domain node + value > 1 + temporal unit ---
+    // --- DROP RULE 2: probability-domain node + temporal unit (any value, any cap) ---
     // Goal/outcome/risk scores are normalised to [0,1]. A constraint like
     // "goal_X <= 12 months" produces P(goal_score <= 12) = 1.0 trivially.
     // Only drop when ALL three conditions are met — value > 1 alone is legitimate
     // (e.g., NRR above 110% = value 1.1).
-    const isTemporalUnit = typeof unit === 'string' && TEMPORAL_UNITS.has(unit.toLowerCase());
+    const isTemporalUnit = isDurationUnit(unit);
     const isProbabilityNode = PROBABILITY_DOMAIN_KINDS.has(nodeKind);
-
-    if (isProbabilityNode && value > 1.0 && isTemporalUnit) {
+    // ⛔ THE VALUE NEVER DECIDES, AND NEITHER DOES A CAP (F1b D3, CEE 52f8cd; F5 5930871304; DL 5931024377; CODEX CR
+    // 5931449776). "Migration downtime ≤ 1 week" on an outcome was forwarded RAW as 1.0 on the [0,1] score — trivially
+    // true — while "≤ 2 weeks" was dropped here: one week flipped the run's limit reason and its leader verdict. A declared
+    // `goal_threshold_cap` does not rescue it: that cap is the GOAL THRESHOLD's own scale (e.g. £/month), not a time scale,
+    // and the consumer forwards a value ≤ 1 raw past the cap anyway (`run.ts` normalisation gate + the forward-raw rung):
+    // cap 12 sent 1 week as 1.0 and 2 weeks as 0.167. A time unit is no reading of a normalised node: dropped at ANY value
+    // and ANY cap, as out of scope — the leader is named with the honest "your … limit was not tested" caveat.
+    if (isProbabilityNode && isTemporalUnit) {
       const record: FilteredConstraintRecord = {
         constraint_id,
         node_id,

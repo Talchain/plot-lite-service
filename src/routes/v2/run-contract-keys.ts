@@ -36,6 +36,9 @@ export const V2_RUN_ALLOWED_KEYS: ReadonlySet<string> = new Set([
   // runV3Schema.properties (Ajv, additionalProperties:false) — and it MUST also
   // appear on runRequestV3 in contracts/openapi.yaml or the drift gate fails.
   'goal_direction',
+  // R1 S4 (B) (R3 #72 5879133964; ISL #209): the producer's attested STRICT comparator for the goal target.
+  // BOTH gates must know this key — this allowlist AND runV3Schema.properties — and contracts/openapi.yaml.
+  'goal_threshold_strict',
 ]);
 
 // ISL top-level correlated-factors ENRICHMENT outputs (capability #100 + VOI

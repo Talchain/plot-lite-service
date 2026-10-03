@@ -665,6 +665,24 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //         Salary Cost" is not said. UPDATE_GOLDEN diff is EXACTLY the
     //         DOMINANT_FACTOR entry leaving m1_coaching.model_critiques and
     //         decision_brief.warnings, plus this hash; `response_hash` UNMOVED.)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:ebe781eb3d19d244');
+    //  lever  rch_v2:503c9b221da9a82b (R3-B, AIQ #72 5883875188: the assumptions
+    //  2026-  ledger names no "low confidence (N%)" line for an option-set LEVER.
+    //  09-29  Every option here sets fac_tech_lead and fac_dev_headcount.
+    //         UPDATE_GOLDEN diff is EXACTLY those two ledger entries leaving,
+    //         the ledger counts (10→8, high 9→8, low 1→0), plus this hash;
+    //         `response_hash` UNMOVED.)
+    //  aud-   rch_v2:77413ad0529b8c66 (R3-B, AIQ #72 5884364585 / DL 5884241382:
+    //  ience  every ledger row carries a typed `audience`. All 8 rows here are
+    //  2026-  ISL fragile-edge switch_probability or measured non-lever node
+    //  09-29  confidence, so all are `user`. UPDATE_GOLDEN diff is EXACTLY the 8
+    //         `audience: "user"` fields, `user_count: 8`,
+    //         `user_high_impact_count: 8`, plus this hash; `response_hash`
+    //         UNMOVED.)
+    //  steady rch_v2:e27294174a11b1a4 (R3-B, AIQ #72 5884364585 wording: a
+    //  2026-  measured node-confidence ledger line says what ISL measured, "its
+    //  09-29  effect on the result is not steady (44%)", not "has low confidence
+    //         (44%)". UPDATE_GOLDEN diff is EXACTLY the 2 node `reason` strings,
+    //         plus this hash; `response_hash` UNMOVED.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:e27294174a11b1a4');
   });
 });

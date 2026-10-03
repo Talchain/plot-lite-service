@@ -309,12 +309,13 @@
         "factor_label": "Monthly logo churn",
         "voi_score": 0.5,
         "confidence": 0.5,
-        "confidence_display": "50%",
-        "confidence_defaulted": false,
+        "confidence_defaulted": true,
         "influence": 1,
         "influence_display": "100%",
-        "suggestion": "Confidence in \"Monthly logo churn\" is low; no measured evidence says learning it would change which option leads.",
-        "notes": [],
+        "suggestion": "Confidence in \"Monthly logo churn\" has not been measured; no measured evidence says learning it would change which option leads.",
+        "notes": [
+          "Confidence not measured by ISL; ordered with a neutral default"
+        ],
         "value": 0.04,
         "raw_value": 4,
         "unit": "% per month",
@@ -326,12 +327,13 @@
         "factor_label": "Annual delivery cost",
         "voi_score": 0.35714285714285715,
         "confidence": 0.5,
-        "confidence_display": "50%",
-        "confidence_defaulted": false,
+        "confidence_defaulted": true,
         "influence": 0.7142857142857143,
         "influence_display": "71%",
-        "suggestion": "Confidence in \"Annual delivery cost\" is low; no measured evidence says learning it would change which option leads.",
-        "notes": [],
+        "suggestion": "Confidence in \"Annual delivery cost\" has not been measured; no measured evidence says learning it would change which option leads.",
+        "notes": [
+          "Confidence not measured by ISL; ordered with a neutral default"
+        ],
         "value": 0.4,
         "raw_value": 200000,
         "unit": "£",
@@ -365,7 +367,8 @@
           "to_value": "null",
           "reason": "Non-canonical fields stripped before ISL: unit",
           "impact": "low",
-          "impact_reason_code": "STRUCTURAL_ONLY"
+          "impact_reason_code": "STRUCTURAL_ONLY",
+          "audience": "internal"
         },
         {
           "dedup_key": "plot_normaliser:normalised:global:unknown:constraint.value.gc_churn",
@@ -378,13 +381,16 @@
           "to_value": 0.1,
           "reason": "normalised range=[0,100] source=unit_percent",
           "impact": "low",
-          "impact_reason_code": "STRUCTURAL_ONLY"
+          "impact_reason_code": "STRUCTURAL_ONLY",
+          "audience": "internal"
         }
       ],
       "total_count": 2,
       "high_impact_count": 0,
       "medium_impact_count": 0,
-      "low_impact_count": 2
+      "low_impact_count": 2,
+      "user_count": 0,
+      "user_high_impact_count": 0
     },
     "thresholds_used": {
       "headline_clear_winner_delta": 0.2,
@@ -493,11 +499,11 @@
       "key_qualifier": "Significant evidence gaps remain.",
       "action_implication": "Gather additional evidence before deciding."
     },
-    "readiness_tone": "caution",
+    "readiness_tone": "tempered",
     "readiness_reasons": [
       "EVIDENCE_GAPS",
-      "LOW_DRIVER_CONFIDENCE",
-      "INSUFFICIENT_SIGNALS"
+      "INSUFFICIENT_SIGNALS",
+      "TOP_DRIVER_UNMEASURED"
     ],
     "coaching_version": "1.2.0"
   },

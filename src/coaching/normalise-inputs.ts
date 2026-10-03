@@ -54,12 +54,19 @@ export function normaliseCoachingInputs(
   );
 
   const factorSensitivity: NormalisedFactorSensitivity[] = enrichedFactorSensitivity
-    ? enrichedFactorSensitivity.map((f) => ({
+    ? enrichedFactorSensitivity
+      // ISL #213 (AIQ #72 5881953818): a gated factor's influence depends on the option chosen. Coaching
+      // would rank it by elasticity (`influence_score ?? elasticity`), so it is not a coaching input.
+      .filter((f) => (f.influence_gated_by?.length ?? 0) === 0)
+      .map((f) => ({
         node_id: f.factor_id,
         label: nodeLabelMap.get(f.factor_id) ?? f.factor_label ?? f.factor_id,
         elasticity: f.elasticity,
         importance_rank: f.importance_rank ?? f.influence_rank ?? 999,
-        confidence: f.confidence,
+        // DL #72 5883188906 / AIQ 5883088747: a confidence is a coaching input only when ISL MEASURED the factor's
+        // stability. `plot_unified_from_graph` is the graph formula with no measured stability (a synthetic 0.5 edge for
+        // a root factor): coaching orders it with the neutral default and never prints it.
+        confidence: f.confidence_source === 'plot_unified_from_isl_bootstrap' ? f.confidence : undefined,
         direction:
           f.direction === 'positive' || f.direction === 'negative'
             ? f.direction

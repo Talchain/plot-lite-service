@@ -1,0 +1,102 @@
+{
+ "_source": "SERVED (AIQ 5884205020): PLoT staging 2e9de99 (#410) /v2/run over ISL f7f19e3, 0 LLM; olumi-programme-docs@evidence/aiq-p2-science-columns-20260927 served-post-merge-20260929/w409/w410-C0-20260929T052324Z.json. Unmodified: response.m1_coaching.assumptions_ledger.",
+ "assumptions_ledger": {
+  "assumptions": [
+   {
+    "dedup_key": "plot_normaliser:removed:global:unknown:goal_constraints[constraint_id=agent-lane:monthly_churn:<=]",
+    "source_service": "plot_normaliser",
+    "action": "removed",
+    "entity_type": "global",
+    "entity_id": "unknown",
+    "field": "goal_constraints[constraint_id=agent-lane:monthly_churn:<=]",
+    "from_value": "{\"unit\":\"%\"}",
+    "to_value": "null",
+    "reason": "Non-canonical fields stripped before ISL: unit",
+    "impact": "low",
+    "impact_reason_code": "STRUCTURAL_ONLY"
+   },
+   {
+    "dedup_key": "plot_normaliser:normalised:global:unknown:intervention.value.pro_plan_price",
+    "source_service": "plot_normaliser",
+    "action": "normalised",
+    "entity_type": "global",
+    "entity_id": "unknown",
+    "field": "intervention.value.pro_plan_price",
+    "from_value": 49,
+    "to_value": 0.245,
+    "reason": "normalised range=[0,200] source=explicit_cap",
+    "impact": "low",
+    "impact_reason_code": "STRUCTURAL_ONLY"
+   },
+   {
+    "dedup_key": "plot_normaliser:normalised:global:unknown:intervention.value.monthly_new_pro_subscribers",
+    "source_service": "plot_normaliser",
+    "action": "normalised",
+    "entity_type": "global",
+    "entity_id": "unknown",
+    "field": "intervention.value.monthly_new_pro_subscribers",
+    "from_value": 90,
+    "to_value": 0.09,
+    "reason": "normalised range=[0,1000] source=scale_frame",
+    "impact": "low",
+    "impact_reason_code": "STRUCTURAL_ONLY"
+   },
+   {
+    "dedup_key": "plot_normaliser:normalised:global:unknown:intervention.value.monthly_churn",
+    "source_service": "plot_normaliser",
+    "action": "normalised",
+    "entity_type": "global",
+    "entity_id": "unknown",
+    "field": "intervention.value.monthly_churn",
+    "from_value": 2.5,
+    "to_value": 0.025,
+    "reason": "normalised range=[0,100] source=scale_frame",
+    "impact": "low",
+    "impact_reason_code": "STRUCTURAL_ONLY"
+   },
+   {
+    "dedup_key": "plot_normaliser:normalised:global:unknown:constraint.value.agent-lane:monthly_churn:<=",
+    "source_service": "plot_normaliser",
+    "action": "normalised",
+    "entity_type": "global",
+    "entity_id": "unknown",
+    "field": "constraint.value.agent-lane:monthly_churn:<=",
+    "from_value": 4,
+    "to_value": 0.04,
+    "reason": "normalised range=[0,100] source=unit_percent",
+    "impact": "low",
+    "impact_reason_code": "STRUCTURAL_ONLY"
+   },
+   {
+    "dedup_key": "isl_engine:flagged:edge:pro_plan_price->mrr:switch_probability",
+    "source_service": "isl_engine",
+    "action": "flagged",
+    "entity_type": "edge",
+    "entity_id": "pro_plan_price->mrr",
+    "field": "switch_probability",
+    "from_value": null,
+    "to_value": 0.4832,
+    "reason": "Edge Pro plan price \u2192 MRR has 48% chance of flipping decision",
+    "impact": "high",
+    "impact_reason_code": "FRAGILE_EDGE"
+   },
+   {
+    "dedup_key": "isl_engine:flagged:node:other_mrr_growth:confidence",
+    "source_service": "isl_engine",
+    "action": "flagged",
+    "entity_type": "node",
+    "entity_id": "other_mrr_growth",
+    "field": "confidence",
+    "from_value": null,
+    "to_value": 0.4351,
+    "reason": "Factor Other MRR growth has low confidence (44%)",
+    "impact": "high",
+    "impact_reason_code": "HIGH_INFLUENCE_FACTOR"
+   }
+  ],
+  "total_count": 7,
+  "high_impact_count": 2,
+  "medium_impact_count": 0,
+  "low_impact_count": 5
+ }
+}

@@ -127,21 +127,35 @@ function buildFact(
 // Mapping helpers
 // ---------------------------------------------------------------------------
 
+const isFiniteNumber = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+
+/**
+ * A probability fact states an option's p10 / p50 / p90 (mean falls back to p50). An outcome missing any of
+ * them — e.g. an option whose figures were withheld (PLoT #417), which keeps only its sample counts — emits no
+ * fact: absent means unavailable, NOT zero.
+ */
+function hasStatedFigures(
+  outcome: OptionResultInput['outcome'],
+): outcome is { p10: number; p50: number; p90: number; mean?: number } {
+  return !!outcome && isFiniteNumber(outcome.p10) && isFiniteNumber(outcome.p50) && isFiniteNumber(outcome.p90);
+}
+
 function mapOptionResults(
   options: OptionResultInput[],
   lineage: FactLineage,
 ): FactObjectV1[] {
   return options
-    .filter((o) => o.outcome)
+    .filter((o) => hasStatedFigures(o.outcome))
     .map((o) => {
+      const outcome = o.outcome as { p10: number; p50: number; p90: number; mean?: number };
       const data: ProbabilityFactData = {
         type: 'probability',
         option_id: o.option_id,
         option_label: o.label ?? o.option_id,
-        p10: o.outcome!.p10 ?? 0,
-        p50: o.outcome!.p50 ?? 0,
-        p90: o.outcome!.p90 ?? 0,
-        mean: o.outcome!.mean ?? o.outcome!.p50 ?? 0,
+        p10: outcome.p10,
+        p50: outcome.p50,
+        p90: outcome.p90,
+        mean: isFiniteNumber(outcome.mean) ? outcome.mean : outcome.p50,
       };
       const key: FactKey = { type: 'probability', option_id: o.option_id };
       return buildFact(key, 'probability', data, lineage);

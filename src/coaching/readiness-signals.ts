@@ -137,10 +137,13 @@ function computeEvidenceQuality(
     inputs.factorSensitivity.reduce((sum, f) => sum + (f.confidence ?? 0.5), 0) /
       inputs.factorSensitivity.length || 0.5;
 
+  // The score may use the neutral default; a printed average may not (DL #72 5883188906, PR Review #409): a figure
+  // only when every factor's confidence was measured.
+  const allMeasured = inputs.factorSensitivity.every((f) => f.confidence !== undefined);
   if (avgConfidence >= 0.75) {
     signals.push({
       dimension: 'evidence',
-      signal: `High average confidence (${Math.round(avgConfidence * 100)}%)`,
+      signal: allMeasured ? `High average confidence (${Math.round(avgConfidence * 100)}%)` : 'High average confidence',
       impact: 'positive',
       weight: 0.1,
     });
@@ -148,7 +151,7 @@ function computeEvidenceQuality(
     score -= 0.2;
     signals.push({
       dimension: 'evidence',
-      signal: `Low average confidence (${Math.round(avgConfidence * 100)}%)`,
+      signal: allMeasured ? `Low average confidence (${Math.round(avgConfidence * 100)}%)` : 'Low average confidence',
       impact: 'negative',
       weight: 0.2,
     });

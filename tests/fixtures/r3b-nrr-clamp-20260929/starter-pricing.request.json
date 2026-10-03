@@ -1,0 +1,814 @@
+{
+ "graph": {
+  "nodes": [
+   {
+    "id": "dec_pricing",
+    "kind": "decision",
+    "label": "Pricing Model Transition Strategy",
+    "provenance": "ai_inferred"
+   },
+   {
+    "id": "fac_adoption_friction",
+    "kind": "factor",
+    "label": "Bottom-Up Adoption Friction",
+    "observed_state": {
+     "value": 0.8,
+     "source": "cee_inference",
+     "extractionType": "inferred",
+     "factor_type": "other",
+     "uncertainty_drivers": [
+      "Current seat model limits trial and expansion",
+      "Onboarding complexity unknown"
+     ]
+    },
+    "category": "controllable",
+    "display_value": "Very high (0.8)",
+    "provenance": "ai_inferred"
+   },
+   {
+    "id": "fac_enterprise_revenue_risk",
+    "kind": "factor",
+    "label": "Enterprise Revenue Cannibalization Risk",
+    "observed_state": {
+     "value": 0,
+     "source": "cee_inference",
+     "extractionType": "inferred",
+     "factor_type": "other",
+     "uncertainty_drivers": [
+      "Top 10 accounts are 40% of revenue",
+      "Actual usage patterns of large accounts unknown"
+     ]
+    },
+    "category": "controllable",
+    "display_value": "Low (0)",
+    "provenance": "ai_inferred"
+   },
+   {
+    "id": "fac_market_competition",
+    "kind": "factor",
+    "label": "Competitive Pressure for Usage Pricing",
+    "category": "external",
+    "prior": {
+     "distribution": "uniform",
+     "range_min": 0.3,
+     "range_max": 0.8
+    },
+    "display_value": "0.3 to 0.8",
+    "provenance": "ai_inferred"
+   },
+   {
+    "id": "fac_top_account_concentration",
+    "kind": "factor",
+    "label": "Top Account Revenue Concentration",
+    "category": "external",
+    "prior": {
+     "distribution": "uniform",
+     "range_min": 0.2,
+     "range_max": 0.6000000000000001
+    },
+    "extractionType": "explicit",
+    "display_value": "0.2 to 0.6",
+    "provenance": "from_brief"
+   },
+   {
+    "id": "fac_usage_exposure",
+    "kind": "factor",
+    "label": "Usage-Based Pricing Exposure",
+    "observed_state": {
+     "value": 0,
+     "source": "cee_inference",
+     "extractionType": "inferred",
+     "factor_type": "other",
+     "uncertainty_drivers": [
+      "Not provided"
+     ]
+    },
+    "category": "controllable",
+    "encoding_map": {
+     "0": "No usage pricing",
+     "1": "Full usage pricing"
+    },
+    "display_value": "Low (0)",
+    "provenance": "ai_inferred"
+   },
+   {
+    "id": "goal_pricing_transition",
+    "kind": "goal",
+    "label": "Achieve NRR Above 110% While Enabling Bottom-Up Adoption",
+    "goal_threshold": 0.8,
+    "goal_threshold_raw": 110,
+    "goal_threshold_unit": "%",
+    "goal_threshold_cap": 137.5,
+    "goal_threshold_cap_provenance": "target_derived_headroom",
+    "goal_threshold_frame": "level",
+    "provenance": "ai_inferred"
+   },
+   {
+    "id": "opt_full_switch",
+    "kind": "option",
+    "label": "Full Switch to Usage-Based at Renewal",
+    "interventions": {
+     "fac_usage_exposure": {
+      "value": 1,
+      "source": "brief_extraction",
+      "target_match": {
+       "node_id": "fac_usage_exposure",
+       "match_type": "exact_id",
+       "confidence": "high"
+      },
+      "value_confidence": "high",
+      "reasoning": "Direct from V4 prompt data.interventions"
+     },
+     "fac_adoption_friction": {
+      "value": 0.1,
+      "source": "brief_extraction",
+      "target_match": {
+       "node_id": "fac_adoption_friction",
+       "match_type": "exact_id",
+       "confidence": "high"
+      },
+      "value_confidence": "high",
+      "reasoning": "Direct from V4 prompt data.interventions"
+     },
+     "fac_enterprise_revenue_risk": {
+      "value": 0.8,
+      "source": "brief_extraction",
+      "target_match": {
+       "node_id": "fac_enterprise_revenue_risk",
+       "match_type": "exact_id",
+       "confidence": "high"
+      },
+      "value_confidence": "high",
+      "reasoning": "Direct from V4 prompt data.interventions"
+     }
+    },
+    "is_baseline": false,
+    "provenance": "ai_inferred"
+   },
+   {
+    "id": "opt_hybrid",
+    "kind": "option",
+    "label": "Hybrid Platform Fee Plus Usage",
+    "interventions": {
+     "fac_usage_exposure": {
+      "value": 0.5,
+      "source": "brief_extraction",
+      "target_match": {
+       "node_id": "fac_usage_exposure",
+       "match_type": "exact_id",
+       "confidence": "high"
+      },
+      "value_confidence": "high",
+      "reasoning": "Direct from V4 prompt data.interventions"
+     },
+     "fac_adoption_friction": {
+      "value": 0.4,
+      "source": "brief_extraction",
+      "target_match": {
+       "node_id": "fac_adoption_friction",
+       "match_type": "exact_id",
+       "confidence": "high"
+      },
+      "value_confidence": "high",
+      "reasoning": "Direct from V4 prompt data.interventions"
+     },
+     "fac_enterprise_revenue_risk": {
+      "value": 0.4,
+      "source": "brief_extraction",
+      "target_match": {
+       "node_id": "fac_enterprise_revenue_risk",
+       "match_type": "exact_id",
+       "confidence": "high"
+      },
+      "value_confidence": "high",
+      "reasoning": "Direct from V4 prompt data.interventions"
+     }
+    },
+    "is_baseline": false,
+    "provenance": "ai_inferred"
+   },
+   {
+    "id": "opt_new_logos",
+    "kind": "option",
+    "label": "Usage-Based for New Logos Only",
+    "interventions": {
+     "fac_usage_exposure": {
+      "value": 0.3,
+      "source": "brief_extraction",
+      "target_match": {
+       "node_id": "fac_usage_exposure",
+       "match_type": "exact_id",
+       "confidence": "high"
+      },
+      "value_confidence": "high",
+      "reasoning": "Direct from V4 prompt data.interventions"
+     },
+     "fac_adoption_friction": {
+      "value": 0.6,
+      "source": "brief_extraction",
+      "target_match": {
+       "node_id": "fac_adoption_friction",
+       "match_type": "exact_id",
+       "confidence": "high"
+      },
+      "value_confidence": "high",
+      "reasoning": "Direct from V4 prompt data.interventions"
+     },
+     "fac_enterprise_revenue_risk": {
+      "value": 0.1,
+      "source": "brief_extraction",
+      "target_match": {
+       "node_id": "fac_enterprise_revenue_risk",
+       "match_type": "exact_id",
+       "confidence": "high"
+      },
+      "value_confidence": "high",
+      "reasoning": "Direct from V4 prompt data.interventions"
+     }
+    },
+    "is_baseline": false,
+    "provenance": "ai_inferred"
+   },
+   {
+    "id": "opt_status_quo",
+    "kind": "option",
+    "label": "Keep Per-Seat Pricing (Status Quo)",
+    "interventions": {
+     "fac_usage_exposure": {
+      "value": 0,
+      "source": "brief_extraction",
+      "target_match": {
+       "node_id": "fac_usage_exposure",
+       "match_type": "exact_id",
+       "confidence": "high"
+      },
+      "value_confidence": "high",
+      "reasoning": "Direct from V4 prompt data.interventions"
+     },
+     "fac_adoption_friction": {
+      "value": 0.8,
+      "source": "brief_extraction",
+      "target_match": {
+       "node_id": "fac_adoption_friction",
+       "match_type": "exact_id",
+       "confidence": "high"
+      },
+      "value_confidence": "high",
+      "reasoning": "Direct from V4 prompt data.interventions"
+     },
+     "fac_enterprise_revenue_risk": {
+      "value": 0,
+      "source": "brief_extraction",
+      "target_match": {
+       "node_id": "fac_enterprise_revenue_risk",
+       "match_type": "exact_id",
+       "confidence": "high"
+      },
+      "value_confidence": "high",
+      "reasoning": "Direct from V4 prompt data.interventions"
+     }
+    },
+    "is_baseline": true,
+    "provenance": "ai_inferred"
+   },
+   {
+    "id": "out_bottom_up_growth",
+    "kind": "outcome",
+    "label": "Bottom-Up New Logo Acquisition",
+    "provenance": "ai_inferred"
+   },
+   {
+    "id": "out_nrr",
+    "kind": "outcome",
+    "label": "Net Revenue Retention",
+    "provenance": "ai_inferred"
+   },
+   {
+    "id": "risk_enterprise_churn",
+    "kind": "risk",
+    "label": "Enterprise Account Revenue Loss",
+    "provenance": "ai_inferred"
+   },
+   {
+    "id": "risk_pricing_complexity",
+    "kind": "risk",
+    "label": "Pricing Model Complexity and Execution Risk",
+    "provenance": "ai_inferred"
+   }
+  ],
+  "edges": [
+   {
+    "from": "dec_pricing",
+    "to": "opt_full_switch",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "dec_pricing",
+    "to": "opt_hybrid",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "dec_pricing",
+    "to": "opt_new_logos",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "dec_pricing",
+    "to": "opt_status_quo",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "fac_adoption_friction",
+    "to": "out_bottom_up_growth",
+    "strength": {
+     "mean": -0.35040983606557374,
+     "std": 0.10901639344262294
+    },
+    "exists_probability": 0.88,
+    "effect_direction": "negative",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "fac_adoption_friction",
+    "to": "risk_pricing_complexity",
+    "strength": {
+     "mean": 0.35,
+     "std": 0.14
+    },
+    "exists_probability": 0.78,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "fac_enterprise_revenue_risk",
+    "to": "out_nrr",
+    "strength": {
+     "mean": -0.5,
+     "std": 0.14
+    },
+    "exists_probability": 0.92,
+    "effect_direction": "negative",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "fac_enterprise_revenue_risk",
+    "to": "risk_enterprise_churn",
+    "strength": {
+     "mean": 0.447463768115942,
+     "std": 0.10326086956521738
+    },
+    "exists_probability": 0.9,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "fac_market_competition",
+    "to": "out_bottom_up_growth",
+    "strength": {
+     "mean": 0.17131147540983604,
+     "std": 0.09344262295081965
+    },
+    "exists_probability": 0.7,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "fac_market_competition",
+    "to": "risk_enterprise_churn",
+    "strength": {
+     "mean": 0.12391304347826086,
+     "std": 0.06884057971014493
+    },
+    "exists_probability": 0.65,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "fac_top_account_concentration",
+    "to": "out_nrr",
+    "strength": {
+     "mean": -0.2,
+     "std": 0.08
+    },
+    "exists_probability": 0.9,
+    "effect_direction": "negative",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "fac_top_account_concentration",
+    "to": "risk_enterprise_churn",
+    "strength": {
+     "mean": 0.3786231884057971,
+     "std": 0.06884057971014493
+    },
+    "exists_probability": 0.95,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "fac_usage_exposure",
+    "to": "out_bottom_up_growth",
+    "strength": {
+     "mean": 0.4282786885245901,
+     "std": 0.11680327868852457
+    },
+    "exists_probability": 0.85,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "fac_usage_exposure",
+    "to": "out_nrr",
+    "strength": {
+     "mean": 0.25,
+     "std": 0.12
+    },
+    "exists_probability": 0.75,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "opt_full_switch",
+    "to": "fac_adoption_friction",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "opt_full_switch",
+    "to": "fac_enterprise_revenue_risk",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "opt_full_switch",
+    "to": "fac_usage_exposure",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "opt_hybrid",
+    "to": "fac_adoption_friction",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "opt_hybrid",
+    "to": "fac_enterprise_revenue_risk",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "opt_hybrid",
+    "to": "fac_usage_exposure",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "opt_new_logos",
+    "to": "fac_adoption_friction",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "opt_new_logos",
+    "to": "fac_enterprise_revenue_risk",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "opt_new_logos",
+    "to": "fac_usage_exposure",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "opt_status_quo",
+    "to": "fac_adoption_friction",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "opt_status_quo",
+    "to": "fac_enterprise_revenue_risk",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "opt_status_quo",
+    "to": "fac_usage_exposure",
+    "strength": {
+     "mean": 1,
+     "std": 0.01
+    },
+    "exists_probability": 1,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "out_bottom_up_growth",
+    "to": "goal_pricing_transition",
+    "strength": {
+     "mean": 0.4,
+     "std": 0.12
+    },
+    "exists_probability": 0.88,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "out_nrr",
+    "to": "goal_pricing_transition",
+    "strength": {
+     "mean": 0.55,
+     "std": 0.1
+    },
+    "exists_probability": 0.95,
+    "effect_direction": "positive",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "risk_enterprise_churn",
+    "to": "goal_pricing_transition",
+    "strength": {
+     "mean": -0.5,
+     "std": 0.12
+    },
+    "exists_probability": 0.92,
+    "effect_direction": "negative",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   },
+   {
+    "from": "risk_pricing_complexity",
+    "to": "goal_pricing_transition",
+    "strength": {
+     "mean": -0.22,
+     "std": 0.1
+    },
+    "exists_probability": 0.75,
+    "effect_direction": "negative",
+    "provenance": {
+     "source": "cee_hypothesis"
+    },
+    "provenance_display": "ai_inferred",
+    "origin": "ai"
+   }
+  ]
+ },
+ "options": [
+  {
+   "id": "opt_full_switch",
+   "option_id": "opt_full_switch",
+   "label": "Full Switch to Usage-Based at Renewal",
+   "interventions": {
+    "fac_usage_exposure": 1,
+    "fac_adoption_friction": 0.1,
+    "fac_enterprise_revenue_risk": 0.8
+   }
+  },
+  {
+   "id": "opt_hybrid",
+   "option_id": "opt_hybrid",
+   "label": "Hybrid Platform Fee Plus Usage",
+   "interventions": {
+    "fac_usage_exposure": 0.5,
+    "fac_adoption_friction": 0.4,
+    "fac_enterprise_revenue_risk": 0.4
+   }
+  },
+  {
+   "id": "opt_new_logos",
+   "option_id": "opt_new_logos",
+   "label": "Usage-Based for New Logos Only",
+   "interventions": {
+    "fac_usage_exposure": 0.3,
+    "fac_adoption_friction": 0.6,
+    "fac_enterprise_revenue_risk": 0.1
+   }
+  },
+  {
+   "id": "opt_status_quo",
+   "option_id": "opt_status_quo",
+   "label": "Keep Per-Seat Pricing (Status Quo)",
+   "interventions": {
+    "fac_usage_exposure": 0,
+    "fac_adoption_friction": 0.8,
+    "fac_enterprise_revenue_risk": 0
+   },
+   "is_baseline": true
+  }
+ ],
+ "goal_node_id": "goal_pricing_transition",
+ "goal_constraints": [
+  {
+   "constraint_id": "constraint_out_nrr_min",
+   "node_id": "out_nrr",
+   "operator": ">=",
+   "value": 1.1,
+   "label": "net revenue retention floor",
+   "unit": "fraction",
+   "provenance_unit_normalised": {
+    "rule": "percent_to_fraction",
+    "original_value": 110,
+    "original_unit": "%"
+   },
+   "source_quote": "net revenue retention above 110%",
+   "confidence": 0.85,
+   "provenance": "explicit"
+  }
+ ]
+}

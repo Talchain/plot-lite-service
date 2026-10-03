@@ -5500,6 +5500,14 @@ components:
             would fail the whole analysis).
             When omitted, ISL runs the maximiser UNATTESTED and discloses this via
             GOAL_DIRECTION_UNATTESTED. PLoT never infers it from a node label.
+        goal_threshold_strict:
+          type: boolean
+          description: |
+            True when the goal must be strictly PAST the goal threshold ("above", "over",
+            "more than"; "below", "under", "less than" when minimising): ISL then counts a
+            draw exactly on the threshold as NOT met. Absent or false = "at least" / "at
+            most", as before. Forwarded to ISL only as true and only when the request
+            carries a goal threshold (ISL refuses true without one). PLoT never infers it.
         seed:
           oneOf:
             - type: string
@@ -5746,6 +5754,32 @@ components:
           type: object
           additionalProperties:
             $ref: '#/components/schemas/interventionValueV3'
+        intervention_ranges:
+          type: object
+          description: |
+            TEMPORAL step 2. Per node the option SETS, the user's stated range for that
+            value, in the same raw units as the point. Optional; absent by default. Each key
+            must also be in `interventions`, else 422 INVALID_INTERVENTION_RANGE. Forwarded to
+            ISL (quartiles of a lognormal for 'likely_range'); the node's frame is widened
+            above the range's fitted P99. A limit on the node is withheld for this option
+            (`range_limits_withheld`) unless ISL confirms it sampled the range.
+          additionalProperties:
+            type: object
+            required: [low, high, meaning]
+            properties:
+              low:
+                type: number
+                minimum: 0
+                exclusiveMinimum: true
+                description: Stated good case (raw units).
+              high:
+                type: number
+                description: Stated bad case (raw units, > low).
+              meaning:
+                type: string
+                minLength: 1
+                maxLength: 64
+                description: What the user's words say the range is. ISL samples only 'likely_range'.
 
     interventionValueV3:
       type: object
@@ -6111,6 +6145,23 @@ components:
                       cvar_10/p05. `>= 0` by construction, and a genuine `0` for
                       an option that wins every draw (a measured zero, not an
                       absence).
+              range_limits_withheld:
+                type: array
+                description: |
+                  TEMPORAL step 2, fail closed. Limits whose probability (and this option's
+                  joint) were withheld because the option stated a range for the limit's node
+                  and ISL did not confirm sampling it. Absent when nothing was withheld.
+                items:
+                  type: object
+                  required: [constraint_id, node_id, reason]
+                  properties:
+                    constraint_id:
+                      type: string
+                    node_id:
+                      type: string
+                    reason:
+                      type: string
+                      enum: [range_not_sampled, range_reading_mismatch]
               constraint_margins:
                 type: array
                 description: |
@@ -6522,6 +6573,18 @@ components:
                   own path walk, which does NOT account for the identity,
                   because ISL's list was absent, partial or withheld; bases are
                   never mixed.
+              influence_gated_by:
+                type: array
+                items:
+                  type: string
+                description: >-
+                  ISL #213 (AIQ ruling 5881953818). Present only when ISL WITHHELD
+                  this factor's structural influence because every path from it to
+                  the goal runs through a product with another input at 0 today
+                  (those inputs). Its influence depends on the option chosen: the
+                  row carries no `influence_score`, `influence_rank` or
+                  `importance_rank`, and no driver surface ranks it. Show "depends
+                  on the option chosen", never 0 and never "little".
               importance_score:
                 type: number
                 minimum: 0

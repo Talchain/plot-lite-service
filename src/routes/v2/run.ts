@@ -87,8 +87,8 @@ import { compileConstraintNodes } from '../../normalisation/constraint-compiler.
 import { filterTemporalConstraints } from '../../normalisation/constraint-filter.js';
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
-import type { RawGoalConstraint, InternalMetadata } from '../../types/engine-v3.js';
-import { withdrawInferredUnevaluatedIdentities, attachIdentityExecutionFrames, attachChangeFrameRawRanges, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, correlatedFactorIdsOf, zeroFactorsHeldExact, zeroFactorHeldWarnings, exactInputOptionIds, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
+import type { RawGoalConstraint, InternalMetadata, RangeLimitWithheld } from '../../types/engine-v3.js';
+import { withdrawInferredUnevaluatedIdentities, attachIdentityExecutionFrames, goalCarrierIds, attachChangeFrameRawRanges, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, correlatedFactorIdsOf, zeroFactorsHeldExact, zeroFactorHeldWarnings, exactInputOptionIds, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
@@ -110,6 +110,7 @@ import { deriveRobustnessDisplayVerdict } from './robustness-display-verdict.js'
 import type { RobustnessDataForCee } from '../../integrations/isl/types/plot-types.js';
 import type { ISLConstraintResult, ISLEdgeEValue } from '../../integrations/isl/types/isl-types.js';
 import { getIslEdgeEValues, getIslEdgeSensitivity, getIslComputedAt, getIslRangeFitDisclosures, getIslIdentityEvaluations, getIslStructuralInfluence } from '../../integrations/isl/v2-envelope.js';
+import { goalIdentitiesNotEvaluated, goalIdentityWithheldMessage, limitsOnUnevaluatedIdentityPath, limitIdentityWithheldMessage, withoutGoalDerivedVoi, factorRowWithoutWalk, driverOrderUnderWithhold, coachingWithoutWalk, clampedEffects, clampedEffectWithheldMessage, clampedEffectDisclosedMessage } from '../../lib/goal-identity-withhold.js';
 import { V2_RUN_ALLOWED_KEYS, islEnrichmentPassthrough } from './run-contract-keys.js';
 import { assessIslWireGeneration, logIslWireGenerationUnverified } from '../../integrations/isl/wire-generation.js';
 import { preflightDuplicateEdges } from '../../integrations/isl/preflight.js';
@@ -203,6 +204,11 @@ import { detectDominantFactor } from '../../trust/factor-dominance.js';
 import type { IdentifiabilityAssessment } from '../../types/engine-v3.js';
 import { readInterventionValue } from '../../lib/intervention-value.js';
 import {
+  INTERVENTION_RANGE_COVERAGE,
+  readInterventionRange,
+  type InterventionRangeV3,
+} from '../../lib/intervention-range.js';
+import {
   normaliseOptionsForISL,
   denormaliseISLResult,
   denormaliseValue,
@@ -211,6 +217,7 @@ import {
   constraintsNeedNormalisation,
   isChangeFrame,
   constraintsHavePercentPointValue,
+  constraintsHaveDeclaredQuantityUnderCap,
   constraintsNeedPercentTargetFrame,
   collectScaleFrameByNodeId,
   isIdentityRange,
@@ -1466,13 +1473,129 @@ export function normalizeInterventions(
  * Normalize all options' interventions.
  */
 function normalizeOptions(
-  options: Array<{ id: string; label: string; interventions: Record<string, any> }>
+  options: Array<{ id: string; label: string; interventions: Record<string, any>; intervention_ranges?: unknown }>
 ): OptionV3[] {
-  return options.map(opt => ({
-    id: opt.id,
-    label: opt.label,
-    interventions: normalizeInterventions(opt.interventions),
-  }));
+  return options.map(opt => {
+    const normalised: OptionV3 = {
+      id: opt.id,
+      label: opt.label,
+      interventions: normalizeInterventions(opt.interventions),
+    };
+    // TEMPORAL step 2: carried ONLY when present, so an option without a range is
+    // byte-identical. The ingress guard above has already refused any malformed entry.
+    const ranges = readInterventionRanges(opt.intervention_ranges);
+    if (ranges !== undefined) normalised.intervention_ranges = ranges;
+    return normalised;
+  });
+}
+
+/**
+ * TEMPORAL step 2: the limits to withhold for ONE option because it stated a range for the
+ * limit's node and ISL did not echo sampling that node. Empty when the option stated no range,
+ * so every range-free request is byte-identical.
+ */
+function rangeLimitsWithheld(
+  option: OptionV3 | undefined,
+  islOption: { sampled_intervention_ranges?: Array<{ node_id: string; coverage?: number }> } | undefined,
+  constraintAnalysis: { constraints?: unknown } | undefined,
+  goalConstraints: GoalConstraint[] | undefined,
+): RangeLimitWithheld[] {
+  const stated = option?.intervention_ranges;
+  if (stated === undefined || Object.keys(stated).length === 0) return [];
+  const echoedCoverage = new Map(
+    (islOption?.sampled_intervention_ranges ?? []).map((s) => [s.node_id, s.coverage] as const),
+  );
+  // Fail closed on either: no echo, or an echo read at a coverage the frame was not widened for.
+  const reasonByNode = new Map<string, RangeLimitWithheld['reason']>();
+  for (const nodeId of Object.keys(stated)) {
+    if (!echoedCoverage.has(nodeId)) reasonByNode.set(nodeId, 'range_not_sampled');
+    else if (echoedCoverage.get(nodeId) !== INTERVENTION_RANGE_COVERAGE) {
+      reasonByNode.set(nodeId, 'range_reading_mismatch');
+    }
+  }
+  if (reasonByNode.size === 0) return [];
+  const rows = Array.isArray(constraintAnalysis?.constraints)
+    ? (constraintAnalysis!.constraints as ISLConstraintResult[])
+    : [];
+  const ids = resolveConstraintIds(rows, goalConstraints);
+  const out: RangeLimitWithheld[] = [];
+  rows.forEach((row, i) => {
+    const reason = reasonByNode.get(row.node_id);
+    if (reason === undefined) return;
+    out.push({
+      constraint_id: ids[i] ?? `${row.node_id}_${row.operator}`,
+      node_id: row.node_id,
+      reason,
+    });
+  });
+  return out;
+}
+
+/** The limits `withholdUnsampledRangeLimits` withheld for at least one option (read off its records). */
+function rangeWithheldConstraintIdsFrom(islResult: any): ReadonlySet<string> {
+  const rows: any[] = islResult?.options ?? islResult?.results ?? [];
+  const ids = new Set<string>();
+  for (const r of Array.isArray(rows) ? rows : []) {
+    for (const w of Array.isArray(r?.range_limits_withheld) ? r.range_limits_withheld : []) ids.add(w.constraint_id);
+  }
+  return ids;
+}
+
+/**
+ * TEMPORAL step 2 — the ONE place a range-scored limit is withheld (P0 PARTNER on #424).
+ *
+ * For each ISL option whose request option stated a range that ISL did not confirm sampling
+ * (`rangeLimitsWithheld`), return a clone with those limit rows removed, its joint and
+ * conditionals removed, and the typed record attached as `range_limits_withheld`. Every
+ * consumer downstream (per-option map, top-level block, coaching) then reads the limit as
+ * unscored. The input is returned untouched when no option states a range.
+ */
+function withholdUnsampledRangeLimits(
+  islResult: any,
+  options: OptionV3[] | undefined,
+  goalConstraints: GoalConstraint[] | undefined,
+): { result: any; withheldConstraintIds: ReadonlySet<string> } {
+  const none = { result: islResult, withheldConstraintIds: new Set<string>() };
+  if (!options?.some((o) => o.intervention_ranges !== undefined)) return none;
+  const key = Array.isArray(islResult?.options) ? 'options' : Array.isArray(islResult?.results) ? 'results' : undefined;
+  if (key === undefined) return none;
+  const withheldConstraintIds = new Set<string>();
+  const rows = (islResult[key] as any[]).map((r) => {
+    const optionId = r?.option_id ?? r?.id;
+    const option = options.find((o) => o.id === optionId);
+    const withheld = rangeLimitsWithheld(option, r, r?.constraint_analysis, goalConstraints);
+    if (withheld.length === 0) return r;
+    const ids = resolveConstraintIds(
+      (r.constraint_analysis?.constraints ?? []) as ISLConstraintResult[],
+      goalConstraints,
+    );
+    const withheldIds = new Set(withheld.map((w) => w.constraint_id));
+    withheld.forEach((w) => withheldConstraintIds.add(w.constraint_id));
+    const kept = (r.constraint_analysis.constraints as ISLConstraintResult[]).filter(
+      (_row, i) => !withheldIds.has(ids[i] ?? `${_row.node_id}_${_row.operator}`),
+    );
+    const { joint_probability: _joint, conditional_probabilities: _cond, ...analysisRest } = r.constraint_analysis;
+    return { ...r, constraint_analysis: { ...analysisRest, constraints: kept }, range_limits_withheld: withheld };
+  });
+  if (withheldConstraintIds.size === 0) return none;
+  return { result: { ...islResult, [key]: rows }, withheldConstraintIds };
+}
+
+/** The validated per-node ranges, or undefined when none were stated. */
+function readInterventionRanges(raw: unknown): Record<string, InterventionRangeV3> | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Record<string, InterventionRangeV3> = {};
+  for (const nodeId of Object.keys(raw as Record<string, unknown>).sort()) {
+    const range = readInterventionRange((raw as Record<string, unknown>)[nodeId]);
+    if (range === undefined) {
+      throw new Error(
+        `normalizeOptions: malformed intervention range for node '${nodeId}' — ` +
+        'the Phase 1a++ ingress guard must refuse it before normalisation.',
+      );
+    }
+    out[nodeId] = range;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 // -----------------------------------------------------------------------------
@@ -1533,6 +1656,8 @@ const runV3Schema = {
       // `extra: "ignore"` and being dropped in silence while the maximiser keeps
       // running unattested.
       goal_direction: { type: 'string', enum: ['maximise', 'minimise', 'target'] },
+      // R1 S4 (B): "above £85k" — strictly past the threshold. Boolean AT THE GATE; forwarded only as `true` beside a threshold.
+      goal_threshold_strict: { type: 'boolean' },
       include_thresholds: { type: 'boolean' },
       include_e_values: { type: 'boolean' },
       include_voi: { type: 'boolean' },
@@ -1795,6 +1920,20 @@ interface MetaParams {
   withheldOptions?: import('../../types/engine-v3.js').WithheldOptionRecord[];
   /** Variant (b): inferred identities not forwarded to ISL (frameless) — _meta.identities_not_forwarded */
   identitiesNotForwarded?: import('../../integrations/isl/translator-v3.js').IdentityNotForwarded[];
+  /**
+   * M2 cause: the draw-structure key of the request whose response IS the analysed result, bound where `islResult` is
+   * taken (never the first attempt: a 503 → 200 retry or a 422 identity-withdrawal re-ask sends a different exchange).
+   * `_meta.evidence.isl_draw_structure_key`; null when there is no successful primary exchange (the key is then omitted).
+   */
+  islDrawStructureKey?: string | null;
+  /**
+   * PLoT #419 (AIQ #72 5889873087, one carrier): the goal identities not evaluated, decided ONCE by the route on the
+   * graph and ISL answer it analysed — the same value gates M1 coaching, the M2 review and every published figure.
+   * Absent only on paths that decide nothing earlier (then `buildResponse` decides it from its own inputs).
+   */
+  goalIdentityWithheld?: import('../../lib/goal-identity-withhold.js').GoalIdentityNotEvaluated[];
+  /** AI Quality #72 5893355501: link sizes cut to the model's scale, decided ONCE by the route from the graph as sent. */
+  clampedEffects?: ReturnType<typeof import('../../lib/goal-identity-withhold.js').clampedEffects>;
   /** Variant (a): frames PLoT derived for frameless inferred intermediate carriers — _meta.identity_derived_frames */
   identityDerivedFrames?: import('../../integrations/isl/translator-v3.js').IdentityDerivedFrame[];
   /** T7b 4b (AIQ #72 5869679096): zero factors held at 0 with no uncertainty — each named in inference_warnings */
@@ -2529,7 +2668,14 @@ function buildConstraintFields(
    * constraints and none of them could be carried" — see the honesty branch
    * below.
    */
-  withheldConstraintCount?: number
+  withheldConstraintCount?: number,
+  /**
+   * TEMPORAL step 2 (P0 PARTNER on #424): limits withheld for at least one option because its
+   * stated range was not sampled. The top-level block is a first-option derivation, so such a
+   * limit is withheld here too (per limit, like the lane-27 gate); it is never re-derived from
+   * a different option.
+   */
+  rangeWithheldConstraintIds?: ReadonlySet<string>,
 ): {
   constraints_status?: ConstraintFeatureStatus;
   constraint_results?: ConstraintResult[];
@@ -2894,6 +3040,20 @@ function buildConstraintFields(
     );
   }
 
+  // TEMPORAL step 2: the same per-limit withhold for a limit whose stated range was not sampled.
+  if (rangeWithheldConstraintIds && rangeWithheldConstraintIds.size > 0) {
+    deliveredResults = deliveredResults.filter((r) => !rangeWithheldConstraintIds.has(r.constraint_id));
+    if (deliveredResults.length === 0) {
+      return { constraints_status: 'unavailable' };
+    }
+    deliveredDiagnostics = deliveredDiagnostics.filter((d) => !rangeWithheldConstraintIds.has(d.constraint_id));
+    deliveredConditionals = deliveredConditionals?.filter(
+      (cp) =>
+        !rangeWithheldConstraintIds.has(cp.given_constraint_id) &&
+        !rangeWithheldConstraintIds.has(cp.target_constraint_id),
+    );
+  }
+
   // A3 adjacent-hunt FIX #1 (honesty leak): mirror the suppressed-target gate
   // above for the DIRECTION-SUSPECT partition. The per-option gate already
   // withholds probability_of_joint_goal / constraint_probabilities when the
@@ -3198,16 +3358,29 @@ function buildResponse(
     unreliableConstraintTargets,
     graph,
   );
-  const suppressConstraintProbabilities = constraintTargetPartition.suppressed.length > 0;
+  // ⛔ AI Quality #72 5886183999 (the CONDITION on the goal withhold below): a limit whose target IS an unevaluated
+  // identity, or is reached through one, is scored on the same invalid additive walk. It is withheld PER LIMIT exactly
+  // like a suppressed target (so the joint follows through `joint_withheld`), and said as
+  // CONSTRAINT_IDENTITY_NOT_EVALUATED — never as CONSTRAINT_TARGET_UNRELIABLE, whose words name other causes.
+  const identityNotForwardedIds = (meta.identitiesNotForwarded ?? []).map((w) => w.node_id);
+  const identityPathLimits = limitsOnUnevaluatedIdentityPath(
+    graph,
+    goalConstraints,
+    getIslIdentityEvaluations(islResult),
+    identityNotForwardedIds,
+  );
+  const suppressConstraintProbabilities =
+    constraintTargetPartition.suppressed.length > 0 || identityPathLimits.length > 0;
   // B5 (AI Quality #70 5855345225 / 5855511541): ONE LIMIT'S REFUSAL NEVER
   // SILENCES ANOTHER. The partition is applied PER LIMIT: a suppressed target's
   // own probability is withheld and every other limit keeps its own. (Before
   // B5 any suppressed target withheld every limit on the run, and modelled-basis
   // delivery was switched off on a mixed run.) What stays run-level is the
   // JOINT: see `unscoredConstraintIds` below.
-  const suppressedConstraintIds = new Set(
-    constraintTargetPartition.suppressed.map((t) => t.constraint_id),
-  );
+  const suppressedConstraintIds = new Set([
+    ...constraintTargetPartition.suppressed.map((t) => t.constraint_id),
+    ...identityPathLimits.map((l) => l.constraint_id),
+  ]);
   const modelledBasisConstraintTargets = constraintTargetPartition.modelledBasis;
   const modelledBasisConstraintIds = modelledBasisConstraintTargets.map((t) => t.constraint_id);
   // Sorted + deduplicated node ids for the per-option annotation.
@@ -3262,6 +3435,20 @@ function buildResponse(
   // (#378) this is carried by `unscoredConstraintIds` above: it takes EVERY
   // `_meta.filtered_constraints` record, `threshold_clamped` among them, so the
   // joint is omitted on every option and `joint_withheld` names the limit.
+  // ⛔ A declared identity on the goal's own path that ISL did not evaluate: the goal's chance would come from the
+  // additive walk, so it is withheld on every option and said (GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED below).
+  // AI Quality #72 5884802000 / DL 5884931550; `src/lib/goal-identity-withhold.ts`.
+  const goalIdentityWithheld = meta.goalIdentityWithheld
+    ?? goalIdentitiesNotEvaluated(graph, getIslIdentityEvaluations(islResult), identityNotForwardedIds);
+  let goalProbabilityWithheld = false;
+  // ⛔ The SAME unevaluated identity makes every per-option figure of the goal come from that additive walk: the
+  // chance of leading and the outcome's centre and spread are as wrong as P(goal) (AI Quality #72 5886183999
+  // follow-up; R3-B census 5886351619). Withheld on every option by the SAME predicate; the sample counts stay (they
+  // are not claims about the goal). `decision_brief.options[]` / its leader follow, built from this published list.
+  // ⛔ AI Quality #72 5893355501: a USER-STATED link size on the goal's path that was cut to the model's scale — the
+  // goal figures would rest on a cut version of the user's number: the SAME carrier withholds them.
+  const clampedEffectsFound = meta.clampedEffects ?? { withhold: [], disclose: [] };
+  const optionFiguresInvalid = goalIdentityWithheld.length > 0 || clampedEffectsFound.withhold.length > 0;
   const optionComparison = islOptionData?.map((r: any) => {
     const optionId = r.option_id ?? r.id;
     const option = options?.find((o) => o.id === optionId);
@@ -3335,6 +3522,11 @@ function buildResponse(
       }
       // An outcome with nothing honest in it is not an outcome: emit no key
       // rather than an empty object a consumer could mistake for a result.
+      if (optionFiguresInvalid) {
+        for (const k of ['mean', 'std', 'p10', 'p50', 'p90'] as const) {
+          if (built[k] !== undefined) { delete built[k]; goalProbabilityWithheld = true; }
+        }
+      }
       if (Object.keys(built).length > 0) outcome = built;
     }
 
@@ -3361,7 +3553,9 @@ function buildResponse(
     // probability). A non-finite value would otherwise serialise to a fabricated
     // `null` on this declared-numeric probability field; honest absence is correct.
     const probGoal = prob01(r.probability_of_goal);
-    if (probGoal !== undefined) {
+    if (probGoal !== undefined && optionFiguresInvalid) {
+      goalProbabilityWithheld = true; // said once below, by the reason that applies
+    } else if (probGoal !== undefined) {
       result.probability_of_goal = probGoal;
     }
 
@@ -3369,7 +3563,9 @@ function buildResponse(
     // absent, non-finite, or out-of-range). Mirrors the finite guard already used
     // by the recommended-option / near-tie derivations (see deriveRecommendedOption).
     const winProb = prob01(r.win_probability);
-    if (winProb !== undefined) {
+    if (winProb !== undefined && optionFiguresInvalid) {
+      goalProbabilityWithheld = true;
+    } else if (winProb !== undefined) {
       result.win_probability = winProb;
     }
 
@@ -3393,7 +3589,7 @@ function buildResponse(
     // loosening a guard it never mentioned. Binding to
     // `hasAllRequiredOutcomeStats` restores the producer's own invariant and
     // keeps downside behaviour byte-identical to before this change.
-    const downside = hasAllRequiredOutcomeStats(outcomeData)
+    const downside = hasAllRequiredOutcomeStats(outcomeData) && !optionFiguresInvalid
       ? buildDownside(r.downside)
       : undefined;
     if (downside !== undefined) {
@@ -3552,6 +3748,23 @@ function buildResponse(
         // per affected node further below.
         let deliveredProbs = constraintProbs;
         let deliveredMargins = constraintMargins;
+        // TEMPORAL step 2 — FAIL CLOSED per option: a limit on a node this option sent a range
+        // for, which ISL did not confirm sampling, would be scored at the option's point.
+        const rangeWithheld: RangeLimitWithheld[] = Array.isArray(r.range_limits_withheld) ? r.range_limits_withheld : [];
+        if (rangeWithheld.length > 0) {
+          const withheldIds = new Set(rangeWithheld.map((w) => w.constraint_id));
+          if (deliveredProbs !== undefined) {
+            const kept = Object.entries(deliveredProbs).filter(([id]) => !withheldIds.has(id));
+            deliveredProbs = kept.length > 0 ? Object.fromEntries(kept) : undefined;
+          }
+          deliveredMargins = deliveredMargins?.filter((m) => !withheldIds.has(m.constraint_id));
+          result.range_limits_withheld = rangeWithheld;
+          logger?.warn({
+            event: 'constraint_probability_withheld_range_not_sampled',
+            option_id: optionId,
+            constraint_ids: [...withheldIds],
+          });
+        }
         if (suppressConstraintProbabilities) {
           logger?.warn({
             event: 'constraint_probability_suppressed',
@@ -3567,7 +3780,7 @@ function buildResponse(
           deliveredMargins = constraintMargins?.filter((m) => !suppressedConstraintIds.has(m.constraint_id));
         }
         // B5: "all your limits met" only when EVERY limit is scored.
-        if (jointProb !== undefined && unscoredConstraintIds.length === 0) {
+        if (jointProb !== undefined && unscoredConstraintIds.length === 0 && rangeWithheld.length === 0) {
           result.probability_of_joint_goal = jointProb;
         } else if (jointProb !== undefined) {
           logger?.warn({
@@ -3670,10 +3883,17 @@ function buildResponse(
   // deployed ISL builds (e.g. f3f5d92) the nested field is absent too:
   // edge_sensitivity then stays "computed, empty" and is explicitly marked
   // via the EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE inference warning below.
-  const edgeSensitivity = sensitivityData?.edgeSensitivity
-    ?? transformEdgeSensitivity(getIslEdgeSensitivity(islResult), fallbackNodeLabelMap);
+  // ⛔ R3 SCIENCE #72 5889055195 / 5889219876 — under an unevaluated goal identity, withhold what the WALK computed and
+  // keep what the STRUCTURE computed. The goal's per-edge sensitivity is the walk's: withheld (the required array,
+  // empty). Each factor row keeps its structural quantities (`influence_*`, R3-5 #405; rank / score / elasticity /
+  // direction when its `importance_basis` is structural) and loses the walk's (`factorRowWithoutWalk`). Everything
+  // built from the rows reads the PUBLISHED rows: the brief's drivers, the evidence-priority card, the factor facts,
+  // the dominant factor.
+  const edgeSensitivity = optionFiguresInvalid ? [] : (sensitivityData?.edgeSensitivity
+    ?? transformEdgeSensitivity(getIslEdgeSensitivity(islResult), fallbackNodeLabelMap));
   const factorSensitivity = sensitivityData?.factorSensitivity
     ?? transformFactorSensitivity(islResult?.factor_sensitivity);
+  const publishedFactorSensitivity = optionFiguresInvalid ? factorSensitivity?.map(factorRowWithoutWalk) : factorSensitivity;
 
   // ── Family-4 S1: the ONE canonical driver order + its attestation ────────
   //
@@ -3697,7 +3917,9 @@ function buildResponse(
   //     required on `SensitivityData`, so this branch is the only place the
   //     value can be absent);
   //   · ISL's own suppression disclosure ← read defensively off `islResult`.
-  const driverOrder = buildDriverOrder({
+  // ⛔ R3 5889219876: the driver ranking is withheld only when it is the walk's (basis `isl_uncertainty`); a structural
+  // order stays (R3-5). Built from the full rows, as before; see `driverOrderUnderWithhold` below.
+  const builtDriverOrder = buildDriverOrder({
     factors: factorSensitivity,
     structuralLeverIds:
       sensitivityData?.structuralLeverIds ?? interventionTargetIdsFromOptions(options),
@@ -3706,14 +3928,18 @@ function buildResponse(
     islSuppressedAttributions:
       sensitivityData?.islSuppressedAttributions ?? readIslSuppressedAttributions(islResult),
   });
+  const driverOrder = driverOrderUnderWithhold(builtDriverOrder, optionFiguresInvalid);
 
   // Fallback transforms for edge_e_values and conditional_winners when sensitivityData not pre-computed.
   // Edge E-values are NESTED at robustness.edge_e_values on the V2 wire (the
   // former top-level read was structurally dead) — read via the accessor.
-  const edgeEValues = sensitivityData?.edgeEValues
-    ?? transformEdgeEValues(getIslEdgeEValues(islResult), fallbackNodeLabelMap);
-  const conditionalWinners = sensitivityData?.conditionalWinners
-    ?? transformConditionalWinners(islResult?.conditional_winners, fallbackNodeLabelMap, fallbackOptionLabelMap);
+  // ⛔ AIQ #72 5890824310: each E-value is how far a link must move to change the walk's winner — a flip point of the
+  // same walk, like `flip_thresholds`: none under an unevaluated goal identity (#416's warning says why).
+  const edgeEValues = optionFiguresInvalid ? [] : (sensitivityData?.edgeEValues
+    ?? transformEdgeEValues(getIslEdgeEValues(islResult), fallbackNodeLabelMap));
+  // Which option wins as a factor moves: the same walk's winners (R3 5889055195) — none under an unevaluated goal identity.
+  const conditionalWinners = optionFiguresInvalid ? undefined : (sensitivityData?.conditionalWinners
+    ?? transformConditionalWinners(islResult?.conditional_winners, fallbackNodeLabelMap, fallbackOptionLabelMap));
 
   // ROADMAP 2.720 (P4). Read through the envelope accessor, which fixes the
   // wire LOCATION in one place and degrades a non-array to absent. Forwarded
@@ -3872,6 +4098,15 @@ function buildResponse(
       robust_edges: [],
     };
   }
+  // ⛔ R3 SCIENCE #72 5888737291: under an unevaluated goal identity every robustness fact comes from the same
+  // links-only walk as the withheld figures — the edges' switch probabilities and alternative winners, is_robust /
+  // level, and `confidence` (the leader's chance of leading, relabelled). Withheld with them; the always-present
+  // empty shape stays, so the display verdict below reads 'not_assessed'. #416's warning says why.
+  if (optionFiguresInvalid) {
+    robustness = { fragile_edges: [], robust_edges: [] };
+  }
+  // The same walk's tipping points: withheld from the verdict, the brief and the wire alike (one variable).
+  const publishedFlipThresholds = optionFiguresInvalid ? undefined : flipThresholds;
 
   // ⭐ RELEASE GATE (ii) — a limit "met" on levels its target cannot take is not
   // decision-grade (`level-domain-gate.ts`, olumi-programme-docs#70 5844770854).
@@ -4038,7 +4273,7 @@ function buildResponse(
     // parameter of this function, so this is the array that ships on the wire
     // at `flip_thresholds` below — the verdict and the evidence it cites can
     // never be taken from two different runs.
-    flipThresholds,
+    publishedFlipThresholds,
   );
   robustness.display_verdict = displayVerdictFields.display_verdict;
   robustness.display_verdict_reason = displayVerdictFields.display_verdict_reason;
@@ -4049,6 +4284,48 @@ function buildResponse(
   // Extract stability_thresholds and detect diagnostic warnings
   const stabilityThresholdsExtracted = extractStabilityThresholds(islResult);
   const inferenceWarnings: InferenceWarning[] = [];
+
+  // One per limit target node, naming the withheld limit(s) and the identity node(s) they rest on.
+  for (const nodeId of [...new Set(identityPathLimits.map((l) => l.node_id))]) {
+    const onNode = identityPathLimits.filter((l) => l.node_id === nodeId);
+    const identities = [...new Map(onNode.flatMap((l) => l.identities).map((i) => [i.node_id, i] as const)).values()];
+    inferenceWarnings.push({
+      code: INFERENCE_WARNING_CODES.CONSTRAINT_IDENTITY_NOT_EVALUATED,
+      message: limitIdentityWithheldMessage(graph?.nodes?.find((n) => n.id === nodeId)?.label ?? nodeId, identities),
+      severity: 'warning',
+      constraint_ids: onNode.map((l) => l.constraint_id),
+      node_ids: identities.map((i) => i.node_id),
+    });
+  }
+
+  if (clampedEffectsFound.withhold.length > 0 && (optionComparison?.length ?? 0) > 0) {
+    inferenceWarnings.push({
+      code: INFERENCE_WARNING_CODES.GOAL_FIGURES_USER_EFFECT_CLAMPED,
+      message: clampedEffectWithheldMessage(clampedEffectsFound.withhold),
+      severity: 'warning',
+      node_ids: [...new Set(clampedEffectsFound.withhold.flatMap((c) => [c.from, c.to]))],
+    });
+  }
+  if (clampedEffectsFound.disclose.length > 0) {
+    inferenceWarnings.push({
+      code: INFERENCE_WARNING_CODES.EDGE_STRENGTH_CLAMPED,
+      message: clampedEffectDisclosedMessage(clampedEffectsFound.disclose),
+      severity: 'info',
+      node_ids: [...new Set(clampedEffectsFound.disclose.flatMap((c) => [c.from, c.to]))],
+    });
+  }
+
+  // #416's sentence only when an unevaluated identity is the reason (a cut user size says its own, above).
+  if (goalProbabilityWithheld && goalIdentityWithheld.length > 0) {
+    inferenceWarnings.push({
+      code: INFERENCE_WARNING_CODES.GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED,
+      message: goalIdentityWithheldMessage(goalIdentityWithheld, new Set((meta.identitiesNotForwarded ?? [])
+        .filter((w) => w.reason === 'inferred_identity_unconfirmed').map((w) => w.node_id)),
+        graph?.nodes?.find((n) => n.kind === 'goal')?.label),
+      severity: 'warning',
+      node_ids: goalIdentityWithheld.map((n) => n.node_id),
+    });
+  }
 
   // Emit warning when ISL returned factor-level 3C fields but stability_thresholds
   // was absent or malformed — helps diagnose missing threshold classification context.
@@ -4116,7 +4393,8 @@ function buildResponse(
   // where no option reaches it, else its starting level is held and the options still move it (AIQ #72 5871640445).
   inferenceWarnings.push(...zeroFactorHeldWarnings(meta.zeroFactorsHeldExact ?? []));
 
-  if (analysisStatus === 'computed' && islResult && !hasNonEmptyArray(edgeSensitivity)) {
+  // (Not when the edges were withheld above: #416's warning already says why they are empty.)
+  if (analysisStatus === 'computed' && islResult && !optionFiguresInvalid && !hasNonEmptyArray(edgeSensitivity)) {
     inferenceWarnings.push({
       code: INFERENCE_WARNING_CODES.EDGE_SENSITIVITY_UNAVAILABLE_V2_WIRE,
       // provisional_doctrine_v0 — wording surface (diagnostic disclosure)
@@ -4138,6 +4416,7 @@ function buildResponse(
   // accessor resolves it). Pairs with _meta.evidence.isl_wire_generation_ok.
   if (
     analysisStatus === 'computed' &&
+    !optionFiguresInvalid &&
     islResult?.robustness &&
     getIslEdgeEValues(islResult) === undefined
   ) {
@@ -4283,7 +4562,7 @@ function buildResponse(
   // (assembly/decision-brief.ts:729-737) echoes severity 'warning' only. The
   // earlier text here named `_meta.warning_codes`, a field that does not exist
   // anywhere in this repo.
-  if (meta.edgeEValuesDropped) {
+  if (meta.edgeEValuesDropped && !optionFiguresInvalid) {
     const disclosure = describeEdgeEValueDrop(
       meta.edgeEValuesDropped.inputNull,
       meta.edgeEValuesDropped.overflow,
@@ -4363,7 +4642,8 @@ function buildResponse(
     analysis_status: analysisStatus,
     critiques: critiquesOut,
     option_comparison: optionComparison,
-    factor_sensitivity: factorSensitivity,
+    // Under an unevaluated goal identity the brief ranks no drivers and names no tipping point (same walk).
+    factor_sensitivity: publishedFactorSensitivity,
     // Family-4 S1b: the SAME object the response publishes, so
     // decision_brief.top_drivers[0] and driver_order.ranked_factor_ids[0]
     // cannot describe different orders.
@@ -4378,10 +4658,10 @@ function buildResponse(
     // `flip_thresholds` below and the display verdict already consumes —
     // one variable, so the brief's robustness_caveat and the evidence it
     // cites can never come from two different runs.
-    flip_thresholds: flipThresholds,
+    flip_thresholds: publishedFlipThresholds,
     // AIQ 5867389636: the SAME factor_evppi rows the response passes through at top level, so
     // "What could change" names only a factor ISL measured above resolution.
-    factor_evppi: Array.isArray(islResult?.factor_evppi) ? (islResult.factor_evppi as RunResponseV3['factor_evppi']) : undefined,
+    factor_evppi: !optionFiguresInvalid && Array.isArray(islResult?.factor_evppi) ? (islResult.factor_evppi as RunResponseV3['factor_evppi']) : undefined,
     response_hash: responseHash,
     // Track S: depth-aware brief lineage (config_version + lineage.n_samples).
     meta: { seed_used: meta.seedUsed, n_samples: meta.nSamples },
@@ -4401,7 +4681,7 @@ function buildResponse(
     // unmeasured row #1 on a value copied from a different quantity. Read the
     // helper's JSDoc before changing this call.
     const epFactors: FactorInput[] = toEvidencePriorityFactorInputs(
-      filterInterventionOverrides(factorSensitivity ?? []),
+      filterInterventionOverrides(publishedFactorSensitivity ?? []),
       graph?.edges,
     );
     const epCard = buildEvidencePriorityCard(epFactors);
@@ -4435,7 +4715,9 @@ function buildResponse(
         label: oc.label as string | undefined,
         outcome: oc.outcome as { p10?: number; p50?: number; p90?: number; mean?: number } | undefined,
       })),
-      factor_sensitivity: mapFactorSensitivityToFactsInput(factorSensitivity),
+      // A factor fact states its row's attribution stability and confidence, both the walk's; `assembleFactObjects`
+      // would default them ('moderate' / 0.5) rather than omit them. So under the withhold there is no factor fact.
+      factor_sensitivity: optionFiguresInvalid ? undefined : mapFactorSensitivityToFactsInput(factorSensitivity),
       critiques: critiquesOut?.map((c) => ({
         id: c.id ?? c.code,
         code: c.code,
@@ -4449,7 +4731,8 @@ function buildResponse(
       // were always undefined (phantom — never populated from the V2 wire), so
       // mapRobustness already fell back to its 'moderate'/0.5 defaults. Passing
       // an empty object keeps the assembled FactObject byte-identical.
-      robustness: robustness ? {} : undefined,
+      // Under an unevaluated goal identity robustness is withheld (R3 5888737291): no robustness fact either.
+      robustness: robustness && !optionFiguresInvalid ? {} : undefined,
     };
 
     const envelope = assembleFactObjects(islInput, lineage);
@@ -4518,7 +4801,11 @@ function buildResponse(
       goalConstraints,
       islResult,
       constraintNormRanges,
-      constraintTargetPartition.suppressed,
+      // A limit on an unevaluated identity's path is withheld from the top-level block too (same per-limit rule).
+      [
+        ...constraintTargetPartition.suppressed,
+        ...identityPathLimits.map((l) => ({ constraint_id: l.constraint_id, node_id: l.node_id, reasons: [] })),
+      ],
       logger,
       // Release gate (ii): the GATED markers (identical to the input map unless
       // the leader's row tripped `judgeLevelDomain` above).
@@ -4552,6 +4839,8 @@ function buildResponse(
       // The honest predicate is therefore "did a producer THAT FILES A RECORD
       // remove them?", not "did constraints arrive and none reach the engine?".
       withheldConstraintCount,
+      // TEMPORAL step 2: limits withheld for some option because its range was not sampled.
+      rangeWithheldConstraintIdsFrom(islResult),
     ),
     // B5: why `probability_of_joint_goal` is absent on every option, naming the
     // unscored limits. Absent whenever every limit was scored.
@@ -4615,7 +4904,9 @@ function buildResponse(
     // + emission order derive from ISL_TOPLEVEL_ENRICHMENT_KEYS so the OpenAPI
     // drift gate stays in lockstep (F9). Guard is `!== undefined` so an explicit
     // null/0/false from ISL still passes through.
-    ...islEnrichmentPassthrough(islResult),
+    // ⛔ R3 5888737291: the value-of-information figures are computed on the same walk — withheld under an
+    // unevaluated goal identity (correlation_model, an input structure, still passes).
+    ...withoutGoalDerivedVoi(islEnrichmentPassthrough(islResult), optionFiguresInvalid),
     // ⭐ ROADMAP 2.720 (pillar P4) — per-range interquartile-fit disclosures for
     // the request's `user_stated_ranges`. Additive VERBATIM passthrough, read
     // through the envelope accessor so the wire LOCATION is fixed in one place
@@ -4646,12 +4937,12 @@ function buildResponse(
     // empty or absent). Excluded from response_hash.
     conditional_winners: conditionalWinners ?? [],
     // Enrich factor_sensitivity with range_derivation_source from _meta (Task 7)
-    factor_sensitivity: factorSensitivity && meta.rangeDerivationSources
-      ? factorSensitivity.map(f => {
+    factor_sensitivity: publishedFactorSensitivity && meta.rangeDerivationSources
+      ? publishedFactorSensitivity.map(f => {
           const rds = meta.rangeDerivationSources![f.factor_id];
           return rds ? { ...f, range_derivation_source: rds } : f;
         })
-      : factorSensitivity,
+      : publishedFactorSensitivity,
     // ⭐ Family-4 S1 — THE canonical driver order + attestation, emitted as a
     // top-level sibling of factor_sensitivity[] (amendment §4.3). ADDITIVE:
     // nothing above or below changed shape or meaning. Present whenever
@@ -4661,7 +4952,8 @@ function buildResponse(
     ...(driverOrder !== undefined && { driver_order: driverOrder }),
     // ISL stability assessment per factor (3C bootstrap analysis)
     // NOTE: Deterministic ISL output. Excluded from response_hash since v6.
-    factor_stability: factorStability ?? [],
+    // The same walk's per-factor stability (R3 5889055195): empty under an unevaluated goal identity.
+    factor_stability: optionFiguresInvalid ? [] : (factorStability ?? []),
     // ISL stability threshold configuration (boundaries for attribution_stability categories)
     // NOTE: Configuration metadata, NOT in response_hash. The categorical labels it
     // influences (attribution_stability in factor_stability) are already in the hash.
@@ -4690,14 +4982,14 @@ function buildResponse(
     // Dominant factor detection (B1) — computed from factor_sensitivity
     // NOTE: Deterministic. Excluded from response_hash.
     ...(() => {
-      const df = detectDominantFactor(factorSensitivity);
+      const df = detectDominantFactor(publishedFactorSensitivity);
       return df ? { dominant_factor: df } : {};
     })(),
 
     // Flip thresholds (tipping points) for UI Results Panel.
     // Always emitted ([] when empty or absent) so consumers can distinguish
     // computed-empty from absent. Excluded from canonical hash.
-    flip_thresholds: flipThresholds ?? [],
+    flip_thresholds: publishedFlipThresholds ?? [],
 
     // Display-honesty: high-level classification of the post-denormalised
     // flip_thresholds[] array. Always emitted alongside flip_thresholds so
@@ -4705,7 +4997,7 @@ function buildResponse(
     // cases honestly without re-deriving from individual flip_reason strings.
     // Excluded from canonical hash (display-only enrichment).
     ...(() => {
-      const result = classifyFlipThresholdsStatus(flipThresholds);
+      const result = classifyFlipThresholdsStatus(publishedFlipThresholds);
       return {
         flip_thresholds_status: result.status,
         ...(result.status_reason && { flip_thresholds_status_reason: result.status_reason }),
@@ -4718,8 +5010,8 @@ function buildResponse(
     // margin movement (weakened / strengthened / flipped) without
     // changing PR #167's strict-flip semantics.
     ...(() => {
-      const marginStatus = classifyFlipThresholdsMarginStatus(flipThresholds);
-      const marginCoverage = computeFlipThresholdsMarginCoverage(flipThresholds);
+      const marginStatus = classifyFlipThresholdsMarginStatus(publishedFlipThresholds);
+      const marginCoverage = computeFlipThresholdsMarginCoverage(publishedFlipThresholds);
       return {
         flip_thresholds_margin_status: marginStatus.status,
         flip_thresholds_margin_coverage: marginCoverage,
@@ -4905,6 +5197,11 @@ function buildResponse(
           isl_build: typeof islResult?.build === 'string' ? islResult.build : null,
           isl_request_digest: primaryIslCall?.request_digest ?? null,
           isl_response_digest: primaryIslCall?.response_digest ?? null,
+          // M2 cause (CEE #2410): on whenever PLoT computed one, unlike `_meta.payloads` — the ONE authority on the
+          // request's draw structure. Bound to the exchange that produced the result, not to `primaryIslCall` (the FIRST
+          // attempt, maybe a 503). Omitted, never `null`, when there is none: the byte-identity pins (the /v2/run golden,
+          // the pre-#181 control) keep their bytes, and CEE reads absent as unrecorded (no C1) exactly as it reads null.
+          ...(typeof meta.islDrawStructureKey === 'string' ? { isl_draw_structure_key: meta.islDrawStructureKey } : {}),
           // Lane 29 (spec §2.1): wire-generation assertion result. Pure
           // re-assessment of the same envelope the boundary warning used
           // (denormalisation only rewrites option outcomes — the markers and
@@ -5882,6 +6179,42 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               ));
             }
           }
+          // TEMPORAL step 2: a stated range must be well formed AND sit on a node the option
+          // sets. A malformed range is refused here, never forwarded half-formed and never
+          // dropped silently (a drop would score the option at its point: a false 100% / 0%).
+          for (const option of body.options) {
+            const ranges = (option as { intervention_ranges?: unknown })?.intervention_ranges;
+            if (ranges === undefined) continue;
+            const optionId = String((option as { id?: unknown })?.id ?? '');
+            const interventions = (option as { interventions?: Record<string, unknown> })?.interventions ?? {};
+            const entries = ranges && typeof ranges === 'object' && !Array.isArray(ranges)
+              ? Object.entries(ranges as Record<string, unknown>)
+              : [['', ranges] as [string, unknown]];
+            for (const [nodeKey, raw] of entries) {
+              const valid = nodeKey !== '' && readInterventionRange(raw) !== undefined;
+              const setsNode = nodeKey !== '' && Object.prototype.hasOwnProperty.call(interventions, nodeKey);
+              if (valid && setsNode) continue;
+              return reply.status(422).send(buildBlockedResponse(
+                `Invalid intervention range: options[id=${optionId}].intervention_ranges['${nodeKey}']`,
+                [{
+                  id: randomUUID(),
+                  code: 'INVALID_INTERVENTION_RANGE',
+                  severity: 'blocker',
+                  message: setsNode || nodeKey === ''
+                    ? `Option '${optionId}' has an invalid range for node '${nodeKey}'. It needs finite numbers 0 < low < high and a stated meaning.`
+                    : `Option '${optionId}' states a range for node '${nodeKey}', which it does not set in its interventions.`,
+                  source: 'validation',
+                  affected_option_ids: [optionId],
+                  affected_node_ids: nodeKey === '' ? [] : [nodeKey],
+                  blocks_analysis: true,
+                }],
+                body.graph,
+                body.options,
+                requestId,
+                requestComputedAt,
+              ));
+            }
+          }
         }
 
         // =================================================================
@@ -5904,13 +6237,21 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           nodesNormalised = normResult.nodesNormalised;
           edgesNormalised = normResult.edgesNormalised;
           normWarnings = normResult.warnings;
-          // Convert canonical RepairEntry[] → RepairRecord[] for _meta compatibility
+          // Convert canonical RepairEntry[] → RepairRecord[] for _meta compatibility — KEEPING the canonical code,
+          // layer, path and severity. Dropping them made `normaliseRepairsForMeta` stamp every normaliser repair
+          // `LEGACY_REPAIR`, so a cut user size (CLAMP_STRENGTH_MEAN) reached no one by name (AIQ #72 5893355501).
           repairs = normResult.repairs.map(r => ({
             field: r.field_path,
             action: r.action,
             from_value: r.before as number | string | null,
             to_value: r.after as number | string,
             reason: r.reason,
+            code: r.code,
+            layer: r.layer,
+            field_path: r.field_path,
+            before: r.before as number | string | null,
+            after: r.after as number | string | null,
+            severity: r.severity,
           }));
         } catch (err) {
           if (err instanceof NormalisationError) {
@@ -7560,7 +7901,14 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           // "already normalised"), so its presence alone invokes the normaliser. Siblings are read
           // exactly as before: the gate itself ignores change frames (`constraintsNeedNormalisation`).
           const anyChangeFrame = activeGoalConstraints.some((c) => isChangeFrame(c.value_frame));
-          if (gateNeedsNorm || anyNonIdentityScale || anyPercentPointValue || anyPercentTargetFrame || anyChangeFrame) {
+          // F1b (DL 5932454064): a declared quantity under a declared cap ("≤ 1 points" under cap 12) reads on that cap
+          // at ANY value. Invocation only: the forward-raw rung asks the SAME predicate, and siblings keep their reading.
+          const anyDeclaredQuantityUnderCap = constraintsHaveDeclaredQuantityUnderCap(
+            activeGoalConstraints,
+            constraintUnitsByConstraintId,
+            goalThresholdMetaByNodeId,
+          );
+          if (gateNeedsNorm || anyNonIdentityScale || anyPercentPointValue || anyPercentTargetFrame || anyChangeFrame || anyDeclaredQuantityUnderCap) {
             const constraintNormResult = normaliseGoalConstraints(
               activeGoalConstraints,
               filteredGraph.nodes,
@@ -8005,7 +8353,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           body.factor_correlations,  // Capability #100 (D-23.4): forward client-supplied factor correlations verbatim (request-gated omit inside the translator)
           resolvedGoalTarget.frame,  // Only the attestation bound to the selected target; never borrowed from a conflicting node target
           body.user_stated_ranges,  // ROADMAP 2.720 (P4): the user's own stated ranges, projected onto ISL's declared members inside the translator (request-gated omit)
-          parseGoalDirection(body.goal_direction)  // ROADMAP 2.920: attested objective sense; unrecognised ⇒ undefined ⇒ today's unattested maximiser
+          parseGoalDirection(body.goal_direction),  // ROADMAP 2.920: attested objective sense; unrecognised ⇒ undefined ⇒ today's unattested maximiser
+          body.goal_threshold_strict === true  // R1 S4 (B): attested strict goal; forwarded only beside a threshold (translator)
         );
 
         // R3-8: each declared identity's participants carry the frame PLoT resolved (runtime
@@ -8016,7 +8365,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         for (const [nodeId, meta] of goalThresholdMetaByNodeId) {
           if (meta.goal_threshold_cap !== undefined) goalCapByNodeId.set(nodeId, meta.goal_threshold_cap);
         }
-        identitiesNotForwarded.push(...attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId, goalCapByNodeId, identityDerivedFrames));
+        identitiesNotForwarded.push(...attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId, goalCapByNodeId, identityDerivedFrames, goalCarrierIds(filteredGraph.nodes, filteredGraph.edges ?? [])));
 
         // R1 S3 (wire R3 #72 5872798858) — a RELATIVE change needs its target's raw bounds (its base
         // owner rides `observed_state.source`, already on the wire). Targets: every change_rel limit on the wire, plus the goal when its threshold is a
@@ -8168,6 +8517,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let islFallbackExecuted = false;
         let computedAt: string | undefined;
         let islEchoedRequestId: string | null = null;
+        // M2 cause: the draw-structure key of the exchange whose response becomes `islResult` (set with it, below).
+        let islResultDrawStructureKey: string | null = null;
         // Retryability from ISL response (service-computed, status-aware)
         let islResponseRetryable: boolean | undefined;
 
@@ -8281,6 +8632,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             islSuccess = true;
             islStatusCode = 200;
             islEchoedRequestId = response.isl_echoed_request_id ?? null;
+            islResultDrawStructureKey = response.isl_draw_structure_key ?? null;
             // Capture timestamp when ISL response received (before any PLoT processing).
             // The V2 wire carries this as top-level `timestamp` (the V1-era
             // `computed_at` is never emitted on V2 — verified live 2026-07-06,
@@ -8547,6 +8899,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         }
 
         // Handle HTTP 200 with analysis_status='failed' from ISL
+        // TEMPORAL step 2 — FAIL CLOSED AT THE SOURCE (P0 PARTNER on #424). A limit on a node an
+        // option stated a range for, which ISL did not confirm sampling (or read at another
+        // coverage), is REMOVED from that option's ISL rows, with that option's joint and
+        // conditionals, before ANY consumer reads the result: the per-option map, the top-level
+        // block and coaching all see the limit as unscored, never as the point's 100% / 0%.
+        // No option states a range → the same object passes through untouched.
+        const rangeSanitised = withholdUnsampledRangeLimits(processedIslResult, normalizedOptions, activeGoalConstraints);
+        processedIslResult = rangeSanitised.result;
+        const rangeWithheldConstraintIds = rangeSanitised.withheldConstraintIds;
+
         const islAnalysisStatus = processedIslResult.analysis_status;
         const islStatusReason = processedIslResult.status_reason;
 
@@ -9098,10 +9460,34 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           analysis_status: topLevelStatus,
         });
 
+        // ⛔ PLoT #419 (R3 5889219876, AIQ 5889514782, PR Review 5890819288): the SAME predicate `buildResponse` withholds
+        // on — the same graph, the same ISL answer, the same withdrawn ids — decided ONCE here, before any consumer that
+        // reads ISL's answer ahead of the response: the legacy CEE review and the M2 decision review are skipped (each an
+        // LLM reading of the walk's outcomes and robustness); M1 coaching keeps only its structural fields.
+        const goalIdentityWithheld = goalIdentitiesNotEvaluated(
+          filteredGraph, getIslIdentityEvaluations(processedIslResult), identitiesNotForwarded.map((w) => w.node_id),
+        );
+        // AI Quality #72 5893355501: a user-stated link size on the goal's path that the normaliser cut — read from the
+        // graph AS SENT (the normalised graph holds the cut ±1), decided once here with the identity predicate.
+        const clampedEffectsFound = clampedEffects(body.graph);
+        const goalFiguresWithheld = goalIdentityWithheld.length > 0 || clampedEffectsFound.withhold.length > 0;
+        const legacyCeeGoalFiguresWithheld: CeeOrchestrationResult = {
+          ...legacyCeeSkipped,
+          ceeTrace: {
+            requestId: requestId,
+            degraded: false,
+            timestamp: new Date().toISOString(),
+            source: 'orchestrator',
+            reason: 'Legacy CEE review skipped: the goal figures are withheld (see inference_warnings for why)',
+          },
+        };
+
         const [ceeOrchestrationResult, factorEnrichments] = await Promise.all([
-          // Skip legacy CEE /review + /options when M2 decision-review is enabled
+          // Skip legacy CEE /review + /options when M2 decision-review is enabled, or when the goal figures are withheld
           FLAGS.DECISION_REVIEW_ENABLE
             ? Promise.resolve(legacyCeeSkipped)
+            : goalFiguresWithheld
+            ? Promise.resolve(legacyCeeGoalFiguresWithheld)
             : requestCeeReview(
                 responseHash ?? requestId, // Use response hash as scenario ID
                 filteredGraph,
@@ -9194,13 +9580,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             repairsForCoaching,  // Phase 3: normaliser repairs for assumptions ledger
             [],                  // Phase 3: CEE critiques (empty for now, can be extended)
             activeGoalConstraints,  // Task 1+3: goal constraints for joint-prob gate & grounding check
-            factorSensitivity,   // Provenance fix: coaching consumes the same enriched
+            goalFiguresWithheld ? factorSensitivity?.map(factorRowWithoutWalk) : factorSensitivity,   // Provenance fix: coaching consumes the same enriched
                                  // factor_sensitivity array we publish, so evidence_gaps
                                  // confidence/influence match the public payload (audit
                                  // A1-PRIMARY: no raw-ISL signal under coaching field names).
             coachingConstraintTargetsUnreliable,  // Item A: skip joint-prob gate on unreliable targets
             coachingConstraintTargetDirectionSuspect,  // FIX #1 companion: skip joint-prob gate on direction-suspect targets
+            rangeWithheldConstraintIds.size > 0,  // TEMPORAL step 2: a withheld joint is UNKNOWN, so no "no option" claim
           );
+          // AIQ 5889514782: under the withhold only coaching's structural fields stay (see coachingWithoutWalk).
+          if (goalFiguresWithheld && m1Coaching) m1Coaching = coachingWithoutWalk(m1Coaching, factorSensitivity);
         } catch (err) {
           req.log.warn({
             event: 'm1_coaching_generation_failed',
@@ -9456,6 +9845,16 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               review_status: 'skipped',
               review_skip_reason: ReviewSkipReasons.BRIEF_MISSING,
             };
+          } else if (goalFiguresWithheld) {
+            // ⛔ AIQ 5889514782: the review is an LLM reading of the goal's walk (ISL's answer, the coaching's lead, the
+            // tipping points); under an unevaluated goal identity it would rest on figures this run could not
+            // calculate. Skipped, said with its own reason — never a partial review.
+            req.log.info({ event: 'decision_review_goal_figures_withheld', request_id: requestId });
+            m2DecisionReview = {
+              m1_review: null,
+              review_status: 'skipped',
+              review_skip_reason: ReviewSkipReasons.GOAL_FIGURES_WITHHELD,
+            };
           } else try {
             // ROADMAP 2.676 — see the field comment below. Computed here rather
             // than inline so the REFUSALS can be counted: a row dropped for
@@ -9686,6 +10085,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             ],
             withheldOptions: withheldOptionRecords,
             identitiesNotForwarded,
+            islDrawStructureKey: islResultDrawStructureKey,
+            goalIdentityWithheld,
+            clampedEffects: clampedEffectsFound,
             identityDerivedFrames,
             zeroFactorsHeldExact: zeroFactorsHeld,
             exactInputOptionIds: exactInputOptions,

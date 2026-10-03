@@ -182,8 +182,9 @@ export interface EvidenceGap {
    */
   voi_score: number;
   confidence: number;            // 0-1 (raw)
-  confidence_display: string;    // "50%" (formatted)
-  confidence_defaulted: boolean; // True if confidence was missing
+  confidence_display?: string;   // "45%" (formatted); ABSENT when defaulted — a default is never printed
+  confidence_defaulted: boolean; // True when no MEASURED stability backs it (missing, or PLoT's graph-only formula):
+                                 // `confidence` is then the neutral ordering value (DL #72 5883188906)
   influence: number;             // Normalised impact (0-1)
   influence_display: string;     // "73%" (formatted)
   suggestion: string;            // "Gather data on {factor_label} to reduce uncertainty"
@@ -316,11 +317,16 @@ export interface M1Coaching {
       reason: string;
       impact: 'high' | 'medium' | 'low';
       impact_reason_code: 'AFFECTS_WINNER' | 'HIGH_INFLUENCE_FACTOR' | 'FRAGILE_EDGE' | 'OUTCOME_MODIFIER' | 'STRUCTURAL_ONLY' | 'COSMETIC';
+      /** `user`: an assumption of this model the user can check; `internal`: a process diagnostic (see `ledgerAudience`). */
+      audience: 'user' | 'internal';
     }>;
     total_count: number;
     high_impact_count: number;
     medium_impact_count: number;
     low_impact_count: number;
+    /** `audience: 'user'` rows only: the counts a user-facing surface may show. */
+    user_count: number;
+    user_high_impact_count: number;
   };
 
   thresholds_used?: {
@@ -404,7 +410,8 @@ export interface M1Coaching {
   /**
    * Deterministic reason codes that produced `readiness_tone`. Empty array
    * when tone is `'confident'`; otherwise contains the triggered hard reasons
-   * plus an optional `INSUFFICIENT_SIGNALS` marker. Stable additive
+   * plus an optional `INSUFFICIENT_SIGNALS` marker and the soft
+   * `TOP_DRIVER_UNMEASURED` cap (AIQ #72 5883542574). Stable additive
    * vocabulary defined in `src/coaching/readiness-tone.ts`.
    *
    * Optional for the same reasons as `readiness_tone` above: backwards

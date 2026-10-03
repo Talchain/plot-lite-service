@@ -7,6 +7,8 @@
  * @see Integration Alignment Implementation Brief v1.1
  */
 
+import type { InterventionRangeV3 } from '../lib/intervention-range.js';
+
 // CIL Phase 1: Canonical types and constants from shared schema package
 import {
   LIMITS,
@@ -162,6 +164,13 @@ export interface UpstreamNode {
      */
     source?: string;
     extractionType?: string;
+    /**
+     * Whose SPREAD `std` is (R3-B #72 5895208669; frames, AIQ 5895140735): `'user'` = the user's own figure or
+     * range, `'olumi'` = Olumi's (e.g. a spread carried across a frame move). An upstream claim, copied verbatim
+     * like `source`; PLoT maps it onto ISL's `ParameterUncertainty.spread_source` and nowhere else — it is not an
+     * ISL `ObservedState` member, so the egress projector never forwards it.
+     */
+    std_source?: string;
   };
   /** State space bounds for the factor (used for uncertainty calculation) */
   state_space?: {
@@ -362,6 +371,8 @@ export interface EngineNodeV3 {
      */
     source?: string;
     extractionType?: string;
+    /** Whose spread `std` is — see `UpstreamNode.observed_state.std_source`. */
+    std_source?: string;
   };
   /** State space bounds for the factor (used for uncertainty calculation) */
   state_space?: {
@@ -512,6 +523,13 @@ export interface OptionV3 {
    * REQUIRED and must be non-empty.
    */
   interventions: Record<string, InterventionValueV3>;
+  /**
+   * TEMPORAL step 2: per node the option SETS, the user's stated range for that value, in the
+   * same raw units as the point. Optional and absent by default; a request without it is
+   * byte-identical. Forwarded to ISL, which samples it for this option's own limit on that node
+   * and echoes `sampled_intervention_ranges`; without the echo the limit is withheld.
+   */
+  intervention_ranges?: Record<string, InterventionRangeV3>;
 }
 
 // -----------------------------------------------------------------------------
@@ -965,6 +983,13 @@ export interface RunRequestV3 {
    * unrecognised sense becomes an omitted key rather than a cast that lies.
    */
   goal_direction?: unknown;
+
+  /**
+   * R1 S4 (B) (R3 #72 5879133964; ISL #209): the producer's attested STRICT comparator for the goal target ("above
+   * £85k"; "below" when minimising). Typed `unknown` for the same reason as `goal_direction`: only `=== true` is
+   * forwarded (translator), and only beside a goal threshold; anything else is an omitted key.
+   */
+  goal_threshold_strict?: unknown;
 
   /**
    * Original decision description/brief.
@@ -2291,6 +2316,17 @@ export interface DownsideStatsV3 {
 /**
  * Per-option comparison result.
  */
+/** TEMPORAL step 2: one limit withheld for one option because its stated range was not sampled. */
+export interface RangeLimitWithheld {
+  constraint_id: string;
+  node_id: string;
+  /**
+   * range_not_sampled: ISL did not echo the range. range_reading_mismatch: ISL echoed a coverage
+   * other than the one PLoT widened the frame for, so the frame may not cover that reading.
+   */
+  reason: 'range_not_sampled' | 'range_reading_mismatch';
+}
+
 export interface OptionComparisonResultV3 {
   option_id: string;
   option_label: string;
@@ -2382,6 +2418,14 @@ export interface OptionComparisonResultV3 {
    * gate as constraint_probabilities).
    */
   constraint_margins?: ConstraintMargin[];
+
+  /**
+   * TEMPORAL step 2 — FAIL CLOSED. The limits whose probability (and this option's joint) PLoT
+   * withheld because the option stated a range for the limit's node and ISL did not confirm
+   * sampling it (`sampled_intervention_ranges`). Scoring such a limit would read the option's
+   * single point: a false 100% / 0%. Absent when nothing was withheld for this reason.
+   */
+  range_limits_withheld?: RangeLimitWithheld[];
 
   /**
    * Producer-owned trust marker (A3): AND over the `decision_grade` of the
@@ -2664,6 +2708,14 @@ export interface FactorSensitivityResultV3 {
   influence_score?: number;
   /** Influence rank. 1 = most influential. */
   influence_rank?: number;
+  /**
+   * ISL #213 (AIQ #72 5881953818): present only when ISL WITHHELD this factor's structural influence
+   * because every path to the goal runs through a product with another input at 0 today (those inputs).
+   * Its influence depends on the option chosen: the row carries no `influence_score`, `influence_rank`
+   * or `importance_rank`, and no driver surface ranks it. A consumer shows "depends on the option
+   * chosen", never 0 and never "little".
+   */
+  influence_gated_by?: string[];
   /** Sensitivity score (raw total causal effect). From graph influence or ISL. */
   sensitivity_score?: number;
   /** Elasticity measure from ISL */
@@ -3188,6 +3240,34 @@ export const INFERENCE_WARNING_CODES = {
    * @see src/routes/v2/run.ts transformEdgeEValues
    */
   EDGE_E_VALUE_NON_FINITE_DROPPED: 'EDGE_E_VALUE_NON_FINITE_DROPPED',
+  /**
+   * A declared identity on the goal's own path was not evaluated, so `probability_of_goal` is WITHHELD on every
+   * option (never shown from the additive walk). `node_ids` names the identity node(s). AI Quality #72 5884802000,
+   * DL 5884931550. Severity: warning.
+   * @see src/lib/goal-identity-withhold.ts
+   */
+  GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED: 'GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED',
+  /**
+   * A USER-STATED link size on the goal's own path was bigger than the model's scale and was cut to fit, so every
+   * goal figure (P(goal), win %, the outcome's centre and spread, flips, the coaching lead) is WITHHELD — the figures
+   * would rest on a cut version of the user's number. `node_ids` names each cut link's two ends. AI Quality #72
+   * 5893355501. Severity: warning.
+   * @see src/lib/goal-identity-withhold.ts clampedEffects
+   */
+  GOAL_FIGURES_USER_EFFECT_CLAMPED: 'GOAL_FIGURES_USER_EFFECT_CLAMPED',
+  /**
+   * A link size was cut to the model's scale but the goal figures do not rest on a user-stated size (an Olumi
+   * estimate, or a user-stated link off the goal's path): figures kept, the cut SAID. AI Quality #72 5893355501.
+   * Severity: info.
+   */
+  EDGE_STRENGTH_CLAMPED: 'EDGE_STRENGTH_CLAMPED',
+  /**
+   * A limit whose target IS an unevaluated declared identity, or is reached through one, is scored on the same invalid
+   * walk: its probability is WITHHELD (per limit, so the joint follows via `joint_withheld`). `constraint_ids` names the
+   * limit(s), `node_ids` the identity node(s). AI Quality #72 5886183999. Severity: warning.
+   * @see src/lib/goal-identity-withhold.ts
+   */
+  CONSTRAINT_IDENTITY_NOT_EVALUATED: 'CONSTRAINT_IDENTITY_NOT_EVALUATED',
 } as const;
 
 export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof INFERENCE_WARNING_CODES];
@@ -3244,6 +3324,12 @@ export interface InferenceWarning {
    * fails the contract.
    */
   node_label?: string;
+  /**
+   * The node(s) this warning is about, by id — set on GOAL_PROBABILITY_IDENTITY_NOT_EVALUATED (the identity nodes whose
+   * evaluation the goal's chance would rest on). The egress enrichment envelope's inference_warnings element is
+   * passthrough, so this additive field never fails the contract.
+   */
+  node_ids?: string[];
 }
 
 /**
@@ -3676,6 +3762,13 @@ export interface EvidenceCaptureV1 {
   isl_request_digest: PayloadDigestV3 | null;
   /** Digest of the exact response bytes ISL returned; null when unavailable */
   isl_response_digest: PayloadDigestV3 | null;
+  /**
+   * M2 cause (CEE #2410; DL 5934513210): sha256 of the DRAW STRUCTURE of the primary ISL request
+   * (`lib/isl-draw-structure-key.ts`): equal on two Runs ⇔ ISL drew their samples the same way, so a shared seed pairs
+   * them. Opaque: CEE compares two of these for equality and never recomputes. Omitted when ISL was not called or
+   * produced no analysed result (absent = unrecorded = no C1; the byte-identity pins keep their bytes).
+   */
+  isl_draw_structure_key?: string | null;
   /**
    * Lane 29 (spec §2.1): result of the ISL wire-generation assertion —
    * true when the primary ISL response declared its version markers

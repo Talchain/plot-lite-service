@@ -54,6 +54,32 @@ export interface AssumptionRecord {
     | 'OUTCOME_MODIFIER'
     | 'STRUCTURAL_ONLY'
     | 'COSMETIC';
+
+  /**
+   * Who may see this row (AIQ #72 5884364585). `user`: an assumption of THIS decision model the user could check or
+   * change. `internal`: a process or normalisation diagnostic. Readers filter on this field, never on `dedup_key` or
+   * `reason` text. Set once by `buildAssumptionsLedger` via `ledgerAudience`.
+   */
+  audience: 'user' | 'internal';
+}
+
+/** A ledger row before its audience is stamped (every source builds these). */
+type AssumptionRecordDraft = Omit<AssumptionRecord, 'audience'>;
+
+/**
+ * The typed audience of a ledger row (AIQ #72 5884364585). `user` ONLY for the exact classes AIQ ruled user-facing:
+ * `isl_engine:flagged:edge:switch_probability` (a fragile edge) and `isl_engine:flagged:node:confidence` (which the
+ * producer emits only for a MEASURED, non-lever factor: #409, #410). The match is on all four parts: the same
+ * service/entity/field under another action (`defaulted`, `assumed`, …) has no ruling. Everything else, including a new
+ * or unknown class, is `internal` (fail closed); a class becomes `user` only with its own ruling and row.
+ */
+export function ledgerAudience(
+  record: Pick<AssumptionRecord, 'source_service' | 'action' | 'entity_type' | 'field'>,
+): 'user' | 'internal' {
+  if (record.source_service !== 'isl_engine' || record.action !== 'flagged') return 'internal';
+  if (record.entity_type === 'edge' && record.field === 'switch_probability') return 'user';
+  if (record.entity_type === 'node' && record.field === 'confidence') return 'user';
+  return 'internal';
 }
 
 export interface AssumptionsLedger {
@@ -62,6 +88,10 @@ export interface AssumptionsLedger {
   high_impact_count: number;
   medium_impact_count: number;
   low_impact_count: number;
+  /** Rows with `audience: 'user'`: the only count a user-facing surface may show (AIQ #72 5884364585). */
+  user_count: number;
+  /** `user` rows with high impact. */
+  user_high_impact_count: number;
 }
 
 /**
@@ -89,7 +119,7 @@ export function buildAssumptionsLedger(
     severity?: string;
   }> = []
 ): AssumptionsLedger {
-  const records = new Map<string, AssumptionRecord>();
+  const records = new Map<string, AssumptionRecordDraft>();
 
   // 1. Collect from normaliser repairs
   for (const repair of repairsApplied) {
@@ -111,8 +141,9 @@ export function buildAssumptionsLedger(
     }
   }
 
-  // Deduplicated list
-  const assumptions = Array.from(records.values());
+  // Deduplicated list, each row stamped with its typed audience
+  const assumptions: AssumptionRecord[] = Array.from(records.values()).map((r) => ({ ...r, audience: ledgerAudience(r) }));
+  const userRows = assumptions.filter((a) => a.audience === 'user');
 
   // Count by impact
   const highCount = assumptions.filter((a) => a.impact === 'high').length;
@@ -125,6 +156,8 @@ export function buildAssumptionsLedger(
     high_impact_count: highCount,
     medium_impact_count: mediumCount,
     low_impact_count: lowCount,
+    user_count: userRows.length,
+    user_high_impact_count: userRows.filter((a) => a.impact === 'high').length,
   };
 }
 
@@ -141,7 +174,7 @@ function mapRepairToAssumption(
     option_id?: string;
   },
   inputs: CoachingInputs
-): AssumptionRecord {
+): AssumptionRecordDraft {
   // A3 round 2: a per-option intervention repair (the normaliser's `clamped`
   // record) names its option, and the option is part of its identity — two
   // options clamping the same factor are two assumptions. Keyed WITHOUT it they
@@ -184,8 +217,8 @@ function mapRepairToAssumption(
 /**
  * Extract assumptions from ISL robustness data.
  */
-function extractISLAssumptions(inputs: CoachingInputs): AssumptionRecord[] {
-  const assumptions: AssumptionRecord[] = [];
+function extractISLAssumptions(inputs: CoachingInputs): AssumptionRecordDraft[] {
+  const assumptions: AssumptionRecordDraft[] = [];
   const thresholds = getThresholds();
 
   // Fragile edges are high-impact assumptions
@@ -212,8 +245,12 @@ function extractISLAssumptions(inputs: CoachingInputs): AssumptionRecord[] {
     }
   }
 
-  // Low confidence factors are assumptions
+  // Low confidence factors are assumptions. An option-set LEVER is not one (AIQ #72 5883875188): its level is the
+  // user's own choice, so "low confidence (N%)" reads as doubt about the user's figure. Same lever union as
+  // evidence-gaps (`interventionTargetIds`, from the options).
+  const levers = inputs.interventionTargetIds ?? new Set<string>();
   for (const factor of inputs.factorSensitivity) {
+    if (levers.has(factor.node_id)) continue;
     if (factor.confidence !== undefined && factor.confidence < 0.5) {
       const dedupKey = `isl_engine:flagged:node:${factor.node_id}:confidence`;
 
@@ -226,7 +263,9 @@ function extractISLAssumptions(inputs: CoachingInputs): AssumptionRecord[] {
         field: 'confidence',
         from_value: null,
         to_value: factor.confidence,
-        reason: `Factor ${factor.label} has low confidence (${Math.round(factor.confidence * 100)}%)`,
+        // What ISL measured is how STEADY the factor's effect on the result is, not doubt about its value
+        // (AIQ #72 5884364585): "low confidence (44%)" read as "Olumi isn't sure of the figure".
+        reason: `Factor ${factor.label}: its effect on the result is not steady (${Math.round(factor.confidence * 100)}%)`,
         impact: classifyFactorImpact(factor, inputs).level,
         impact_reason_code: classifyFactorImpact(factor, inputs).code,
       });
@@ -242,7 +281,7 @@ function extractISLAssumptions(inputs: CoachingInputs): AssumptionRecord[] {
 function mapCEECritiqueToAssumption(
   critique: { type: string; message: string; severity?: string },
   _inputs: CoachingInputs
-): AssumptionRecord | null {
+): AssumptionRecordDraft | null {
   // Only map critiques that represent assumptions (not all do)
   if (
     critique.type === 'MISSING_CONSIDERATION' ||

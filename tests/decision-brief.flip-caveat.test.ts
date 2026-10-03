@@ -328,6 +328,9 @@ describe('robustness_caveat — domain-wide consistency invariants (2.1247)', ()
     const runTs = readFileSync(join(here, '..', 'src', 'routes', 'v2', 'run.ts'), 'utf8');
     const callSite = runTs.slice(runTs.indexOf('const assembledBrief = assembleBrief({'));
     const callBlock = callSite.slice(0, callSite.indexOf('});') + 3);
-    expect(callBlock).toContain('flip_thresholds: flipThresholds');
+    // PLoT #419: the one variable is `publishedFlipThresholds` (withheld under an unevaluated goal identity) — the
+    // brief and the published `flip_thresholds` must both read it.
+    expect(callBlock).toContain('flip_thresholds: publishedFlipThresholds,');
+    expect(runTs).toContain('flip_thresholds: publishedFlipThresholds ?? [],');
   });
 });

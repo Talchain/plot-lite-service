@@ -206,6 +206,8 @@ export function attachIdentityExecutionFrames(
   goalCapByNodeId: ReadonlyMap<string, number> = new Map(),
   /** Variant (a): OUT — each frame PLoT derived for a frameless inferred intermediate carrier (`_meta.identity_derived_frames`). */
   derivedFrames: IdentityDerivedFrame[] = [],
+  /** Variant (d): the goals' card-domain carriers (`goalCarrierIds`). Empty → (d) reads the goal alone. */
+  goalCarriers: ReadonlySet<string> = new Set(),
 ): IdentityNotForwarded[] {
   const engineById = new Map(engineNodes.map((node) => [node.id, node]));
   const islById = new Map(islNodes.map((node) => [node.id, node]));
@@ -223,6 +225,24 @@ export function attachIdentityExecutionFrames(
         ?? goalCapFrame(engine, goalCapByNodeId.get(id));
       if (resolved) participant.execution_frame = { frame: resolved.frame, carrier: resolved.carrier };
     }
+  }
+  // ⛔ Variant (d) (AIQ #72 5891286280; R3 5891423959): an INFERRED (`stated_in_brief: false`) PRODUCT identity ON THE
+  // GOAL is Olumi's reading of how the user's goal is made, and the user has not confirmed it. The brief's own words
+  // license a silent product (then it arrives `stated_in_brief: true`); anything else waits for the user's Yes on the
+  // card (CEE #2292 writes it `stated_in_brief: true`). Until then it is NOT forwarded: the goal stays linear and
+  // `goalIdentitiesNotEvaluated` withholds every goal figure under its own code — never a chance through an unconfirmed
+  // product (served: "reaches above £85k MRR in 99.8%"), never one from the linear walk. Sums, stated identities and
+  // non-goal carriers fall through to the variants below untouched.
+  // The card domain decides, not the node kind (AIQ 5891608873; DL 5891633125; PR Review CR 5891899825): a goal carrier
+  // (`goalCarrierIds` — units compose to the goal's, the user's three levels, within 5%) is a reading of the goal too,
+  // however many parents the goal has. A carrier outside the domain (DL A15: an Olumi level) is not (d)'s.
+  const notForwarded: IdentityNotForwarded[] = [];
+  for (const node of islNodes) {
+    const identity = node.nonlinear_identity;
+    if (!identity || identity.stated_in_brief !== false || identity.operation !== 'product') continue;
+    if (engineById.get(node.id)?.kind !== 'goal' && !goalCarriers.has(node.id)) continue;
+    delete node.nonlinear_identity;
+    notForwarded.push({ node_id: node.id, reason: 'inferred_identity_unconfirmed', frameless_node_ids: [] });
   }
   // ⭐ Variant (a) (DL #72 5865205478, Canonical 5862317311) — ONE shape only: an INFERRED (`stated_in_brief: false`)
   // PRODUCT identity with no addends, whose carrier is a NON-GOAL OUTCOME with no level and no frame, and EVERY factor of
@@ -253,7 +273,6 @@ export function attachIdentityExecutionFrames(
   // frameless is NOT forwarded — the node stays linear, exactly as served before the re-land — and is said
   // (`IdentityNotForwarded`). ISL would refuse the whole Run (`identity_frame_missing`) for a figure the user never
   // stated and cannot answer. A STATED identity is always forwarded: ISL's refusal stands (AIQ's rule).
-  const notForwarded: IdentityNotForwarded[] = [];
   for (const node of islNodes) {
     const identity = node.nonlinear_identity;
     if (!identity || identity.stated_in_brief !== false) continue;
@@ -268,6 +287,85 @@ export function attachIdentityExecutionFrames(
     for (const node of islNodes) if (node.execution_frame && !kept.has(node.id)) delete node.execution_frame;
   }
   return notForwarded;
+}
+
+/** ISL's reconciliation tolerance (the stated level within 5% of the product), as CEE's mint reads it. */
+const CARRIER_RECONCILIATION_TOLERANCE = 0.05;
+
+/** A level the USER gave (a finite `raw_value` whose `source` is the brief or the user), else `undefined`. */
+function userLevel(node: { observed_state?: { raw_value?: unknown; source?: unknown } } | undefined): number | undefined {
+  const raw = node?.observed_state?.raw_value;
+  const source = node?.observed_state?.source;
+  const users = source === 'brief_extraction' || (typeof source === 'string' && source.startsWith('user'));
+  return users && typeof raw === 'number' && Number.isFinite(raw) ? raw : undefined;
+}
+
+const unitOf = (node: { observed_state?: { unit?: unknown } } | undefined): string =>
+  typeof node?.observed_state?.unit === 'string' ? node.observed_state.unit : '';
+
+const CURRENCIES: ReadonlyArray<readonly [RegExp, string]> = [
+  [/£|\bgbp\b|\bpounds?\b/i, 'GBP'], [/\$|\busd\b|\bdollars?\b/i, 'USD'], [/€|\beur\b|\beuros?\b/i, 'EUR'],
+];
+const PERIODS: ReadonlyArray<readonly [RegExp, string]> = [
+  [/\b(month|months|monthly|mo|pcm|mrr)\b/i, 'month'], [/\b(year|years|yearly|annual|annually|yr|pa|arr)\b/i, 'year'],
+  [/\b(week|weeks|weekly|wk)\b/i, 'week'], [/\b(day|days|daily)\b/i, 'day'], [/\b(quarter|quarters|quarterly|qtr)\b/i, 'quarter'],
+];
+const currencyOf = (unit: string): string | undefined => CURRENCIES.find(([re]) => re.test(unit))?.[1];
+const periodsOf = (unit: string): string[] => PERIODS.filter(([re]) => re.test(unit)).map(([, p]) => p);
+const NOT_A_COUNT = /%|percent|proportion|share|fraction|ratio/i;
+
+/**
+ * Do a money RATE and a COUNT compose to the goal's money-per-period unit? The card domain's unit half, read
+ * conservatively from the typed units PLoT receives: the goal's currency sits on exactly one factor (the rate), the
+ * other is a plain count (no currency, no percentage, no period), and the rate's period — when it names one — is the
+ * goal's. A rate with no period is the card's "confirm" case (CEE #2296), so it composes. A goal unit that names NO
+ * period composes too: CEE also reads the goal's period from its label, which PLoT does not parse, so PLoT fails closed
+ * and withholds (AIQ 5892025855 on MG 5892012494: unit "GBP", label "Monthly recurring revenue"). Pure.
+ */
+function composesToGoal(goalUnit: string, unitA: string, unitB: string): boolean {
+  const currency = currencyOf(goalUnit);
+  const goalPeriods = periodsOf(goalUnit);
+  if (currency === undefined || goalPeriods.length > 1) return false;
+  const [rate, count] = currencyOf(unitA) !== undefined ? [unitA, unitB] : [unitB, unitA];
+  if (currencyOf(rate) !== currency || currencyOf(count) !== undefined) return false;
+  if (NOT_A_COUNT.test(count) || periodsOf(count).length > 0 || count.trim() === '') return false;
+  const ratePeriods = periodsOf(rate);
+  return goalPeriods.length === 0 || ratePeriods.length === 0 || (ratePeriods.length === 1 && ratePeriods[0] === goalPeriods[0]);
+}
+
+/**
+ * Variant (d)'s card-domain carriers (AIQ 5891608873; DL 5891633125; PR Review CR 5891899825): a parent of the goal
+ * (not an option, not the decision) carrying an inferred PRODUCT of two factors that is a reading of the goal itself —
+ * its units compose to the goal's unit, its two levels and the goal's are the USER's, and the product is within 5% of
+ * the goal's level. Served `ed49d44` run 4: `pro_plan_mrr` = £49/subscriber/month × 1,500 subscribers = £73,500 beside
+ * Olumi's £1,500 residual, goal £75,000/month. Whether the goal has other parents does not decide; the card domain does.
+ * PLoT reads typed units and levels only; CEE's predicate stays the authority, and a coincidental match withholds
+ * (fail closed). Pure.
+ */
+export function goalCarrierIds(
+  nodes: readonly { id: string; kind?: unknown; nonlinear_identity?: unknown; observed_state?: { raw_value?: unknown; source?: unknown; unit?: unknown } }[],
+  edges: readonly { from?: unknown; to?: unknown }[],
+): Set<string> {
+  const byId = new Map(nodes.map((n) => [n.id, n]));
+  const carriers = new Set<string>();
+  for (const goal of nodes.filter((n) => n.kind === 'goal')) {
+    const target = userLevel(goal);
+    if (target === undefined || target === 0) continue;
+    const parents = [...new Set(edges.filter((e) => e.to === goal.id && typeof e.from === 'string').map((e) => e.from as string))]
+      .filter((id) => byId.get(id)?.kind !== 'option' && byId.get(id)?.kind !== 'decision');
+    for (const id of parents) {
+      const identity = byId.get(id)?.nonlinear_identity as { operation?: unknown; stated_in_brief?: unknown; factor_ids?: unknown } | undefined;
+      if (identity?.operation !== 'product' || identity.stated_in_brief !== false || !Array.isArray(identity.factor_ids)) continue;
+      if (identity.factor_ids.length !== 2 || !identity.factor_ids.every((f) => typeof f === 'string')) continue;
+      const [a, b] = (identity.factor_ids as string[]).map((f) => byId.get(f));
+      const levels = [userLevel(a), userLevel(b)];
+      if (levels.some((l) => l === undefined)) continue;
+      if (!composesToGoal(unitOf(goal), unitOf(a), unitOf(b))) continue;
+      const product = (levels[0] as number) * (levels[1] as number);
+      if (Math.abs(product - target) <= CARRIER_RECONCILIATION_TOLERANCE * Math.abs(target)) carriers.add(id);
+    }
+  }
+  return carriers;
 }
 
 /**
@@ -408,6 +506,20 @@ export interface ISLOptionV3 {
   id: string;
   label?: string;
   interventions: Record<string, number>;
+  /**
+   * TEMPORAL step 2 (ISL #216 `InterventionOption.intervention_ranges`): per node the option
+   * sets, the stated range in RAW units + its meaning + the node's affine map. Present only when
+   * stated; ISL samples it for this option's own limit on that node and echoes
+   * `sampled_intervention_ranges`.
+   */
+  intervention_ranges?: Record<string, ISLInterventionRange>;
+}
+
+export interface ISLInterventionRange {
+  low: number;
+  high: number;
+  meaning: string;
+  normalisation?: { raw_at_zero: number; raw_at_one: number };
 }
 
 /**
@@ -535,6 +647,9 @@ export interface ISLRobustnessRequestV3 {
         node_id: string;
         distribution: 'normal';
         std: number;
+        /** ISL `ParameterUncertainty.spread_source`: whose spread `std` is. Sent only for a real `observed_state.std`
+         *  whose `std_source` says so (see `spreadSourceOf`); absent = not stated, and ISL never infers it. */
+        spread_source?: 'user' | 'template';
       }
     | {
         node_id: string;
@@ -614,6 +729,13 @@ export interface ISLRobustnessRequestV3 {
    * (`GOAL_DIRECTION_UNATTESTED`). PLoT never infers it from a node label.
    */
   goal_direction?: GoalDirectionType;
+
+  /**
+   * R1 S4 (B) (R3 #72 5879133964; ISL #209): the goal must be strictly PAST `goal_threshold` ("above £85k";
+   * "below" when minimising), so a draw exactly on the threshold is NOT met. Sent only as `true` and only beside a
+   * `goal_threshold` (ISL refuses `true` without one with a 422 that fails the whole analysis); absent = "at least".
+   */
+  goal_threshold_strict?: boolean;
 
   // CIL 0.1: forward seed to ISL for deterministic Monte Carlo runs
   seed?: string | number;
@@ -1048,11 +1170,22 @@ export function toISLInterventions(
  * Translate internal option to ISL format.
  */
 export function toISLOption(option: OptionV3): ISLOptionV3 {
-  return {
+  const islOption: ISLOptionV3 = {
     id: option.id,
     label: option.label,
     interventions: toISLInterventions(option.interventions),
   };
+  if (option.intervention_ranges !== undefined && Object.keys(option.intervention_ranges).length > 0) {
+    islOption.intervention_ranges = Object.fromEntries(
+      Object.keys(option.intervention_ranges).sort().map((nodeId) => {
+        const r = option.intervention_ranges![nodeId];
+        const forwarded: ISLInterventionRange = { low: r.low, high: r.high, meaning: r.meaning };
+        if (r.normalisation !== undefined) forwarded.normalisation = { ...r.normalisation };
+        return [nodeId, forwarded];
+      }),
+    );
+  }
+  return islOption;
 }
 
 /**
@@ -1388,6 +1521,18 @@ export function exactInputOptionIds(
   return out;
 }
 
+/**
+ * R3-B #72 5895208669 (frames, AIQ 5895140735): map the upstream claim `observed_state.std_source` onto ISL's
+ * `ParameterUncertainty.spread_source`. `'user'` → `'user'`; `'olumi'` → `'template'` (Olumi's spread, e.g. one
+ * carried across a frame move). Anything else, or absent → undefined: fail closed — a spread is never called the
+ * user's unless upstream says so, and ISL echoes `null` ("not stated").
+ */
+export function spreadSourceOf(stdSource: unknown): 'user' | 'template' | undefined {
+  if (stdSource === 'user') return 'user';
+  if (stdSource === 'olumi') return 'template';
+  return undefined;
+}
+
 export function buildParameterUncertaintiesV3(
   nodes: EngineNodeV3[],
   options: readonly OptionV3[] = [],
@@ -1455,10 +1600,13 @@ export function buildParameterUncertaintiesV3(
 
       // Slice 6: no `mean` — ISL samples Normal(observed_state.value, std) and
       // reads the centre from the graph node, not from this entry.
+      // Whose spread this is — only for a REAL observed_state.std (priority 1), never for a spread PLoT synthesised.
+      const spreadSource = userStd !== null ? spreadSourceOf(node.observed_state.std_source) : undefined;
       uncertainties.push({
         node_id: node.id,
         distribution: 'normal',
         std,
+        ...(spreadSource !== undefined && { spread_source: spreadSource }),
       });
     }
   }
@@ -1678,7 +1826,9 @@ export function toISLRobustnessRequest(
   // ROADMAP 2.920: the user's attested objective sense. Appended for the same
   // reason as `goalThresholdFrame` and `userStatedRanges` above — the call sites
   // pass these positionally and reshuffling them is a mis-wire waiting to happen.
-  goalDirection?: GoalDirectionType
+  goalDirection?: GoalDirectionType,
+  // R1 S4 (B): the producer's attested strict comparator. Appended last for the same positional-call reason.
+  goalThresholdStrict?: boolean
 ): ISLRobustnessRequestV3 {
   // Bidirected edges are trust-layer only (identifiability + warnings).
   // ISL operates on directed edges only. Phase 3A-inference will add inference semantics.
@@ -1773,6 +1923,14 @@ export function toISLRobustnessRequest(
     if (goalDirection !== 'target' || targetIsSatisfiable) {
       request.goal_direction = goalDirection;
     }
+  }
+
+  // R1 S4 (B) — a STRICT goal, request-gated and verbatim. Forwarded only as `true` and only when this request
+  // carries the threshold it qualifies: ISL #209 refuses `goal_threshold_strict: true` with no `goal_threshold` (a 422
+  // that fails the WHOLE analysis), and PLoT's frame/domain safeguards can clear the threshold. Absent or false is
+  // omitted, so the request is byte-identical to today's. PLoT never infers strictness.
+  if (goalThresholdStrict === true && request.goal_threshold !== undefined) {
+    request.goal_threshold_strict = true;
   }
 
   // CIL 0.1: forward seed to ISL for deterministic Monte Carlo runs

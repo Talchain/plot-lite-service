@@ -15,6 +15,7 @@
 
 import type { EngineNodeV3, OptionV3, InterventionValueV3, RepairRecord, ConstraintLevelDomain, WithheldOptionRecord } from '../types/engine-v3.js';
 import { finiteNum } from '../util/numeric.js';
+import { interventionRangeP99, type InterventionRangeV3 } from './intervention-range.js';
 import {
   PERCENT_UNIT_TOKENS,
   canonicaliseUnit,
@@ -624,11 +625,23 @@ function collectInterventionValues(options: OptionV3[]): Map<string, number[]> {
     for (const [factorId, intervention] of Object.entries(option.interventions)) {
       const existing = valuesByFactor.get(factorId) ?? [];
       existing.push(intervention.value);
+      pushRangeCeiling(existing, option, factorId);
       valuesByFactor.set(factorId, existing);
     }
   }
 
   return valuesByFactor;
+}
+
+/**
+ * TEMPORAL step 2, R3 #75 5911436566 (3): NEVER TRUNCATE. When an option states a range for a
+ * value it sets, that range's fitted P99 joins the values the node's frame is derived from, so
+ * a spread-derived frame (min/max + 20% padding) sits strictly above it and the point, the range
+ * and the limit all share one affine map. Absent ranges push nothing: byte-identical.
+ */
+function pushRangeCeiling(values: number[], option: OptionV3, factorId: string): void {
+  const range = option.intervention_ranges?.[factorId];
+  if (range !== undefined) values.push(interventionRangeP99(range));
 }
 
 /**
@@ -725,6 +738,7 @@ function buildFallbackRanges(
       if (!context.factors.has(factorId)) {
         const existing = valuesByFactor.get(factorId) ?? [];
         existing.push(intervention.value);
+        pushRangeCeiling(existing, option, factorId);
         valuesByFactor.set(factorId, existing);
       }
     }
@@ -923,11 +937,28 @@ export function normaliseOptions(
       }
     }
 
-    return {
+    const normalisedOption: OptionV3 = {
       id: option.id,
       label: option.label,
       interventions: normalisedInterventions,
     };
+    // TEMPORAL step 2: the range stays in RAW units and carries the node's affine map — the SAME
+    // `range` object the point was normalised with above. A zero-width map cannot carry a range
+    // honestly, so that range is not forwarded; ISL then cannot echo it and PLoT withholds the
+    // limit (fail closed), never scoring it at the point.
+    if (option.intervention_ranges !== undefined) {
+      const carried: Record<string, InterventionRangeV3> = {};
+      for (const [factorId, stated] of Object.entries(option.intervention_ranges)) {
+        const factorContext = context.factors.get(factorId);
+        const range: NormalisationRange = factorContext
+          ? factorContext.range
+          : fallbackRanges.get(factorId) ?? { min: 0, max: 1, source: 'default' };
+        if (!(range.max > range.min)) continue;
+        carried[factorId] = { ...stated, normalisation: { raw_at_zero: range.min, raw_at_one: range.max } };
+      }
+      if (Object.keys(carried).length > 0) normalisedOption.intervention_ranges = carried;
+    }
+    return normalisedOption;
   });
 
   // Build repair records from transforms (one per factor)
@@ -1521,6 +1552,33 @@ function percentRangeForValue(value: number, percentExtent = 100): Normalisation
  * genuine precondition ("the rung would rescale this"), so it stays correct if
  * the gate's own bounds ever move, instead of encoding today's off-by-one.
  */
+/**
+ * ⛔ F1b (DL 5932454064): THE single predicate for "this constraint states a QUANTITY on a node whose producer declared
+ * the scale". The unit is a count, a currency, or a token the unit table does not know (never none, %, or
+ * fraction/ratio), and the node carries a finite positive `goal_threshold_cap`. Such a value is a raw user quantity on
+ * that cap at ANY magnitude: "≤ 1 points" under cap 12 is 1/12, never 1.0 (the top of the normalised score).
+ * Before this, the reading flipped at 1 (2 opened the gate; 1 was forwarded raw) and depended on batch-mates.
+ * That is 2.957's defect for every declared unit. Read by BOTH the route's invocation disjunct
+ * ({@link constraintsHaveDeclaredQuantityUnderCap}) and the forward-raw rung, so the two cannot drift.
+ */
+export function isDeclaredQuantityUnderCap(unit: string | undefined, nodeMeta: GoalThresholdNodeMeta | undefined): boolean {
+  const cap = nodeMeta?.goal_threshold_cap;
+  if (!(typeof cap === 'number' && Number.isFinite(cap) && cap > 0)) return false;
+  if (canonicaliseUnit(unit) === undefined) return false;
+  const scale = unitScale(unit);
+  return scale !== 'percent' && scale !== 'fraction';
+}
+
+/** Route invocation disjunct for {@link isDeclaredQuantityUnderCap}: any constraint in the batch states one. */
+export function constraintsHaveDeclaredQuantityUnderCap(
+  constraints: GoalConstraint[],
+  unitsByConstraintId: Map<string, string> | undefined,
+  goalThresholdMetaByNodeId: Map<string, GoalThresholdNodeMeta> | undefined,
+): boolean {
+  if (unitsByConstraintId === undefined || goalThresholdMetaByNodeId === undefined) return false;
+  return constraints.some((c) => isDeclaredQuantityUnderCap(unitsByConstraintId.get(c.constraint_id), goalThresholdMetaByNodeId.get(c.node_id)));
+}
+
 export function constraintsHavePercentPointValue(
   constraints: GoalConstraint[],
   unitsByConstraintId: Map<string, string> | undefined,
@@ -2325,6 +2383,9 @@ export function normaliseGoalConstraints(
       // `c` is in the node's own unit — so neither may take the forward-raw rung.
       !isChangeFrame(value_frame) &&
       !isPercentPointValue(unit, value) &&
+      // F1b: a declared quantity under a declared cap is never "already in [0,1]" — same predicate as the route's
+      // invocation disjunct (`constraintsHaveDeclaredQuantityUnderCap`).
+      !isDeclaredQuantityUnderCap(unit, nodeMeta) &&
       // The '%' rung reads a FRAMED target's own frame, so a fractional '%'
       // there is NOT "already in [0,1]" on the target's scale (0.04 = 4% is 0.2
       // on a frame of 20). Forwarding it raw here while the gate-open arm

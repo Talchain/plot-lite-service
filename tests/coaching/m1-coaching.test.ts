@@ -252,9 +252,12 @@ describe('B2: Evidence Gaps', () => {
     };
 
     const gaps = computeEvidenceGaps(inputs);
+    // DL #72 5883188906: the neutral 0.5 still ORDERS the gap and is disclosed as defaulted, but is never printed.
     expect(gaps[0].confidence).toBe(0.5);
     expect(gaps[0].confidence_defaulted).toBe(true);
-    expect(gaps[0].notes[0]).toContain('defaulted to 50%');
+    expect(gaps[0].confidence_display).toBeUndefined();
+    expect(gaps[0].notes[0]).toContain('not measured');
+    expect(gaps[0].notes.join(' ')).not.toMatch(/\d+%/);
   });
 
   it('filters to top quartile with floor of 3', () => {
