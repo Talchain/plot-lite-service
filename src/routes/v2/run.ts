@@ -18,6 +18,7 @@
  * @see P0-PLOT Workstream
  */
 
+import { changeQuantityLevelLimitsAsChanges } from '../../lib/change-quantity-limits.js';
 import { randomUUID, createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 import type {
@@ -7017,7 +7018,8 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             ?._internal?.source === 'auto_from_goal_threshold';
 
         if (constraintCompilation.constraints.length > 0) {
-          activeGoalConstraints = constraintCompilation.constraints;
+          // R1 (0.61.0): a level limit on a `quantity_frame: 'change'` node is its own change (`change-quantity-limits.ts`).
+          activeGoalConstraints = changeQuantityLevelLimitsAsChanges(constraintCompilation.constraints, filteredGraph.nodes);
           if (autoSynthesisOnly) effectiveGoalThreshold = undefined;
 
           req.log.info({
