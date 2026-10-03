@@ -8,9 +8,26 @@ import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
 import type { FastifyInstance } from 'fastify';
 import { changeQuantityLevelLimitsAsChanges } from '../src/lib/change-quantity-limits.js';
 import type { GoalConstraint } from '../src/types/engine-v3.js';
+import * as normaliser from '../src/lib/intervention-normaliser.js';
+import * as reliability from '../src/lib/constraint-reliability.js';
 
 let captured: any = null;
+let constraintVerdict: 'satisfied' | 'absent' = 'absent';
+let includeWinProbabilities = false;
 const outcome = (i: number) => ({ mean: 0.6 + i * 0.1, std: 0.1, p10: 0.4, p50: 0.6, p90: 0.8, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1 });
+function optionRows(options: any[], constraints: any[] = []) {
+  return options.map((o: any, i: number) => ({
+    option_id: o.id, outcome: outcome(i), rank: i + 1,
+    ...(includeWinProbabilities && { win_probability: i === 0 ? 0.8 : 0.2 }),
+    // Explicitly exercise both a scored limit and the original mock's missing verdict.
+    ...(constraintVerdict === 'satisfied' && {
+      constraint_analysis: {
+        constraints: constraints.map((c: any) => ({ ...c, prob_satisfied: 1, satisfied: true })),
+        joint_probability: 1,
+      },
+    }),
+  }));
+}
 const mockISL = {
   isEnabled: () => true,
   isAvailable: async () => true,
@@ -26,7 +43,7 @@ const mockISL = {
   computeCounterfactual: async (): Promise<never> => { throw new Error('not called'); },
   async callAnalysisEndpoint<T>(_e: string, body: any): Promise<{ data: T | null; error: string | null }> {
     captured = body;
-    return { data: { options: (body.options || []).map((o: any, i: number) => ({ option_id: o.id, outcome: outcome(i), rank: i + 1 })),
+    return { data: { options: optionRows(body.options || [], body.goal_constraints),
       edges: [], factors: [], value_of_information: [], overall_robustness: 'robust', robustness_score: 0.8, fragile_edges: [], robust_edges: [] } as T, error: null };
   },
 };
@@ -75,20 +92,42 @@ describe('pure: changeQuantityLevelLimitsAsChanges', () => {
 
 describe('route: the marked limit reaches ISL as change_abs; the unmarked one is withheld as before', () => {
   let app: FastifyInstance;
-  beforeAll(async () => { process.env.RATE_LIMIT_ENABLED = 'false'; app = await createServer(); await app.ready(); }, 60_000);
-  afterAll(async () => { await app?.close(); });
-  const run = async (downtime: Record<string, unknown>) => {
+  beforeAll(async () => { vi.stubEnv('RATE_LIMIT_ENABLED', 'false'); vi.stubEnv('CEE_ORCHESTRATOR_ENABLED', '0'); app = await createServer(); await app.ready(); }, 60_000);
+  afterAll(async () => { await app?.close(); vi.unstubAllEnvs(); });
+  const run = async (downtime: Record<string, unknown>, verdict: typeof constraintVerdict = 'absent', withWins = false) => {
     captured = null;
+    constraintVerdict = verdict;
+    includeWinProbabilities = withWins;
+    const normalise = vi.spyOn(normaliser, 'normaliseGoalConstraints');
+    const unitCheck = vi.spyOn(reliability, 'detectUnitMismatchedConstraintTargets');
     const res = await app.inject({ method: 'POST', url: '/v2/run', payload: { graph: graph(downtime), options: OPTIONS, goal_node_id: 'goal', seed: '42', goal_constraints: [LIMIT] } });
     const body = res.json() as any;
     const codes = (body.inference_warnings ?? []).filter((w: any) => w.code === 'CONSTRAINT_TARGET_UNRELIABLE').map((w: any) => w.code);
-    return { status: res.statusCode, sent: (captured?.goal_constraints ?? []) as any[], codes };
+    const diagnostic = normalise.mock.results.flatMap((r) => r.value?.diagnostics ?? [])
+      .find((d) => d.constraint_id === LIMIT.constraint_id && d.node_id === LIMIT.node_id);
+    const provenance = unitCheck.mock.calls.find(([constraints]) =>
+      constraints?.some((c) => c.constraint_id === LIMIT.constraint_id && c.node_id === LIMIT.node_id))?.[1]?.get(LIMIT.constraint_id);
+    return { status: res.statusCode, sent: (captured?.goal_constraints ?? []) as any[], codes, body, diagnostic, provenance };
   };
-  it('Q-5 RED (wire): quantity_frame change → ISL receives the limit as change_abs with the same id and value; not withheld', async () => {
-    const r = await run({ quantity_frame: 'change' });
+  it('Q-5 CONTROL (wire): weeks vs weeks → exact change_abs value, scored and decision-grade', async () => {
+    const r = await run({ quantity_frame: 'change' }, 'satisfied', true);
     expect(r.status).toBe(200);
-    expect(r.sent.find((c) => c.constraint_id === LIMIT.constraint_id)).toMatchObject({ value_frame: 'change_abs', operator: '<=' });
+    const sent = r.sent.filter((c) => c.constraint_id === LIMIT.constraint_id && c.node_id === LIMIT.node_id);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]).toMatchObject({ value_frame: 'change_abs', operator: '<=' });
+    expect(sent[0].value).toBe(0.25); // 2 weeks / the node's 8-week cap.
     expect(r.codes).toEqual([]);
+    expect(r.body.constraints_status).toBe('computed');
+    expect(r.provenance).toMatchObject({ source: 'explicit_cap', decision_grade: true });
+    const result = r.body.constraint_results.find((c: any) => c.constraint_id === LIMIT.constraint_id && c.node_id === LIMIT.node_id);
+    expect(result).toMatchObject({ probability: 1, scale_provenance: { decision_grade: true } });
+    for (const option of OPTIONS) {
+      const row = r.body.option_comparison.find((o: any) => o.option_id === option.id);
+      expect(row.constraint_probabilities[LIMIT.constraint_id], option.id).toBe(1);
+      expect(row.constraints_decision_grade, option.id).toBe(true);
+    }
+    expect(r.body.robustness.recommended_option_id).toBe('opt_stay');
+    expect(r.body.robustness.recommended_option_compliance).toBe('compliant');
   });
   it('Q-6 CONTROL (wire): no marker → the level limit is NOT rewritten (today\'s behaviour: unanchored, withheld)', async () => {
     const r = await run({});
@@ -96,5 +135,52 @@ describe('route: the marked limit reaches ISL as change_abs; the unmarked one is
     const sent = r.sent.find((c) => c.constraint_id === LIMIT.constraint_id);
     expect(sent?.value_frame).not.toBe('change_abs');
     expect(r.codes.length).toBeGreaterThan(0);
+  });
+  it('Q-7 RED (route): weeks vs months → unit mismatch, untrusted, no compliant crown or leader in the original mock', async () => {
+    const r = await run({ quantity_frame: 'change', observed_state: { value: 0, raw_value: 0, cap: 8, unit: 'months', source: 'cee_inference' } }, 'satisfied');
+    expect(r.status).toBe(200);
+    expect(r.sent.find((c) => c.constraint_id === LIMIT.constraint_id && c.node_id === LIMIT.node_id)?.value).toBe(0.25);
+    expect(r.diagnostic).toMatchObject({
+      constraint_id: LIMIT.constraint_id, node_id: LIMIT.node_id,
+      unit_mismatch: { constraint_unit: 'weeks', scale_unit: 'months' },
+    });
+    expect(r.provenance).toMatchObject({
+      unit_mismatch: { constraint_unit: 'weeks', scale_unit: 'months' }, decision_grade: false,
+    });
+    expect(r.codes).toContain('CONSTRAINT_TARGET_UNRELIABLE');
+    expect(r.body.constraints_status).toBe('unavailable');
+    expect(r.body.constraint_results).toBeUndefined();
+    for (const option of OPTIONS) {
+      const row = r.body.option_comparison.find((o: any) => o.option_id === option.id);
+      expect(row.constraint_probabilities?.[LIMIT.constraint_id], option.id).toBeUndefined();
+      expect(row.probability_of_joint_goal, option.id).toBeUndefined();
+    }
+    expect(r.body.robustness.recommended_option_compliance).not.toBe('compliant');
+    expect(r.body.robustness.recommended_option_id).toBeUndefined();
+    expect(r.body.robustness.recommended_option_label).toBeUndefined();
+  });
+  it('Q-8 CONTROL (route): the original mock explicitly returns no constraint verdict or win probability → no leader', async () => {
+    const r = await run({ quantity_frame: 'change' }, 'absent');
+    expect(r.status).toBe(200);
+    expect(r.sent.find((c) => c.constraint_id === LIMIT.constraint_id && c.node_id === LIMIT.node_id)?.value).toBe(0.25);
+    expect(r.codes).toEqual([]);
+    expect(r.body.constraints_status).toBe('unavailable');
+    expect(r.body.constraint_results).toBeUndefined();
+    expect(r.body.robustness.recommended_option_compliance).toBe('not_assessed');
+    expect(r.body.robustness.recommended_option_id).toBeUndefined();
+    expect(r.body.robustness.recommended_option_label).toBeUndefined();
+  });
+  it('Q-9 RED (route): even with finite win probabilities, weeks vs months cannot mint a compliant crown', async () => {
+    const r = await run({ quantity_frame: 'change', observed_state: { value: 0, raw_value: 0, cap: 8, unit: 'months', source: 'cee_inference' } }, 'satisfied', true);
+    expect(r.status).toBe(200);
+    for (const option of OPTIONS) {
+      const row = r.body.option_comparison.find((o: any) => o.option_id === option.id);
+      expect(row.win_probability, option.id).toBe(option.id === 'opt_stay' ? 0.8 : 0.2);
+      expect(row.constraint_probabilities?.[LIMIT.constraint_id], option.id).toBeUndefined();
+    }
+    expect(r.provenance).toMatchObject({ decision_grade: false });
+    expect(r.codes).toContain('CONSTRAINT_TARGET_UNRELIABLE');
+    expect(r.body.robustness.recommended_option_compliance).toBe('not_assessed');
+    expect(r.body.robustness.recommended_option_compliance).not.toBe('compliant');
   });
 });

@@ -2544,6 +2544,20 @@ export function normaliseGoalConstraints(
       continue;
     }
 
+    // Check the declared units after resolving the scale and the '%' refusal,
+    // before a change frame can return. Both change and level diagnostics feed
+    // the existing scale-provenance and constraint-reliability controls.
+    const scaleUnit = resolveScaleUnit(range, targetNode);
+    const unitCompatibility = classifyUnitCompatibility(unit, scaleUnit);
+    const unitMismatch: ConstraintUnitMismatch | undefined =
+      unitCompatibility === 'mismatched'
+        ? {
+            // 'mismatched' requires two declared, canonicalised unit tokens.
+            constraint_unit: canonicaliseUnit(unit) as string,
+            scale_unit: scaleUnit as string,
+          }
+        : undefined;
+
     // ⭐ R1 S3 — A CHANGE FROM TODAY (design MG #72 5871257542, ruling DL 5871412823, wire R3
     // 5872798858, meaning AIQ 5872801411). Decided HERE, after the ladder resolved the node's
     // range and after the '%' refusal, and before every LEVEL rule below (the stamp preference,
@@ -2625,6 +2639,7 @@ export function normaliseGoalConstraints(
           used_heuristic: !(['explicit', 'explicit_cap', 'goal_threshold_cap', 'unit_percent'] as RangeSource[]).includes(range.source),
           clamped: false,
           range_unified: rangeUnified,
+          ...(unitMismatch !== undefined && { unit_mismatch: unitMismatch }),
         });
       }
       continue;
@@ -2987,30 +3002,6 @@ export function normaliseGoalConstraints(
       });
       continue;
     }
-
-    // UNIT COMPATIBILITY (the goal-fit unit collision). Decided HERE, at
-    // ladder-decision time, for the same reason range_unified is: this is the
-    // only place that holds BOTH the constraint's own declared unit and the
-    // range the ladder actually resolved. Consumers PROJECT it.
-    //
-    // Note the ORDER dependency, which is why this sits after the ladder and not
-    // before it: the '%'-unit rung (4) outranks deriveRange (6), so a constraint
-    // whose unit IS percent never reaches an observed_state-derived scale in the
-    // first place — its range is its own unit read on the target's own frame,
-    // and a frame the '%' cannot be read on was refused above. What arrives here is a
-    // constraint whose unit lost to, or never competed with, a scale read off
-    // the target node.
-    const scaleUnit = resolveScaleUnit(range, targetNode);
-    const unitCompatibility = classifyUnitCompatibility(unit, scaleUnit);
-    const unitMismatch: ConstraintUnitMismatch | undefined =
-      unitCompatibility === 'mismatched'
-        ? {
-            // Both are non-undefined by construction: 'mismatched' is only
-            // returned when BOTH sides canonicalised to a declared token.
-            constraint_unit: canonicaliseUnit(unit) as string,
-            scale_unit: scaleUnit as string,
-          }
-        : undefined;
 
     // Track if we used a heuristic (non-producer-declared range)
     const NON_HEURISTIC_SOURCES: ReadonlySet<RangeSource> = new Set<RangeSource>([
