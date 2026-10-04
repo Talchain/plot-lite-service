@@ -60,12 +60,21 @@ const MOCK_FACTOR_SENSITIVITY = [
  * `model_dump(by_alias=True, exclude_none=True)` would emit it — absent keys,
  * not explicit nulls, for the optionals ISL leaves as None.
  *
- * Three rows deliberately: a real flip on a CAPPED factor (must reach user
- * units), an attested no-flip (must survive as a row without a direction), and
- * a flip on a CAPLESS factor (must stay normalised — the fail-closed control on
- * the same response).
+ * Four rows deliberately: a real flip on a CAPPED factor (must reach user
+ * units), an attested no-flip (must survive as a row without a direction), a
+ * flip on a CAPLESS non-lever (must stay normalised — the fail-closed control),
+ * and an option-set lever (must be excluded from the same response).
  */
 const MOCK_FACTOR_FLIP_VALUES = [
+  {
+    factor_id: 'fac_market_pressure',
+    current_value: 0.5,
+    flip_value: 0.7,
+    direction: 'increase',
+    flip_reason: 'found',
+    alternative_winner_id: 'opt_locum',
+    baseline_winner_id: 'opt_status_quo',
+  },
   {
     factor_id: 'fac_annual_staffing_cost',
     current_value: 0.86,
@@ -180,12 +189,20 @@ const REQUEST_BODY = {
         id: 'fac_lever',
         kind: 'factor',
         label: 'Service Model',
-        // Deliberately CAPLESS — the fail-closed control on the same response.
+        // Capless but option-set: excluded from the published flip rows.
         observed_state: { value: 0.5, baseline: 0.5 },
+      },
+      {
+        id: 'fac_market_pressure',
+        kind: 'factor',
+        label: 'Market Pressure',
+        // CAPLESS non-lever root — the fail-closed control on the same response.
+        observed_state: { value: 0.5, baseline: 0.5, std: 0.1 },
       },
       { id: 'outcome', kind: 'goal', label: 'Net Position' },
     ],
     edges: [
+      { from: 'fac_market_pressure', to: 'outcome', exists_probability: 0.9, strength: { mean: 0.4, std: 0.1 } },
       { from: 'fac_annual_staffing_cost', to: 'outcome', exists_probability: 0.95, strength: { mean: -0.7, std: 0.1 } },
       { from: 'fac_demand', to: 'outcome', exists_probability: 0.9, strength: { mean: 0.6, std: 0.1 } },
       { from: 'fac_lever', to: 'outcome', exists_probability: 0.9, strength: { mean: 0.5, std: 0.1 } },
@@ -285,13 +302,19 @@ describe('V2 Run · ISL closed-form factor flips (2.228-F3)', () => {
   });
 
   it('FAIL-CLOSED CONTROL on the same response: a capless factor claims no display scale', () => {
-    const lever = rows.find((r) => r.factor_id === 'fac_lever');
-    expect(lever).toBeDefined();
-    expect(lever!.value_scale).not.toBe('display');
-    expect(lever!.flip_display).toBeUndefined();
-    expect(lever!.current_display).toBeUndefined();
+    const market = rows.find((r) => r.factor_id === 'fac_market_pressure');
+    expect(market).toBeDefined();
+    expect(market!.value_scale).not.toBe('display');
+    expect(market!.flip_display).toBeUndefined();
+    expect(market!.current_display).toBeUndefined();
     // The value is still ISL's, unlifted — honest rather than absent.
-    expect(lever!.flip_value).toBe(0.7);
+    expect(market!.flip_value).toBe(0.7);
+  });
+
+  it('an option-set capless lever has no flip row', () => {
+    const lever = rows.find((r) => r.factor_id === 'fac_lever');
+    // R5-4 re-pin: fac_lever is set by opt_status_quo (0.2) and opt_locum (0.8).
+    expect(lever).toBeUndefined();
   });
 
   it('THE PROBE IS RETIRED: exactly ONE ISL analysis call, no per-factor probes', () => {

@@ -444,7 +444,8 @@ describe('ROADMAP 2.278 — the corrected reason reaches the CEE-visible wire', 
     );
 
     // The evidence really did land as an attestation...
-    expect(body.flip_thresholds.length).toBe(ids.length);
+    // R5-4 re-pin: fac_dev_headcount is set by opt_one_dev (0.5); fac_tech_lead by opt_tech_lead (1).
+    expect(body.flip_thresholds.map((r: any) => r.factor_id)).toEqual(['fac_hiring_cost']);
     expect(body.flip_thresholds.every((r: any) => r.no_flip_in_range === true)).toBe(true);
     expect(body.flip_thresholds_status).toBe('all_no_effect');
 
@@ -461,21 +462,45 @@ describe('ROADMAP 2.278 — the corrected reason reaches the CEE-visible wire', 
   });
 
   it('R3: a real flip on the wire keeps the flip wording', async () => {
-    const ids = factorIds(2);
     const body = await runWithFlips([
       {
-        factor_id: ids[0],
+        factor_id: 'fac_hiring_cost',
         current_value: 0,
         flip_value: 0.65,
         direction: 'increase',
         flip_reason: 'found',
         alternative_winner_id: 'opt_x',
       },
-      { factor_id: ids[1], current_value: 0, flip_value: null, flip_reason: 'structurally_invariant' },
+      { factor_id: 'fac_dev_headcount', current_value: 0, flip_value: null, flip_reason: 'structurally_invariant' },
     ]);
 
+    const hiringCost = body.flip_thresholds.find((r: any) => r.factor_id === 'fac_hiring_cost');
+    expect(hiringCost).toBeDefined();
+    expect(hiringCost.flip_value).toBe(0.65);
+    expect(body.flip_thresholds.map((r: any) => r.factor_id)).not.toContain('fac_dev_headcount');
     expect(body.flip_thresholds_status).not.toBe('all_no_effect');
     expect(body.robustness.display_verdict_reason).toBe(BASE_FRAGILE_REASON);
+  });
+
+  it('R3b: an excluded lever flip leaves only the non-lever no-effect wording', async () => {
+    const body = await runWithFlips([
+      {
+        factor_id: 'fac_dev_headcount',
+        current_value: 0,
+        flip_value: 0.65,
+        direction: 'increase',
+        flip_reason: 'found',
+        alternative_winner_id: 'opt_x',
+      },
+      { factor_id: 'fac_hiring_cost', current_value: 0, flip_value: null, flip_reason: 'structurally_invariant' },
+    ]);
+
+    // R5-4 re-pin: the computed fac_dev_headcount row is set by opt_one_dev (0.5).
+    expect(body.flip_thresholds.map((r: any) => r.factor_id)).toEqual(['fac_hiring_cost']);
+    expect(body.flip_thresholds_status).toBe('all_no_effect');
+    expect(body.robustness.display_verdict_reason).toBe(
+      ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP.fragile,
+    );
   });
 
   it('R4: an unresolved row on the wire keeps the flip wording (fail-closed)', async () => {
