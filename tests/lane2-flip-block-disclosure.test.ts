@@ -25,7 +25,7 @@
  *      "crashed" is the exact confusion this file exists to prevent.
  *   3. the retired probe budget is inert: no probe traffic is issued at all,
  *      and FLIP_SEARCH_PER_FACTOR_TIMEOUT_MS=0 no longer produces 'timeout'
- *      rows — it produces nothing, because nothing probes.
+ *      rows — the computed non-lever row survives, because nothing probes.
  *
  * Case 1 (whole-block throw) now arms the throw in the MAPPING ADAPTER, which
  * is what the try/catch at run.ts wraps today.
@@ -102,8 +102,17 @@ function robustnessData(options: any[]) {
   };
 }
 
-/** ISL FactorFlipValueV2 rows for the two graph factors (exclude_none shape). */
+/** ISL rows for both option-set levers and the non-lever root (exclude_none shape). */
 const FACTOR_FLIP_VALUES = [
+  {
+    factor_id: 'factor-market',
+    current_value: 0.4,
+    flip_value: 0.7,
+    direction: 'increase',
+    flip_reason: 'found',
+    alternative_winner_id: 'opt2',
+    baseline_winner_id: 'opt1',
+  },
   {
     factor_id: 'factor-a',
     current_value: 0.6,
@@ -161,16 +170,17 @@ vi.mock('../src/integrations/isl/index.ts', async () => {
 
 import { createServer } from '../src/createServer.js';
 
-// Two factors each intervened by a DIFFERENT option → neither overridden-by-all
-// → both stay flip candidates → the probe path runs.
+// Two option-set levers plus one uncertain non-lever root with a path to the goal.
 const PAYLOAD = {
   graph: {
     nodes: [
       { id: 'goal', kind: 'goal', label: 'Revenue' },
+      { id: 'factor-market', kind: 'factor', label: 'Market Demand', observed_state: { value: 0.4, std: 0.1 } },
       { id: 'factor-a', kind: 'factor', label: 'Marketing Spend', observed_state: { value: 0.6 } },
       { id: 'factor-b', kind: 'factor', label: 'Customer Churn', observed_state: { value: 0.5 } },
     ],
     edges: [
+      { from: 'factor-market', to: 'goal', strength: { mean: 0.4, std: 0.1 } },
       { from: 'factor-a', to: 'goal', strength: { mean: 0.5, std: 0.1 } },
       { from: 'factor-b', to: 'goal', strength: { mean: -0.3, std: 0.1 } },
     ],
@@ -310,10 +320,15 @@ describe('V2 Run · whole-block flip failure is wire-disclosed (post-probe-retir
       const body = await run();
       expect(body.analysis_status).not.toBe('failed');
       const entries = body.flip_thresholds ?? [];
+      // R5-4 re-pin: factor-a is set by opt1 (0.8); factor-b by opt2 (0.3).
       expect(entries.length).toBeGreaterThan(0);
+      const market = entries.find((e: any) => e.factor_id === 'factor-market');
+      expect(market).toBeDefined();
+      expect(market.flip_value).not.toBeNull();
+      expect(entries.map((e: any) => e.factor_id)).not.toContain('factor-a');
+      expect(entries.map((e: any) => e.factor_id)).not.toContain('factor-b');
       expect(entries.some((e: any) => e.flip_reason === 'timeout')).toBe(false);
-      // The real flip value survives a budget that no longer governs anything.
-      expect(entries.some((e: any) => e.flip_value !== null)).toBe(true);
+      expect(body.flip_thresholds_status).toBe('computed');
       expect(blockWarning(body)).toBeUndefined();
     } finally {
       delete process.env.FLIP_SEARCH_PER_FACTOR_TIMEOUT_MS;
@@ -332,14 +347,16 @@ describe('V2 Run · whole-block flip failure is wire-disclosed (post-probe-retir
     expect(capturedBodies).toHaveLength(1);             // exactly the one analysis call
   });
 
-  it('positive control: a healthy run → NO warning, flip_thresholds populated, closed-form values', async () => {
+  it('positive control: a healthy run has populated non-lever rows and no block warning', async () => {
     blockThrow = false; islOmitsBlock = false; capturedBodies.length = 0;
     const body = await run();
     expect(body.analysis_status).not.toBe('failed');
-    expect((body.flip_thresholds ?? []).length).toBeGreaterThan(0);
-    expect(body.flip_thresholds_status).not.toBe('unavailable');
+    // R5-4 re-pin: factor-a is set by opt1 (0.8); factor-b by opt2 (0.3).
+    expect(body.flip_thresholds.length).toBeGreaterThan(0);
+    expect(body.flip_thresholds.map((e: any) => e.factor_id)).toEqual(['factor-market']);
+    expect(body.flip_thresholds.map((e: any) => e.factor_id)).not.toContain('factor-a');
+    expect(body.flip_thresholds.map((e: any) => e.factor_id)).not.toContain('factor-b');
     expect(blockWarning(body)).toBeUndefined();
-    // One found + one attested no-flip.
-    expect(body.flip_thresholds_status).toBe('partial_no_effect');
+    expect(body.flip_thresholds_status).toBe('computed');
   });
 });

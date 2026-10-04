@@ -52,6 +52,7 @@ const LEVER_ROWS = [
 const ASSUMPTION_ROW = { factor_id: 'fac_onboarding_drag', current_value: 0.4, flip_value: 0.7, direction: 'increase', flip_reason: 'found', alternative_winner_id: 'opt_two_devs', baseline_winner_id: 'opt_tech_lead' };
 
 let flipValues: unknown[] = [];
+let capturedIslRequest: any;
 
 const mockISLService = {
   isEnabled(): boolean { return true; },
@@ -75,6 +76,7 @@ const mockISLService = {
   },
   async computeCounterfactual(): Promise<never> { throw new Error('not called'); },
   async callAnalysisEndpoint<T>(_endpoint: string, body: any): Promise<{ data: T | null; error: string | null }> {
+    capturedIslRequest = body;
     return {
       data: {
         options: mockOptions(body.options || []), edges: [], factor_sensitivity: MOCK_FACTOR_SENSITIVITY,
@@ -117,15 +119,49 @@ const REQUEST_BODY = {
 
 type Body = Record<string, any>;
 
+const MIXED_REQUEST_BODY = {
+  ...REQUEST_BODY,
+  graph: {
+    nodes: REQUEST_BODY.graph.nodes.filter((n) => n.id !== 'fac_dev_hires'),
+    edges: REQUEST_BODY.graph.edges.filter((e) => e.from !== 'fac_dev_hires'),
+  },
+  options: [
+    { id: OPTION_IDS[0], label: 'Hire a Tech lead', interventions: { fac_tech_lead_hires: { value: 1 } } },
+    { id: OPTION_IDS[1], label: 'Keep current headcount', interventions: { fac_tech_lead_hires: { value: 0 } } },
+  ],
+};
+
+const SPRINT_REQUEST_BODY = {
+  graph: {
+    nodes: [
+      { id: 'sprint_capacity_for_ai_reporting', kind: 'factor', label: 'AI reporting capacity', observed_state: { value: 0, baseline: 0 } },
+      { id: 'sprint_capacity_for_integration_fix', kind: 'factor', label: 'Integration fix capacity', observed_state: { value: 0, baseline: 0 } },
+      { id: 'goal_productivity', kind: 'goal', label: 'Team productivity' },
+    ],
+    edges: [
+      { from: 'sprint_capacity_for_ai_reporting', to: 'goal_productivity', exists_probability: 0.9, strength: { mean: 0.5, std: 0.1 } },
+      { from: 'sprint_capacity_for_integration_fix', to: 'goal_productivity', exists_probability: 0.9, strength: { mean: 0.4, std: 0.1 } },
+    ],
+  },
+  options: [
+    { id: 'opt_a', label: 'AI reporting', interventions: { sprint_capacity_for_ai_reporting: { value: 1 }, sprint_capacity_for_integration_fix: { value: 0 } } },
+    { id: 'opt_b', label: 'Integration fix', interventions: { sprint_capacity_for_ai_reporting: { value: 0 }, sprint_capacity_for_integration_fix: { value: 1 } } },
+    { id: 'opt_c', label: 'Split capacity', interventions: { sprint_capacity_for_ai_reporting: { value: 0.5 }, sprint_capacity_for_integration_fix: { value: 0.5 } } },
+    { id: 'opt_status_quo', label: 'Status quo', interventions: { sprint_capacity_for_ai_reporting: { value: 0 }, sprint_capacity_for_integration_fix: { value: 0 } } },
+  ],
+  goal_node_id: 'goal_productivity',
+};
+
 describe('R5-4 — no flip row on an option-set lever (/v2/run)', () => {
   let app: FastifyInstance;
   let mixed: Body; // the lever rows + one assumption row
   let leverOnly: Body; // the served case: every probed factor is a lever
 
-  async function run(rows: unknown[]): Promise<Body> {
+  async function run(rows: unknown[], payload: object = REQUEST_BODY): Promise<Body> {
     flipValues = rows;
-    const res = await app.inject({ method: 'POST', url: '/v2/run', headers: { 'content-type': 'application/json' }, payload: REQUEST_BODY });
-    expect(res.statusCode).toBe(200);
+    capturedIslRequest = undefined;
+    const res = await app.inject({ method: 'POST', url: '/v2/run', headers: { 'content-type': 'application/json' }, payload });
+    expect(res.statusCode, res.body).toBe(200);
     return JSON.parse(res.body) as Body;
   }
 
@@ -142,6 +178,40 @@ describe('R5-4 — no flip row on an option-set lever (/v2/run)', () => {
     await app?.close();
     delete process.env.RATE_LIMIT_ENABLED;
     delete process.env.CEE_ORCHESTRATOR_ENABLED;
+  });
+
+  it('R1: sprint-planning levers publish no rows, unavailable, and no status reason', async () => {
+    const body = await run([
+      { factor_id: 'sprint_capacity_for_ai_reporting', current_value: 0, flip_value: 0.4, direction: 'increase', flip_reason: 'found', baseline_winner_id: 'opt_a', alternative_winner_id: 'opt_b' },
+      { factor_id: 'sprint_capacity_for_integration_fix', current_value: 0, flip_reason: 'no_effect_within_bounds', baseline_winner_id: 'opt_a' },
+    ], SPRINT_REQUEST_BODY);
+    expect(capturedIslRequest.options.map((o: any) => ({ id: o.id, interventions: o.interventions }))).toEqual([
+      { id: 'opt_a', interventions: { sprint_capacity_for_ai_reporting: 1, sprint_capacity_for_integration_fix: 0 } },
+      { id: 'opt_b', interventions: { sprint_capacity_for_ai_reporting: 0, sprint_capacity_for_integration_fix: 1 } },
+      { id: 'opt_c', interventions: { sprint_capacity_for_ai_reporting: 0.5, sprint_capacity_for_integration_fix: 0.5 } },
+      { id: 'opt_status_quo', interventions: { sprint_capacity_for_ai_reporting: 0, sprint_capacity_for_integration_fix: 0 } },
+    ]);
+    expect(body.flip_thresholds).toEqual([]);
+    expect(body.flip_thresholds_status).toBe('unavailable');
+    expect(body).not.toHaveProperty('flip_thresholds_status_reason');
+  });
+
+  it('R2: mixed lever and non-lever no-effect rows classify only the surviving factor', async () => {
+    const body = await run([
+      LEVER_ROWS[0],
+      { factor_id: 'fac_onboarding_drag', current_value: 0.4, flip_reason: 'no_effect_within_bounds', baseline_winner_id: 'opt_tech_lead' },
+    ], MIXED_REQUEST_BODY);
+    expect(body.flip_thresholds.map((row: Body) => row.factor_id)).toEqual(['fac_onboarding_drag']);
+    expect(body.flip_thresholds[0].flip_reason).toBe('no_effect_within_bounds');
+    expect(body.flip_thresholds_status).toBe('all_no_effect');
+    expect(body).not.toHaveProperty('flip_thresholds_status_reason');
+  });
+
+  it('R3: a non-lever computed flip survives with its value and computed status', async () => {
+    const body = await run([ASSUMPTION_ROW], MIXED_REQUEST_BODY);
+    expect(body.flip_thresholds.map((row: Body) => row.factor_id)).toEqual(['fac_onboarding_drag']);
+    expect(body.flip_thresholds[0].flip_value).toBe(ASSUMPTION_ROW.flip_value);
+    expect(body.flip_thresholds_status).toBe('computed');
   });
 
   it('ANTI-VACUITY + CONTRAST: the assumption row is published as found', () => {
