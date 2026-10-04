@@ -214,6 +214,43 @@ describe('R5-4 — no flip row on an option-set lever (/v2/run)', () => {
     expect(body.flip_thresholds_status).toBe('computed');
   });
 
+  it('R4: a factor set only by a clamp-withheld option keeps its flip row', async () => {
+    // Declared [0,1] range + out-of-range intervention: constraint-margin-plumbing.test.ts:537-603.
+    const payload = {
+      graph: {
+        nodes: [
+          { id: 'goal', kind: 'goal', label: 'Goal', observed_state: { value: 0.4 } },
+          { id: 'fac_x', kind: 'factor', label: 'Factor X', state_space: { range: { min: 0, max: 1 } }, observed_state: { value: 0.4 } },
+          { id: 'fac_other', kind: 'factor', label: 'Other factor', state_space: { range: { min: 0, max: 1 } }, observed_state: { value: 0.3 } },
+        ],
+        edges: [
+          { from: 'fac_x', to: 'goal', strength: { mean: 0.5, std: 0.1 } },
+          { from: 'fac_other', to: 'goal', strength: { mean: 0.3, std: 0.1 } },
+        ],
+      },
+      options: [
+        { id: 'opt_a', label: 'A', interventions: { fac_other: 0.4 } },
+        { id: 'opt_b', label: 'B', interventions: { fac_other: 0.6 } },
+        { id: 'opt_c', label: 'C', interventions: { fac_x: 10 } },
+      ],
+      goal_node_id: 'goal',
+    };
+    const flipRow = { factor_id: 'fac_x', current_value: 0.4, flip_value: 0.7, direction: 'increase', flip_reason: 'found', alternative_winner_id: 'opt_b', baseline_winner_id: 'opt_a' };
+    const body = await run([flipRow], payload);
+
+    expect(capturedIslRequest, 'PRECONDITION: ISL was called').toBeDefined();
+    const scoredIds = capturedIslRequest.options.map((option: Body) => option.id);
+    expect(scoredIds, 'PRECONDITION: C was withheld before ISL').not.toContain('opt_c');
+    expect(scoredIds).toEqual(['opt_a', 'opt_b']);
+    expect(body._meta?.withheld_options).toEqual([
+      { option_id: 'opt_c', reason: 'intervention_clamped', factor_id: 'fac_x', stated: 10, applied: 1 },
+    ]);
+    const row = (body.flip_thresholds as Body[]).find((entry) => entry.factor_id === 'fac_x');
+    expect(row, 'the factor only the withheld option sets retains its ISL flip').toBeDefined();
+    expect(row!.flip_value).toBe(flipRow.flip_value);
+    expect(body.flip_thresholds_status).toBe('computed');
+  });
+
   it('ANTI-VACUITY + CONTRAST: the assumption row is published as found', () => {
     const row = (mixed.flip_thresholds as Body[]).find((r) => r.factor_id === 'fac_onboarding_drag');
     expect(row, 'the non-lever row reaches the wire').toBeDefined();

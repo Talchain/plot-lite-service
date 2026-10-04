@@ -160,7 +160,7 @@ import { ReviewSkipReasons, type ReviewSkipReason } from '../../cee/validation/m
 import { getDownstreamCallsForLog, getDownstreamCalls, adoptResolvedRequestId } from '../../util/downstream-tracker.js';
 import { computeResponseContentHash } from '../../util/response-content-hash.js';
 import { computeFactorSensitivityFromGraph, buildFactorStability, mergeIslConfidenceIntoGraphFactors, adoptIslStructuralInfluence } from '../../lib/factor-influence.js';
-import { interventionTargetIdsFromOptions, isOptionControlledLever, factorIdOf, hasFactorIdConflict } from '../../lib/intervention-override.js';
+import { interventionTargetIdsFromOptions, isInterventionOverride, isOptionControlledLever, factorIdOf, hasFactorIdConflict } from '../../lib/intervention-override.js';
 import { buildAutoNoiseProvenance, extractIslAutoNoiseApplied, logAutoNoiseFlagMissingFromIsl } from '../../lib/auto-noise.js';
 import { sanitiseIslVoi, computeEvpiPercentagePoints, deriveEvidenceHint } from '../../lib/evpi-emission.js';
 import { deriveDriverLabel, indexOfCanonicalTopDriver } from '../../lib/driver-label.js';
@@ -9090,6 +9090,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // the EVPI enrichment guards so a union lever never publishes
         // sensitivity/elasticity/VOI/EVPI (live fac_salary_cost case: sens
         // −0.19 + top EVPI 7.8pp published while coaching suppressed it).
+        // FOLLOW-UP(R5-4 review): sensitivity/EVPI still use requested targets; reconciling them with scored options is out of scope.
         const structuralLeverIds = interventionTargetIdsFromOptions(body.options);
 
         // Graph-based is primary for influence/sensitivity scores.
@@ -9698,12 +9699,12 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             const factorFlipMapping = mapIslFactorFlipValues(islResult?.factor_flip_values, {
               graph: filteredGraph,
               factorSensitivity: factorSensitivity as { factor_id: string; factor_label?: string }[] | undefined,
-              // R5-4: no flip row on an option-controlled lever. It is the same combined D-U predicate the
-              // sensitivity/EVPI egress uses: the structural union ∪ ISL's stamp.
+              // R5-4: no flip row on an option-controlled lever: scored options' targets ∪ ISL's own stamps.
+              // islRequest.options is the final ISL-bound list, after clamp withholding and normalisation.
               optionLeverIds: new Set([
-                ...structuralLeverIds,
-                ...((factorSensitivity ?? []) as Array<{ factor_id?: string; node_id?: string; zero_reason?: string | null }>)
-                  .filter((f) => isOptionControlledLever(f, structuralLeverIds))
+                ...interventionTargetIdsFromOptions(islRequest.options),
+                ...((islResult?.factor_sensitivity ?? []) as Array<{ factor_id?: string; node_id?: string; zero_reason?: string | null }>)
+                  .filter(isInterventionOverride)
                   .map((f) => factorIdOf(f))
                   .filter((id): id is string => id != null),
               ]),
