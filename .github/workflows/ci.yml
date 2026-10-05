@@ -7,11 +7,13 @@ on:
   push:
     branches: [main, staging]
 
-# Superseded PR heads stop holding runners on an account whose 20 concurrent
-# jobs every repo shares. Pushes to main/staging always finish: their run is
-# the record of what was verified at that SHA.
+# Superseded PR heads stop holding runners (every repo shares one account-wide
+# job cap). Each PUSH gets its own group (run_id): with one group per branch,
+# GitHub keeps one running + one pending run and silently CANCELS the older
+# pending one when a third push arrives, even with cancel-in-progress false, so
+# an intermediate staging SHA would never be verified (Codex buddy, 5 Oct 2026).
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && github.ref || github.run_id }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
