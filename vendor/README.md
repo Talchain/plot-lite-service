@@ -9,6 +9,31 @@ and `DecisionGuideAI` (UI).
 
 ## Current contents
 
+### `talchain-schemas-0.76.0.tgz` ← **THE CURRENT PIN** (5 Oct 2026)
+
+**Purpose:** PARITY with CEE and the UI: one contract version across the estate (DL 0df0e1, Integrator github-26). It
+unblocks olumi-schemas #87, the drift check that fails when a consumer lags. **Meant to be INERT here.**
+
+**Bytes:** CEE's vendored tarball from `olumi-assistants-service` staging `c5fd360d6ae453fd3ea77c6741fb376d0718e680`,
+byte-identical. sha256 `594fcedb65b385fe701ea9dcac98cce2b73e85c7e3c9e10ba1ceddd82999268d` equals CEE's `.sha256`
+sidecar. 807,836 bytes; integrity `sha512-u5PDC7qe…fQt8uQ==`. The contents are tag `v0.76.0`: the packaged
+`SCHEMA_SHA` `79cb3d3e…` equals the tag's generated constant. Not a registry download (no token on the machine that
+vendored it).
+
+**What changed 0.61.0 → 0.76.0, set against PLoT's runtime imports.** PLoT imports 9 values at runtime:
+`AnalysisEnrichmentSchema` (the egress guard), `LIMITS`, `DEFAULT_EXISTS_PROBABILITY`, `NODE_ID_PATTERN`,
+`QuantityFrame`, `GoalThresholdFrame`, `CeeTypedErrorSchema`, `NodeKind`, `DetailLevel`.
+- **All 9 are byte-identical between 0.61.0 and 0.76.0.** Each `export const` block was compared in both `dist/`
+  trees. `boundary/enrichment.ts` is untouched over `v0.61.0..v0.76.0`.
+- The removed lines over 0.61..0.76 (hash-projection v2 constants, the `ModelVersionDiffV1` refine) are not imported here.
+- The type-only imports (`NodeV3`/`EdgeV3`/`GraphV3`, `SeedSourceType`, `EnrichmentFactorEvppiEntry`,
+  `GoalThresholdFrameType`) gain optional members only.
+- Additions PLoT does not consume: 0.62–0.74 node/observed-state/run-fact members; 0.75 `DecisionFlipBlockV1` (PLoT
+  forwards ISL's block verbatim and CEE strict-parses it; `decision-flip-forward.ts`); 0.76 `StructuralChallengeResultV1`.
+
+Evidence: programme-docs `integrator/github-26` `output/integrator/PIN-ALIGNMENT.md`. 0.61.0 stays in `vendor/` as the
+previous pin, as 0.60.0 did.
+
 ### `talchain-schemas-0.60.0.tgz`
 
 **Purpose:** READER-FIRST adoption of 0.60.0 (DL #70 5856251322). CEE is about to emit `per_limit`/`joint`. PLoT sits on the CEE path, so it must know the release before a producer uses it. Meant to be INERT here.
