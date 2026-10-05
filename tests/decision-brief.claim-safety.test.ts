@@ -225,6 +225,20 @@ describe('robustness_caveat', () => {
     expect(brief.robustness_caveat!.text).toContain('not a guarantee');
   });
 
+  // DL 5 Oct: "held up" follows the LEVEL. A robust flag never overrides a moderate/low level, and a high level that the
+  // flag contradicts takes the weaker sentence.
+  it.each([
+    ['robust flag + moderate level', { is_robust: true, level: 'moderate' }, false, 'moderately stable'],
+    ['robust flag + low level', { is_robust: true, level: 'low' }, false, 'fragile'],
+    ['not robust + high level', { is_robust: false, level: 'high' }, false, null],
+    ['control: robust + high level', { is_robust: true, level: 'high' }, true, 'held up'],
+  ] as const)('"held up" only at a high level (%s)', (_name, r, heldUp, words) => {
+    const brief = assembleBrief(makeInput({ robustness: { ...r, fragile_edges: [], robust_edges: [] } }))!;
+    if (heldUp) expect(brief.robustness_caveat!.text).toContain('held up');
+    else expect(brief.robustness_caveat!.text).not.toContain('held up');
+    if (words !== null) expect(brief.robustness_caveat!.text).toContain(words);
+  });
+
   it('is_robust false → did-not-pass wording (never softened)', () => {
     const brief = assembleBrief(makeInput({
       robustness: { is_robust: false, fragile_edges: [], robust_edges: [] },

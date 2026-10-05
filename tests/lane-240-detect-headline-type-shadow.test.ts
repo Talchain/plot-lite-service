@@ -88,6 +88,8 @@ const makeIslResult = (overrides: {
   ],
   factor_sensitivity: overrides.factorSensitivity ?? [nonLeverFactor()],
   robustness: {
+    // DL 5 Oct: clear_winner needs ISL's level = high; these rows test the lever guards on a run that IS clear.
+    level: 'high',
     recommendation_stability: 0.9,
     fragile_edges: overrides.fragileFrom
       ? [{

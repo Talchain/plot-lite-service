@@ -98,7 +98,8 @@ describe('B1: Story Headlines', () => {
         { node_id: 'f1', label: 'Cost', importance_rank: 1, confidence: 0.8, elasticity: 0.5, influence_score: 0.5 },
       ],
       fragileEdges: [],
-      robustness: { recommendationStability: 0.85 },
+      // DL 5 Oct: clear_winner says the lead HELD, so it needs ISL's level = high (stability is the share relabelled).
+      robustness: { recommendationStability: 0.85, level: 'high' },
     };
 
     const headlineType = detectHeadlineType(inputs);
@@ -107,6 +108,25 @@ describe('B1: Story Headlines', () => {
     const headlines = generateHeadlines(inputs);
     expect(headlines['opt1']).toContain('Option A');
     expect(headlines['opt1']).toContain('60');
+    expect(headlines['opt1']).toContain('On this model, Option A came out best 60 percentage points more often than the next option, and that held under the changes we tested');
+    expect(headlines['opt1']).not.toMatch(/high confidence|outperforms/);
+  });
+
+  it.each([['moderate'], ['low'], [undefined]] as const)('DL 5 Oct: the same strong share with level %s is never a clear_winner', (level) => {
+    const inputs: CoachingInputs = {
+      graph: createMinimalGraph(),
+      options: [
+        { id: 'opt1', label: 'Option A', winProbability: 0.80, expectedOutcome: 120 },
+        { id: 'opt2', label: 'Option B', winProbability: 0.20, expectedOutcome: 80 },
+      ],
+      factorSensitivity: [
+        { node_id: 'f1', label: 'Cost', importance_rank: 1, confidence: 0.8, elasticity: 0.5, influence_score: 0.5 },
+      ],
+      fragileEdges: [],
+      robustness: { recommendationStability: 0.85, level },
+    };
+    expect(detectHeadlineType(inputs)).toBe('moderate_winner');
+    expect(generateHeadlines(inputs)['opt1']).not.toContain('held under the changes we tested');
   });
 
   it('detects "moderate_winner" when winProb > 0.55 and delta > 0.15', () => {
