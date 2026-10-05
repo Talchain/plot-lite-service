@@ -108,7 +108,7 @@ describe('B1: Story Headlines', () => {
     const headlines = generateHeadlines(inputs);
     expect(headlines['opt1']).toContain('Option A');
     expect(headlines['opt1']).toContain('60');
-    expect(headlines['opt1']).toContain('On this model, Option A scored highest, 60 points above the next option, and that held under the changes we tested');
+    expect(headlines['opt1']).toContain('On this model, Option A came out best 60 percentage points more often than the next option, and that held under the changes we tested');
     expect(headlines['opt1']).not.toMatch(/high confidence|outperforms/);
   });
 

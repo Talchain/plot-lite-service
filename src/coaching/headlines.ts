@@ -16,7 +16,9 @@ const HEADLINE_TEMPLATES = {
   // DL 5 Oct (guiding principle "appropriately uncertain"): model-relative, no race framing, and the "held" claim only
   // where the ROBUSTNESS LEVEL is high (selectHeadlineType). `recommendationStability` is the leader's share relabelled
   // (types.ts), so it can never stand in for "held under the changes we tested".
-  clear_winner: 'On this model, {option} scored highest, {deltaPoints} points above the next option, and that held under the changes we tested',
+  // Science 5 Oct: "came out best" reads the same under a minimised goal ("scored highest" reads as the most churn), and
+  // {deltaPoints} is the win-share gap, so it is said in percentage points of simulated futures, never bare "points".
+  clear_winner: 'On this model, {option} came out best {deltaPoints} percentage points more often than the next option, and that held under the changes we tested',
   moderate_winner: '{option} leads by {deltaPoints} points, though some uncertainty remains',
   close_call: '{option} edges ahead, but the {deltaPoints}-point margin is within uncertainty',
   high_uncertainty:
