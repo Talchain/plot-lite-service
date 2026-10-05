@@ -14,7 +14,8 @@ const LOG = path.join(LOGDIR, 'pr2-verify.log');
 
 const BR = process.env.BRANCH || 'chore/lockfile-sync-ci';
 const BASE = process.env.BASE_BRANCH || 'main';
-const REQUIRED = ['OpenAPI Examples Roundtrip', 'engine-safety', 'tests-smoke'];
+// engine-safety + tests-smoke were deleted 5 Oct 2026: each only ran `npm ci || true`.
+const REQUIRED = ['OpenAPI Examples Roundtrip'];
 
 function run(cmd, args, opts={}) {
   const res = spawnSync(cmd, args, {
