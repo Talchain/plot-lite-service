@@ -9,7 +9,30 @@ and `DecisionGuideAI` (UI).
 
 ## Current contents
 
-### `talchain-schemas-0.76.0.tgz` ← **THE CURRENT PIN** (5 Oct 2026)
+### `talchain-schemas-0.77.0.tgz` ← **THE CURRENT PIN** (5 Oct 2026)
+
+**Purpose:** PARITY with the UI and CEE (SPINE X8, the order bound by the DL: DGAI first, then PLoT, then CEE emits).
+olumi-schemas #88 → `main` `b0378e7f`. **Meant to be INERT here.**
+
+**Bytes:** the published registry artefact `npm.pkg.github.com/download/@talchain/schemas/0.77.0/57f6764c…`.
+- sha1 `57f6764c02225a80cd4a8d992acb872724ea1a9f` = the registry `shasum`.
+- sha512 = the registry `integrity` `sha512-UntaRpey…W8zwg==`.
+- The registry `gitHead` is `b0378e7f` = tag `v0.77.0`.
+- 807,162 bytes; sha256 `ed6ca2a58beee5166d81abe92d5d7a2359bc7a24820b7f9bd6b70efafd1659ad`.
+- Byte-identical (`cmp`) to DGAI #2506's vendored tarball.
+
+**What changed 0.76.0 → 0.77.0, set against PLoT's runtime imports.** In `dist/`, only `boundary/olumi-response.js`
+(one closed `ModelBuildingNoticeKindSchema` member, `stated_relationship_not_used`), `contracts/generated-constants.js`
+(`SCHEMA_SHA`, `CONTRACT_MANIFEST_SHA`, `SCHEMA_PACKAGE_VERSION`) and `fixtures/index.js` (one extra notice group) differ.
+- PLoT's 9 runtime imports live in `boundary/enrichment.js`, `limits.js`, `graph.js`, `cee-errors.js` and
+  `analysis.js`. All five files are byte-identical between 0.76.0 and 0.77.0.
+- PLoT reads nothing that changed. A search of `src/ tests/ scripts/` for `ModelBuildingNotice`,
+  `model_building_notices`, the maximal fixtures, the three constants and `stated_relationship` found 0 files.
+  Contrast: 46 files import `@talchain/schemas`.
+
+0.76.0 stays in `vendor/` as the previous pin.
+
+### `talchain-schemas-0.76.0.tgz` (5 Oct 2026; previous pin)
 
 **Purpose:** PARITY with CEE and the UI: one contract version across the estate (DL 0df0e1, Integrator github-26). It
 unblocks olumi-schemas #87, the drift check that fails when a consumer lags. **Meant to be INERT here.**
