@@ -683,6 +683,9 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //  09-29  effect on the result is not steady (44%)", not "has low confidence
     //         (44%)". UPDATE_GOLDEN diff is EXACTLY the 2 node `reason` strings,
     //         plus this hash; `response_hash` UNMOVED.)
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:e27294174a11b1a4');
+    //  DL 5 Oct wording batch rch_v2:8418305e488265ab (robustness_caveat says what the run RESTS ON — the first
+    //  non-lever fragile link, "Technical Quality and Architecture → Increase Team Productivity" — never "fragile";
+    //  EXACTLY 2 golden lines moved: that text + this hash).
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:8418305e488265ab');
   });
 });

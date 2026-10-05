@@ -229,7 +229,7 @@ describe('robustness_caveat', () => {
   // flag contradicts takes the weaker sentence.
   it.each([
     ['robust flag + moderate level', { is_robust: true, level: 'moderate' }, false, 'moderately stable'],
-    ['robust flag + low level', { is_robust: true, level: 'low' }, false, 'fragile'],
+    ['robust flag + low level', { is_robust: true, level: 'low' }, false, 'sensitive to the changes we tested'],
     ['not robust + high level', { is_robust: false, level: 'high' }, false, null],
     ['control: robust + high level', { is_robust: true, level: 'high' }, true, 'held up'],
   ] as const)('"held up" only at a high level (%s)', (_name, r, heldUp, words) => {
@@ -255,12 +255,13 @@ describe('robustness_caveat', () => {
     expect(brief.robustness_caveat!.text).toContain('moderately stable');
   });
 
-  it('level low / very_low → fragile wording', () => {
+  it('level low / very_low → "sensitive" wording with no labelled fragile link (never "fragile": DL 5 Oct)', () => {
     for (const level of ['low', 'very_low']) {
       const brief = assembleBrief(makeInput({
         robustness: { level, fragile_edges: [], robust_edges: [] },
       }))!;
-      expect(brief.robustness_caveat!.text).toContain('fragile');
+      expect(brief.robustness_caveat!.text).toContain('sensitive to the changes we tested');
+      expect(brief.robustness_caveat!.text).not.toMatch(/fragile/i);
     }
   });
 

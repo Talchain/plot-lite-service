@@ -187,8 +187,8 @@ describe('robustness_caveat — attested no-flip evidence (2.1247)', () => {
     expect(caveat!.flip_evidence).toBeDefined();
     expect(caveat!.flip_evidence!.status).toBe('computed');
     expect(caveat!.flip_evidence!.text).toContain(`change ${GOAL_FIT_PHRASE}`);
-    // Aggregate claim keeps its original wording — consistent with the evidence.
-    expect(caveat!.text).toContain('fragile under the changes we tested');
+    // Aggregate claim: DL 5 Oct wording batch — never "fragile"; with no labelled fragile link it says "sensitive".
+    expect(caveat!.text).toContain('sensitive to the changes we tested');
   });
 
   it('partial no-effect (computed + attested rest) carries its own claim', () => {
@@ -209,7 +209,8 @@ describe('robustness_caveat — attested no-flip evidence (2.1247)', () => {
     const brief = assembleBrief(buildInput({ is_robust: false, level: 'low' }));
     const caveat = brief?.robustness_caveat;
     expect(caveat).toEqual({
-      text: `This run was fragile under the changes we tested. Small changes to your assumptions could change ${GOAL_FIT_PHRASE}.`,
+      // DL 5 Oct wording batch: never "fragile"; with no labelled fragile link it says the run was sensitive.
+      text: `This run was sensitive to the changes we tested. Small changes to your assumptions could change ${GOAL_FIT_PHRASE}.`,
       basis: 'is_robust',
       doctrine: 'provisional_doctrine_v0',
     });
@@ -332,5 +333,46 @@ describe('robustness_caveat — domain-wide consistency invariants (2.1247)', ()
     // brief and the published `flip_thresholds` must both read it.
     expect(callBlock).toContain('flip_thresholds: publishedFlipThresholds,');
     expect(runTs).toContain('flip_thresholds: publishedFlipThresholds ?? [],');
+  });
+});
+
+describe('DL 5 Oct wording batch: a low-level caveat says what the run RESTS ON, never "fragile"', () => {
+  const edge = (from_id: string, from_label: string | undefined, to_id: string, to_label: string | undefined) =>
+    ({ edge_id: `${from_id}->${to_id}`, from_id, to_id, from_label, to_label, switch_probability: 0.6 });
+  const withEdges = (edges: unknown[], extra: Partial<BriefAssemblyInput> = {}) =>
+    ({ ...buildInput({ is_robust: false, level: 'low', fragile_edges: edges }), ...extra }) as BriefAssemblyInput;
+
+  it('names the first fragile link by its labels', () => {
+    const caveat = assembleBrief(withEdges([edge('fac_price', 'Price per seat', 'out_rev', 'Monthly revenue')]))?.robustness_caveat;
+    expect(caveat!.text).toBe(`This run rests heavily on how much Price per seat changes Monthly revenue. Small changes to your assumptions could change ${GOAL_FIT_PHRASE}.`);
+  });
+
+  it('never names an option-pinned lever: it skips to the next labelled link (contrast: the lever is first)', () => {
+    const input = withEdges(
+      [edge('fac_lever', 'Sprint capacity', 'out_a', 'Availability'), edge('fac_b', 'Signing likelihood', 'goal', 'Quarterly revenue')],
+      { factor_sensitivity: [{ factor_id: 'fac_lever', zero_reason: 'intervention_override' }] as never },
+    );
+    const text = assembleBrief(input)!.robustness_caveat!.text;
+    expect(text).toContain('rests heavily on how much Signing likelihood changes Quarterly revenue');
+    expect(text).not.toContain('Sprint capacity');
+  });
+
+  it('never prints an id: a link missing a label is skipped, and with none left it says "sensitive"', () => {
+    const text = assembleBrief(withEdges([edge('fac_x', undefined, 'out_y', 'Revenue')]))!.robustness_caveat!.text;
+    expect(text).toBe(`This run was sensitive to the changes we tested. Small changes to your assumptions could change ${GOAL_FIT_PHRASE}.`);
+    expect(text).not.toContain('fac_x');
+  });
+
+  it('names no link when the probes attest no tested factor moves the answer', () => {
+    const input = { ...withEdges([edge('fac_price', 'Price per seat', 'out_rev', 'Monthly revenue')]), flip_thresholds: [attestedNoFlipRow('f1')] } as BriefAssemblyInput;
+    expect(assembleBrief(input)!.robustness_caveat!.text).toBe('This run scored low on stability under the changes we tested.');
+  });
+
+  it.each([
+    [{ is_robust: false, level: 'low' }], [{ is_robust: false, level: 'very_low' }], [{ level: 'low' }], [{ level: 'very_low' }],
+  ])('no low-level caveat says "fragile" (%j)', (rob) => {
+    for (const flips of [undefined, [attestedNoFlipRow('f1')]]) {
+      expect(assembleBrief(buildInput(rob, flips))!.robustness_caveat!.text).not.toMatch(/fragile/i);
+    }
   });
 });

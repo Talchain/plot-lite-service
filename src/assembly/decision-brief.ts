@@ -814,6 +814,16 @@ const FLIP_EVIDENCE_CLAIMS: Record<
  * GOAL_FIT_PHRASE} rather than a leader, and no sentence on this surface uses
  * an em dash.
  */
+/** The first fragile link the brief can name in words: what_would_change's own selection, both labels present. */
+function firstNamedFragileLink(input: BriefAssemblyInput): { from: string; to: string } | null {
+  const leverIds = interventionOverrideFactorIds(input.factor_sensitivity ?? []);
+  for (const e of filterLeverSourcedFragileEdges(input.robustness?.fragile_edges ?? [], leverIds, (x) => x.from_id)) {
+    const from = e.from_label?.trim(); const to = e.to_label?.trim();
+    if (from && to) return { from, to };
+  }
+  return null;
+}
+
 function buildRobustnessCaveat(input: BriefAssemblyInput): BriefRobustnessCaveat {
   const robustness = input.robustness;
   const isRobust = robustness?.is_robust;
@@ -870,9 +880,16 @@ function buildRobustnessCaveat(input: BriefAssemblyInput): BriefRobustnessCaveat
   } else if (level === 'medium' || level === 'moderate') {
     text = 'This run was only moderately stable under the changes we tested. Treat it as provisional.';
   } else if (level === 'low' || level === 'very_low') {
+    // DL 5 Oct (Wording Batch, Acceptance 5996853005): say what the run RESTS ON, never "fragile" — consistent with CEE
+    // #2588's link caution ("it rests heavily on how much A changes B"). The link is the first fragile edge the brief's
+    // own what_would_change names (option-pinned levers excluded), and only with BOTH labels (an id is never shown).
+    // Not named when the probes attest no tested factor moves the answer: "rests heavily on A→B" beside "varying any one
+    // of the factors … did not change it" would read as a contradiction. The second sentence is unchanged on purpose:
+    // DGAI de-duplicates it against the display-verdict reason by whole sentence (robustnessStanding.ts).
+    const restsOn = attestedNoFlip ? null : firstNamedFragileLink(input);
     text = attestedNoFlip
-      ? 'This run was fragile under the changes we tested. It scored low on the stability measures.'
-      : `This run was fragile under the changes we tested. Small changes to your assumptions could change ${GOAL_FIT_PHRASE}.`;
+      ? 'This run scored low on stability under the changes we tested.'
+      : `${restsOn !== null ? `This run rests heavily on how much ${restsOn.from} changes ${restsOn.to}.` : 'This run was sensitive to the changes we tested.'} Small changes to your assumptions could change ${GOAL_FIT_PHRASE}.`;
   } else {
     // is_robust === false with a level that is not low/very_low, or an
     // unrecognised level value: state the weaker of the two signals.
