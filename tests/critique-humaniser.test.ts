@@ -953,3 +953,26 @@ describe('addUserMessages', () => {
     expect(addUserMessages([], mockGraph)).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// ⛔ No contest words in a served critique (DL 0df0e1, cut 3; Acceptance investor matrix: DEGENERATE_OUTCOMES served
+// "…so there is no meaningful winner to report"). Olumi never names a winner (Paul, 7 Sep).
+// ---------------------------------------------------------------------------
+describe('critique copy names no winner', () => {
+  it('DEGENERATE_OUTCOMES says the result does not separate the options, in this model', () => {
+    expect(TEMPLATE_MAP.DEGENERATE_OUTCOMES).toBe(
+      'In this model, every option produced almost the same outcome, so the result does not separate them. Check that your options really do set different values, and that what they change is connected to the goal.',
+    );
+  });
+
+  it('SCAN: no static template uses winner / best / recommend / outperform', () => {
+    const CONTEST = /\b(?:winners?|best|recommend\w*|outperform\w*)\b/i;
+    const hits = Object.entries(TEMPLATE_MAP)
+      .filter(([, t]) => typeof t === 'string')
+      .filter(([, t]) => CONTEST.test(t as string))
+      .map(([code]) => code);
+    expect(hits).toEqual([]);
+    // CONTROL: the scan reads real copy (it would catch the old sentence).
+    expect(CONTEST.test('so there is no meaningful winner to report')).toBe(true);
+  });
+});

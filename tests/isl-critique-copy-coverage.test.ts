@@ -188,6 +188,6 @@ describe('ISL critique copy coverage (never render a bare machine code)', () => 
     expect(msg).not.toBe(FALLBACK_TEXT);
     // Bound by IDENTITY to this code's own copy, so deleting a DIFFERENT
     // template cannot make this test red (proved by the M1/M3 mutant pair).
-    expect(msg).toContain('Every option produced almost the same outcome');
+    expect(msg).toContain('In this model, every option produced almost the same outcome');
   });
 });
