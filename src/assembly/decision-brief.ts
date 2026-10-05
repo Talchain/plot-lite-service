@@ -858,7 +858,10 @@ function buildRobustnessCaveat(input: BriefAssemblyInput): BriefRobustnessCaveat
     // claim 1's scope. Per-factor probes are claim 2's scope and may well have
     // run. Two named claims, two named scopes, no overlap (trap 21).
     text = 'Robustness was not assessed for this run. We did not measure its overall stability under changes to your inputs.';
-  } else if (isRobust === true || (isRobust === undefined && level === 'high')) {
+  } else if ((level === 'high' && isRobust !== false) || (level === undefined && isRobust === true)) {
+    // DL 5 Oct: "held up" is said only where the LEVEL is high (or, with no level, the robust flag). `is_robust` alone
+    // used to win here, so a moderate run read "held up"; a moderate or low level now takes its own sentence below,
+    // and a high level that the robust flag contradicts takes the weaker one (final else).
     text = 'This run held up under the changes we tested. That is not a guarantee. Defaulted or uncertain inputs could still change it.';
   } else if (isRobust === false && level === undefined) {
     text = attestedNoFlip

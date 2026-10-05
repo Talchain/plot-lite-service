@@ -4,7 +4,7 @@
  * Generates one-line summaries per option explaining result + confidence.
  */
 
-import { evidenceAdviceMayName, type CoachingInputs, type HeadlineType, type StoryHeadlines, type FragileEdgeContext } from './types.js';
+import { evidenceAdviceMayName, type CoachingInputs, type HeadlineType, type StoryHeadlines, type FragileEdgeContext, type NormalisedRobustness } from './types.js';
 import { NEAR_TIE_THRESHOLD } from '../trust/result-coherence.js';
 import { getThresholds } from './thresholds.js';
 // A1b: intervention-controlled levers are not tunable evidence/VoI gaps.
@@ -13,7 +13,10 @@ import { filterInterventionOverrides } from './sensitivity-filter.js';
 import { isLeverSourcedEdge } from '../lib/intervention-override.js';
 
 const HEADLINE_TEMPLATES = {
-  clear_winner: '{option} outperforms by {deltaPoints} points with high confidence',
+  // DL 5 Oct (guiding principle "appropriately uncertain"): model-relative, no race framing, and the "held" claim only
+  // where the ROBUSTNESS LEVEL is high (selectHeadlineType). `recommendationStability` is the leader's share relabelled
+  // (types.ts), so it can never stand in for "held under the changes we tested".
+  clear_winner: 'On this model, {option} scored highest, {deltaPoints} points above the next option, and that held under the changes we tested',
   moderate_winner: '{option} leads by {deltaPoints} points, though some uncertainty remains',
   close_call: '{option} edges ahead, but the {deltaPoints}-point margin is within uncertainty',
   high_uncertainty:
@@ -118,7 +121,8 @@ export function generateHeadlines(inputs: CoachingInputs): StoryHeadlines {
     topGapVoI,
     topFragileSwitchProb,
     hasFactorSensitivity,
-    thresholds
+    thresholds,
+    robustness.level,
   );
 
   // Generate headline for winner. winProbDelta is finite here (the rank-neutral
@@ -198,7 +202,9 @@ function selectHeadlineType(
   topGapVoI: number,
   topFragileSwitchProb: number,
   hasFactorSensitivity: boolean,
-  thresholds: ReturnType<typeof getThresholds>
+  thresholds: ReturnType<typeof getThresholds>,
+  /** ISL's robustness level: `clear_winner` says the lead held, so it needs a HIGH level, never the share alone. */
+  robustnessLevel: NormalisedRobustness['level'],
 ): HeadlineType {
   // 1. Missing data → needs_evidence
   if (!hasFactorSensitivity || stability === undefined) {
@@ -212,7 +218,8 @@ function selectHeadlineType(
   }
 
   // 3. Clear winner
-  if (winProbDelta >= thresholds.headline_clear_winner_delta && stability >= thresholds.headline_clear_winner_stability) {
+  if (winProbDelta >= thresholds.headline_clear_winner_delta && stability >= thresholds.headline_clear_winner_stability
+    && robustnessLevel === 'high') {
     return 'clear_winner';
   }
 
@@ -313,6 +320,7 @@ export function detectHeadlineType(inputs: CoachingInputs): HeadlineType {
     topGapVoI,
     topFragileSwitchProb,
     hasFactorSensitivity,
-    thresholds
+    thresholds,
+    robustness.level,
   );
 }
