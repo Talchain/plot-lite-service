@@ -1,8 +1,18 @@
 name: CI
 on:
   pull_request:
+  # staging added 5 Oct 2026 (CI OPTIMISER): Render deploys the staging tip, and
+  # CI never ran on it (staging is unprotected, so the push IS the gate). A run on
+  # staging also seeds the npm cache that PRs into staging restore.
   push:
-    branches: [main]
+    branches: [main, staging]
+
+# Superseded PR heads stop holding runners on an account whose 20 concurrent
+# jobs every repo shares. Pushes to main/staging always finish: their run is
+# the record of what was verified at that SHA.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read

@@ -1,9 +1,9 @@
 name: Release Drafter
 on:
+  # pull_request trigger removed 5 Oct 2026 (CI OPTIMISER): a release draft is
+  # cut from main, and on PRs it only spent a runner per PR event.
   push:
     branches: [ main ]
-  pull_request:
-    types: [opened, edited, closed, reopened, labeled, unlabeled, synchronize]
 jobs:
   update_release_draft:
     runs-on: ubuntu-latest
