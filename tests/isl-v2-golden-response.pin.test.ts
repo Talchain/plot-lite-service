@@ -686,6 +686,10 @@ describe('/v2/run golden byte-identity pin (well-formed V2 envelope, build 9a22a
     //  DL 5 Oct wording batch rch_v2:8418305e488265ab (robustness_caveat says what the run RESTS ON — the first
     //  non-lever fragile link, "Technical Quality and Architecture → Increase Team Productivity" — never "fragile";
     //  EXACTLY 2 golden lines moved: that text + this hash).
-    expect(rawBody._meta.response_content_hash).toBe('rch_v2:8418305e488265ab');
+    //  RT-16  rch_v2:4bfa47316c8e2447 (cut 6, Science d5 #87 6008082473: a run share is never a goal chance —
+    //  2026-  RESULT_CHANGE_PHRASE "the most-supported option" replaces "which option is most likely to achieve
+    //  10-06  your goal". UPDATE_GOLDEN diff is EXACTLY 3 lines: display_verdict_reason, the robustness_caveat
+    //         text, and this hash; `response_hash` UNMOVED.)
+    expect(rawBody._meta.response_content_hash).toBe('rch_v2:4bfa47316c8e2447');
   });
 });

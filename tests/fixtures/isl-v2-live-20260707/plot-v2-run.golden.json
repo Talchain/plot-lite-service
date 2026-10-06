@@ -1166,7 +1166,7 @@
       "threshold": 0.1
     },
     "display_verdict": "fragile",
-    "display_verdict_reason": "small changes to your assumptions could change which option is most likely to achieve your goal"
+    "display_verdict_reason": "small changes to your assumptions could change the most-supported option"
   },
   "robustness_synthesis": null,
   "cee_status": "skipped",
@@ -1271,7 +1271,7 @@
       }
     ],
     "robustness_caveat": {
-      "text": "This run rests heavily on how much Technical Quality and Architecture changes Increase Team Productivity. Small changes to your assumptions could change which option is most likely to achieve your goal.",
+      "text": "This run rests heavily on how much Technical Quality and Architecture changes Increase Team Productivity. Small changes to your assumptions could change the most-supported option.",
       "basis": "is_robust",
       "doctrine": "provisional_doctrine_v0"
     },
@@ -1586,7 +1586,7 @@
     "decision_brief_assembled": true,
     "review_cards_count": 0,
     "evidence_priority_card_present": false,
-    "response_content_hash": "rch_v2:8418305e488265ab"
+    "response_content_hash": "rch_v2:4bfa47316c8e2447"
   },
   "meta": {
     "seed_used": "2034401427",
