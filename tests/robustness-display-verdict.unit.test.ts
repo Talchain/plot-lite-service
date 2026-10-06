@@ -13,7 +13,7 @@ import {
   ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP,
   type RobustnessDisplayVerdict,
 } from '../src/routes/v2/robustness-display-verdict.js';
-import { GOAL_FIT_PHRASE } from '../src/constants/result-voice.js';
+import { RESULT_CHANGE_PHRASE } from '../src/constants/result-voice.js';
 
 const derive = (facts: { is_robust?: unknown; level?: unknown } | undefined, computed: boolean) =>
   deriveRobustnessDisplayVerdict(facts, computed).display_verdict;
@@ -97,12 +97,12 @@ describe('display_verdict_reason — claim safety', () => {
     }
   });
 
-  it('fragile reason is the goal-anchored change phrase, built from GOAL_FIT_PHRASE', () => {
+  it('fragile reason is the change phrase, built from RESULT_CHANGE_PHRASE (RT-16: never a goal chance)', () => {
     // Byte pin, but built from the shared constant rather than retyped: the two
     // emitters (this record and the brief's robustness_caveat) must say the same
     // thing, and a hand-typed copy here is the mirror that drifts (trap 12).
     expect(ROBUSTNESS_DISPLAY_VERDICT_REASONS.fragile).toBe(
-      `small changes to your assumptions could change ${GOAL_FIT_PHRASE}`,
+      `small changes to your assumptions could change ${RESULT_CHANGE_PHRASE}`,
     );
   });
 });

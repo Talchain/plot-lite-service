@@ -40,10 +40,14 @@
  */
 
 /**
- * The goal-anchored noun phrase. Interpolate it; never retype it.
+ * ⭐ SUPERSEDED 6 Oct 2026 — A RUN SHARE IS NEVER A GOAL CHANCE (CLAUDE.md headline ruling; red team RT-16 #87
+ * 6008066485; Science d5 #87 6008082473). The 10 Sep re-anchor above ("which option is most likely to achieve your
+ * goal") said a fact about RUN SHARES (which option the most runs supported) in the words of a GOAL CHANCE. The goal
+ * chance is a different quantity, shown on its own surface. What these sentences measure is the most-supported option,
+ * so that is what they now say. Still no contest: no "leads", no "winner".
  *
- * Reads naturally in both tenses the surfaces need:
- *   `changed ${GOAL_FIT_PHRASE}`            (attestation, past)
- *   `could change ${GOAL_FIT_PHRASE}`       (fragility, conditional)
+ * The phrase every robustness sentence interpolates; never retype it. Reads in both tenses the surfaces need:
+ *   `did not change ${RESULT_CHANGE_PHRASE}`  (attestation, past)
+ *   `could change ${RESULT_CHANGE_PHRASE}`    (fragility, conditional)
  */
-export const GOAL_FIT_PHRASE = 'which option is most likely to achieve your goal';
+export const RESULT_CHANGE_PHRASE = 'the most-supported option';

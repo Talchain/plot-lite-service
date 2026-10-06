@@ -42,7 +42,7 @@
 
 import type { DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
 import { classifyFlipThresholdsStatus } from '../../lib/flip-threshold-status.js';
-import { GOAL_FIT_PHRASE } from '../../constants/result-voice.js';
+import { RESULT_CHANGE_PHRASE } from '../../constants/result-voice.js';
 
 /** The four display-safe verdict values. Additive /v2/run wire enum. */
 export type RobustnessDisplayVerdict =
@@ -72,7 +72,7 @@ export type RobustnessDisplayVerdict =
  *     result" the two emitters `constants/result-voice.ts` exists to align were
  *     using different subjects on the same screen.
  *  2. `fragile` NO LONGER SAYS THE ANSWER COULD "FLIP". It says what could
- *     change and relative to what the user asked: {@link GOAL_FIT_PHRASE}. The
+ *     change and relative to what the user asked: {@link RESULT_CHANGE_PHRASE}. The
  *     old phrase asserted the answer could move while anchoring that movement to
  *     nothing at all, which is precisely what the ruling forbids, and it is now
  *     word-for-word the lowercase fragment of the brief's fragile sentence.
@@ -95,7 +95,7 @@ export const ROBUSTNESS_DISPLAY_VERDICT_REASONS: Record<
 > = {
   robust: 'this run held up under the changes we tested',
   moderate: 'this run was only moderately stable under the changes we tested',
-  fragile: `small changes to your assumptions could change ${GOAL_FIT_PHRASE}`,
+  fragile: `small changes to your assumptions could change ${RESULT_CHANGE_PHRASE}`,
   not_assessed: 'robustness was not assessed for this run',
 };
 
@@ -166,9 +166,9 @@ export const ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP: Partial<
   Record<RobustnessDisplayVerdict, string>
 > = {
   fragile:
-    `varying any one of the factors we could test did not change ${GOAL_FIT_PHRASE}, but this run scored low on our other robustness checks`,
+    `varying any one of the factors we could test did not change ${RESULT_CHANGE_PHRASE}, but this run scored low on our other robustness checks`,
   moderate:
-    `varying any one of the factors we could test did not change ${GOAL_FIT_PHRASE}, and this run mostly held up under the other changes we tested`,
+    `varying any one of the factors we could test did not change ${RESULT_CHANGE_PHRASE}, and this run mostly held up under the other changes we tested`,
 };
 
 /**

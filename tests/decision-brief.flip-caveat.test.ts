@@ -35,7 +35,11 @@
 
 import { describe, it, expect } from 'vitest';
 import { assembleBrief, type BriefAssemblyInput } from '../src/assembly/decision-brief.js';
-import { GOAL_FIT_PHRASE } from '../src/constants/result-voice.js';
+import { RESULT_CHANGE_PHRASE } from '../src/constants/result-voice.js';
+import {
+  ROBUSTNESS_DISPLAY_VERDICT_REASONS,
+  ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP,
+} from '../src/routes/v2/robustness-display-verdict.js';
 import { classifyFlipThresholdsStatus } from '../src/lib/flip-threshold-status.js';
 import type { DenormalisedFlipThreshold } from '../src/lib/flip-threshold-denormaliser.js';
 
@@ -111,11 +115,11 @@ function buildInput(
  * nothing: `not.toMatch(/which option leads/)` is trivially true of copy that
  * no longer contains the phrase, so every attestation invariant below would
  * have gone vacuous silently. Building the predicate from the exported
- * `GOAL_FIT_PHRASE` means the guard cannot survive a wording change it did not
+ * `RESULT_CHANGE_PHRASE` means the guard cannot survive a wording change it did not
  * follow.
  */
 const FLIP_CLAIM = new RegExp(
-  `change ${GOAL_FIT_PHRASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|flip`,
+  `change ${RESULT_CHANGE_PHRASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|flip`,
   'i',
 );
 
@@ -186,7 +190,7 @@ describe('robustness_caveat — attested no-flip evidence (2.1247)', () => {
     const caveat = brief?.robustness_caveat;
     expect(caveat!.flip_evidence).toBeDefined();
     expect(caveat!.flip_evidence!.status).toBe('computed');
-    expect(caveat!.flip_evidence!.text).toContain(`change ${GOAL_FIT_PHRASE}`);
+    expect(caveat!.flip_evidence!.text).toContain(`change ${RESULT_CHANGE_PHRASE}`);
     // Aggregate claim: DL 5 Oct wording batch — never "fragile"; with no labelled fragile link it says "sensitive".
     expect(caveat!.text).toContain('sensitive to the changes we tested');
   });
@@ -195,14 +199,14 @@ describe('robustness_caveat — attested no-flip evidence (2.1247)', () => {
     const brief = assembleBrief(buildInput({ level: 'medium' }, [computedFlipRow('f1'), attestedNoFlipRow('f2')]));
     const caveat = brief?.robustness_caveat;
     expect(caveat!.flip_evidence!.status).toBe('partial_no_effect');
-    expect(caveat!.flip_evidence!.text).toContain(`change ${GOAL_FIT_PHRASE}`);
+    expect(caveat!.flip_evidence!.text).toContain(`change ${RESULT_CHANGE_PHRASE}`);
   });
 
   it('unresolved probes attest nothing: no flip_evidence claim, wording unchanged', () => {
     const brief = assembleBrief(buildInput({ is_robust: false, level: 'low' }, [attestedNoFlipRow('f1'), unresolvedRow('f2')]));
     const caveat = brief?.robustness_caveat;
     expect(caveat!.flip_evidence).toBeUndefined();
-    expect(caveat!.text).toContain(`Small changes to your assumptions could change ${GOAL_FIT_PHRASE}`);
+    expect(caveat!.text).toContain(`Small changes to your assumptions could change ${RESULT_CHANGE_PHRASE}`);
   });
 
   it('absent flip evidence: caveat byte-identical to the pre-2.1247 shape (no flip_evidence key)', () => {
@@ -210,7 +214,7 @@ describe('robustness_caveat — attested no-flip evidence (2.1247)', () => {
     const caveat = brief?.robustness_caveat;
     expect(caveat).toEqual({
       // DL 5 Oct wording batch: never "fragile"; with no labelled fragile link it says the run was sensitive.
-      text: `This run was sensitive to the changes we tested. Small changes to your assumptions could change ${GOAL_FIT_PHRASE}.`,
+      text: `This run was sensitive to the changes we tested. Small changes to your assumptions could change ${RESULT_CHANGE_PHRASE}.`,
       basis: 'is_robust',
       doctrine: 'provisional_doctrine_v0',
     });
@@ -295,7 +299,7 @@ describe('robustness_caveat — domain-wide consistency invariants (2.1247)', ()
             expect(caveat!.flip_evidence.text, label).not.toMatch(/\d/);
             // No self-contradiction inside claim 2 either.
             if (caveat!.flip_evidence.status === 'all_no_effect') {
-              expect(caveat!.flip_evidence.text, label).not.toContain(`could change ${GOAL_FIT_PHRASE}`);
+              expect(caveat!.flip_evidence.text, label).not.toContain(`could change ${RESULT_CHANGE_PHRASE}`);
             }
             // ⇄ THE OTHER DIRECTION (the door the one-sided check left open).
             // Claim 2 is present, so factors WERE probed on this run. Claim 1
@@ -344,7 +348,7 @@ describe('DL 5 Oct wording batch: a low-level caveat says what the run RESTS ON,
 
   it('names the first fragile link by its labels', () => {
     const caveat = assembleBrief(withEdges([edge('fac_price', 'Price per seat', 'out_rev', 'Monthly revenue')]))?.robustness_caveat;
-    expect(caveat!.text).toBe(`This run rests heavily on how much Price per seat changes Monthly revenue. Small changes to your assumptions could change ${GOAL_FIT_PHRASE}.`);
+    expect(caveat!.text).toBe(`This run rests heavily on how much Price per seat changes Monthly revenue. Small changes to your assumptions could change ${RESULT_CHANGE_PHRASE}.`);
   });
 
   it('never names an option-pinned lever: it skips to the next labelled link (contrast: the lever is first)', () => {
@@ -359,7 +363,7 @@ describe('DL 5 Oct wording batch: a low-level caveat says what the run RESTS ON,
 
   it('never prints an id: a link missing a label is skipped, and with none left it says "sensitive"', () => {
     const text = assembleBrief(withEdges([edge('fac_x', undefined, 'out_y', 'Revenue')]))!.robustness_caveat!.text;
-    expect(text).toBe(`This run was sensitive to the changes we tested. Small changes to your assumptions could change ${GOAL_FIT_PHRASE}.`);
+    expect(text).toBe(`This run was sensitive to the changes we tested. Small changes to your assumptions could change ${RESULT_CHANGE_PHRASE}.`);
     expect(text).not.toContain('fac_x');
   });
 
@@ -374,5 +378,63 @@ describe('DL 5 Oct wording batch: a low-level caveat says what the run RESTS ON,
     for (const flips of [undefined, [attestedNoFlipRow('f1')]]) {
       expect(assembleBrief(buildInput(rob, flips))!.robustness_caveat!.text).not.toMatch(/fragile/i);
     }
+  });
+});
+
+/**
+ * ⭐ RT-16 (red team #87 6008066485; Science d5 #87 6008082473; CLAUDE.md 6 Oct headline ruling): A RUN SHARE IS NEVER A
+ * GOAL CHANCE. "…could change which option is most likely to achieve your goal" said a fact about which option the most
+ * runs supported in the words of a goal chance. Both emitters of that phrase now say "the most-supported option".
+ *
+ * SCOPED BY IDENTITY to those two emitters (d5): the brief's robustness caveat (both claims) and
+ * `display_verdict_reason` (both maps). Not a sweep of all text: a goal-chance line elsewhere is legitimately a chance.
+ */
+describe('RT-16: the robustness caveat and verdict reason never speak of the goal or a chance', () => {
+  const GOAL_CHANCE = /\b(goal|chance|likely|likelihood|probab\w*)\b/i;
+  const CONTEST = /\b(leads?|leading|leader|winner|ahead|best)\b/i;
+
+  it('the phrase, exactly', () => {
+    expect(RESULT_CHANGE_PHRASE).toBe('the most-supported option');
+    expect(ROBUSTNESS_DISPLAY_VERDICT_REASONS.fragile).toBe('small changes to your assumptions could change the most-supported option');
+  });
+
+  it('every caveat text and flip-evidence claim across the robustness × flip-evidence domain', () => {
+    const texts: string[] = [];
+    const robs: Array<Record<string, unknown>> = [
+      { is_robust: false, level: 'low' }, { is_robust: false }, { level: 'medium' }, { is_robust: true, level: 'high' }, {},
+    ];
+    const flipSets: Array<DenormalisedFlipThreshold[] | undefined> = [
+      undefined, [attestedNoFlipRow('f1')], [computedFlipRow('f1')], [computedFlipRow('f1'), attestedNoFlipRow('f2')],
+      [attestedNoFlipRow('f1'), unresolvedRow('f2')],
+    ];
+    for (const rob of robs) {
+      for (const flips of flipSets) {
+        const caveat = assembleBrief(buildInput(rob, flips))?.robustness_caveat;
+        if (caveat?.text) texts.push(caveat.text);
+        if (caveat?.flip_evidence?.text) texts.push(caveat.flip_evidence.text);
+      }
+    }
+    // Magnitude: the sweep saw the change sentences, not only the robust ones.
+    expect(texts.filter((t) => t.includes(`change ${RESULT_CHANGE_PHRASE}`)).length).toBeGreaterThanOrEqual(3);
+    for (const t of texts) {
+      expect(t, t).not.toMatch(GOAL_CHANCE);
+      expect(t, t).not.toMatch(CONTEST);
+    }
+  });
+
+  it('every display_verdict_reason, both maps', () => {
+    const reasons = [
+      ...Object.values(ROBUSTNESS_DISPLAY_VERDICT_REASONS),
+      ...Object.values(ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP),
+    ].filter((r): r is string => typeof r === 'string');
+    expect(reasons.length).toBe(6);
+    for (const r of reasons) {
+      expect(r, r).not.toMatch(GOAL_CHANCE);
+      expect(r, r).not.toMatch(CONTEST);
+    }
+  });
+
+  it('POSITIVE CONTROL: the served sentence before RT-16 is caught', () => {
+    expect('Small changes to your assumptions could change which option is most likely to achieve your goal.').toMatch(GOAL_CHANCE);
   });
 });
