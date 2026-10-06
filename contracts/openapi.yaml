@@ -6207,9 +6207,8 @@ components:
                   confidence_level:
                     type: number
                     minimum: 0
-                    exclusiveMinimum: true
                     maximum: 1
-                    exclusiveMaximum: true
+                    description: Coverage of the interval, strictly between 0 and 1.
                   n_informative:
                     type: integer
                     minimum: 1
@@ -6346,9 +6345,11 @@ components:
                         spread:
                           type: number
                           minimum: 0
-                          exclusiveMinimum: true
                           maximum: 1
-                          description: Absolute difference between the two groups' goal chances.
+                          description: |
+                            Absolute difference between the two groups' goal
+                            chances. Always above zero: a quantity whose groups
+                            do not differ is not listed.
                         spread_noise_floor:
                           type: number
                           minimum: 0

@@ -18,6 +18,8 @@ import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest
 import type { FastifyInstance } from 'fastify';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { parse } from 'yaml';
+import Ajv from 'ajv';
 import { buildGoalChanceDrivers, buildGoalChancePrecision } from '../src/routes/v2/numeric-egress-guards.js';
 
 const FIXTURE_DIR = resolve(__dirname, 'fixtures/r3b-goal-derived-withhold-20260929');
@@ -148,6 +150,16 @@ function optionByIdentity(body: any, option: { id: string; label: string }): any
   expect(entry.option_label, `identity of ${option.id}`).toBe(option.label);
   return entry;
 }
+/** The `properties` object of the published contract that declares `key`. */
+function publishedPropertiesDeclaring(node: any, key: string): any {
+  if (!node || typeof node !== 'object') return undefined;
+  if (node.properties && key in node.properties) return node.properties;
+  for (const child of Object.values(node)) {
+    const found = publishedPropertiesDeclaring(child, key);
+    if (found) return found;
+  }
+  return undefined;
+}
 const rowFor = (entry: any, quantityId: string, kind: string) => {
   const rows = entry.probability_of_goal_drivers.drivers.filter((r: any) => r.quantity_id === quantityId && r.kind === kind);
   expect(rows, `${kind} row for ${quantityId}`).toHaveLength(1);
@@ -235,6 +247,27 @@ describe('route — goal-chance precision and drivers reach option_comparison (G
     const drivers = retention.probability_of_goal_drivers;
     expect(drivers.drivers.map((r: any) => r.quantity_id)).toEqual(['pro_plan_price']);
     expect(drivers.invalid_rows_dropped).toBe(1);
+  });
+
+  it('the published contract describes both blocks as they are carried', async () => {
+    const spec = parse(readFileSync(resolve(__dirname, '../contracts/openapi.yaml'), 'utf8'));
+    const published = publishedPropertiesDeclaring(spec, 'probability_of_goal_drivers');
+    expect(published, 'openapi.yaml declares probability_of_goal_drivers').toBeDefined();
+    const ajv = new Ajv({ strict: false, validateFormats: false });
+    const validPrecision = ajv.compile(published.probability_of_goal_precision);
+    const validDrivers = ajv.compile(published.probability_of_goal_drivers);
+    islOverride = { options: islOptionsWith(BOTH_OPTIONS) };
+    const body = await run(withUserLink(0.15));
+
+    for (const option of [CONVERSION, RETENTION]) {
+      const entry = optionByIdentity(body, option);
+      expect(validPrecision(entry.probability_of_goal_precision), JSON.stringify(validPrecision.errors)).toBe(true);
+      expect(validDrivers(entry.probability_of_goal_drivers), JSON.stringify(validDrivers.errors)).toBe(true);
+    }
+    // Discriminating controls: the contract refuses what the guard refuses.
+    expect(validPrecision({ ...CONVERSION_BLOCKS.probability_of_goal_precision, basis: 'model_uncertainty' })).toBe(false);
+    expect(validDrivers(driversWith([{ ...CHURN_ROW, kind: 'node_value' }]))).toBe(false);
+    expect(validDrivers(driversWith([{ ...CHURN_ROW, p_goal_if_low: 1.5 }]))).toBe(false);
   });
 
   it('⭐ a WITHHELD figure carries neither block (the user-stated link cut to the model\'s scale)', async () => {
