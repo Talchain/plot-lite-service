@@ -6184,6 +6184,184 @@ components:
                 description: |
                   Probability this option outperforms alternatives across
                   simulated scenarios.
+              probability_of_goal_precision:
+                type: object
+                required: [basis, method, confidence_level, n_informative, n_met, interval_lower, interval_upper]
+                description: |
+                  Simulation precision of `probability_of_goal` (G4). Faithful
+                  passthrough of ISL's block: the informative draws behind the
+                  figure, how many met the goal, and a Wilson interval on that
+                  pair. Monte Carlo precision only: it narrows with more draws
+                  and says nothing about how right the model is.
+
+                  Present ONLY beside `probability_of_goal`. Omitted whole
+                  (never null, never repaired) when any field fails the egress
+                  guard, or when its counts do not reproduce the figure.
+                properties:
+                  basis:
+                    type: string
+                    enum: [simulation_precision]
+                  method:
+                    type: string
+                    enum: [wilson_score]
+                  confidence_level:
+                    type: number
+                    minimum: 0
+                    exclusiveMinimum: true
+                    maximum: 1
+                    exclusiveMaximum: true
+                  n_informative:
+                    type: integer
+                    minimum: 1
+                    description: Draws the figure was counted over (its denominator).
+                  n_met:
+                    type: integer
+                    minimum: 0
+                    description: Informative draws that met the goal.
+                  interval_lower:
+                    type: number
+                    minimum: 0
+                    maximum: 1
+                  interval_upper:
+                    type: number
+                    minimum: 0
+                    maximum: 1
+              probability_of_goal_drivers:
+                type: object
+                required: [method, min_group_n, n_candidates, n_compared, n_dropped, dropped_by_reason, drivers]
+                description: |
+                  What moves `probability_of_goal` for this option (G5), from
+                  the draws the analysis already made. For each sampled
+                  quantity: the goal chance within the low and the high third
+                  of the option's informative draws, or with a link absent and
+                  present. Numbers only: it ranks no option.
+
+                  Present ONLY beside `probability_of_goal`. The block's own
+                  counts and vocabulary are all-or-nothing; a row that fails
+                  the egress guard is dropped and counted in
+                  `invalid_rows_dropped`.
+                properties:
+                  method:
+                    type: string
+                    enum: [tercile_conditional_v1]
+                  min_group_n:
+                    type: integer
+                    minimum: 0
+                    description: Fewest draws a reported group may hold.
+                  n_candidates:
+                    type: integer
+                    minimum: 0
+                  n_compared:
+                    type: integer
+                    minimum: 0
+                    description: |
+                      Quantities evaluated; the family `spread_noise_floor`
+                      adjusts for.
+                  n_dropped:
+                    type: integer
+                    minimum: 0
+                  dropped_by_reason:
+                    type: object
+                    additionalProperties:
+                      type: integer
+                      minimum: 0
+                    description: |
+                      `n_dropped` by reason. `outcome_constant`: every
+                      informative draw agreed, so nothing could be compared.
+                      `zero_spread`: evaluated, and the two groups did not
+                      differ.
+                  invalid_rows_dropped:
+                    type: integer
+                    minimum: 1
+                    description: |
+                      PLoT: rows that failed the egress guard and were dropped.
+                      Absent when none. When present, the first row must not be
+                      read as the largest spread.
+                  drivers:
+                    type: array
+                    description: The largest non-zero spreads, largest first.
+                    items:
+                      type: object
+                      required: [quantity_id, kind, spread, spread_noise_floor, status]
+                      properties:
+                        quantity_id:
+                          type: string
+                          description: Node id, or `from->to` for a link.
+                        kind:
+                          type: string
+                          enum: [factor_value, link_strength, link_existence]
+                        from:
+                          type: string
+                        to:
+                          type: string
+                        p_goal_if_low:
+                          type: number
+                          minimum: 0
+                          maximum: 1
+                        p_goal_if_high:
+                          type: number
+                          minimum: 0
+                          maximum: 1
+                        n_low:
+                          type: integer
+                          minimum: 1
+                        n_high:
+                          type: integer
+                          minimum: 1
+                        low_upper_value:
+                          type: number
+                          description: Model-scale cut, the largest value in the low third.
+                        high_lower_value:
+                          type: number
+                          description: Model-scale cut, the smallest value in the high third.
+                        low_upper_display:
+                          type: number
+                          description: |
+                            PLoT: `low_upper_value` in the user's units. Only
+                            on a `factor_value` row whose factor has an explicit
+                            cap, and only when the cut lies inside the factor's
+                            range. Absent means "no user-unit cut".
+                        high_lower_display:
+                          type: number
+                          description: |
+                            PLoT: `high_lower_value` in the user's units, on
+                            the same terms as `low_upper_display`.
+                        display_unit:
+                          type: string
+                          description: Unit of the `*_display` cuts, when the factor states one.
+                        p_goal_if_absent:
+                          type: number
+                          minimum: 0
+                          maximum: 1
+                        p_goal_if_present:
+                          type: number
+                          minimum: 0
+                          maximum: 1
+                        n_absent:
+                          type: integer
+                          minimum: 1
+                        n_present:
+                          type: integer
+                          minimum: 1
+                        spread:
+                          type: number
+                          minimum: 0
+                          exclusiveMinimum: true
+                          maximum: 1
+                          description: Absolute difference between the two groups' goal chances.
+                        spread_noise_floor:
+                          type: number
+                          minimum: 0
+                          description: |
+                            Largest spread sampling noise alone is expected to
+                            produce, adjusted for `n_compared`.
+                        status:
+                          type: string
+                          enum: [resolved, below_resolution]
+                        correlated:
+                          type: boolean
+                          enum: [true]
+                          description: Present when the factor is drawn jointly with others.
               downside:
                 type: object
                 required: [cvar_10, p05, expected_regret]
