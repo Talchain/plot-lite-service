@@ -966,8 +966,8 @@ components:
               description: >
                 Producer-owned claim-safe phrase matching display_verdict
                 (wording provisional_doctrine_v0, no numbers), e.g. fragile →
-                'small changes to your assumptions could change which option is
-                most likely to achieve your goal'.
+                'small changes to your assumptions could change the
+                most-supported option'.
         option_comparison_status:
           type: string
           enum: [computed, unavailable, skipped, error]

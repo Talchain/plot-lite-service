@@ -47,7 +47,7 @@ import { filterInterventionOverrides, interventionOverrideFactorIds, filterLever
 // — the caveat's flip claim derives its status here, never re-reads
 // flip_reason strings (the hand-maintained-mirror defect class).
 import { classifyFlipThresholdsStatus } from '../lib/flip-threshold-status.js';
-import { GOAL_FIT_PHRASE } from '../constants/result-voice.js';
+import { RESULT_CHANGE_PHRASE } from '../constants/result-voice.js';
 
 // =============================================================================
 // Constants
@@ -776,11 +776,11 @@ const FLIP_EVIDENCE_CLAIMS: Record<
   string
 > = {
   all_no_effect:
-    `Varying any one of the factors we could test did not change ${GOAL_FIT_PHRASE}.`,
+    `Varying any one of the factors we could test did not change ${RESULT_CHANGE_PHRASE}.`,
   computed:
-    `Changing at least one tested factor on its own could change ${GOAL_FIT_PHRASE}.`,
+    `Changing at least one tested factor on its own could change ${RESULT_CHANGE_PHRASE}.`,
   partial_no_effect:
-    `Changing at least one tested factor on its own could change ${GOAL_FIT_PHRASE}. The other factors we could test could not.`,
+    `Changing at least one tested factor on its own could change ${RESULT_CHANGE_PHRASE}. The other factors we could test could not.`,
 };
 
 /**
@@ -811,7 +811,7 @@ const FLIP_EVIDENCE_CLAIMS: Record<
  * ⚠ VOICE (2026-09-10, Paul's ruling). Both claims are stated about THIS RUN
  * and THIS RUN'S DATA, never as a verdict on a contest between the options.
  * Where a sentence has to say the answer could move, it names {@link
- * GOAL_FIT_PHRASE} rather than a leader, and no sentence on this surface uses
+ * RESULT_CHANGE_PHRASE} rather than a leader, and no sentence on this surface uses
  * an em dash.
  */
 /** The first fragile link the brief can name in words: what_would_change's own selection, both labels present. */
@@ -837,7 +837,7 @@ function buildRobustnessCaveat(input: BriefAssemblyInput): BriefRobustnessCaveat
   const attestedNoFlip = flipStatus === 'all_no_effect';
 
   // provisional_doctrine_v0 wording matrix for claim 1. The two branches that
-  // assert "small changes to your assumptions could change ${GOAL_FIT_PHRASE}"
+  // assert "small changes to your assumptions could change ${RESULT_CHANGE_PHRASE}"
   // switch to change-free stability wording when this run's own evidence
   // attests no tested factor can move the answer. The verdict itself ("did
   // not pass" / "fragile") is a marginal claim and NEVER moves on flip
@@ -876,7 +876,7 @@ function buildRobustnessCaveat(input: BriefAssemblyInput): BriefRobustnessCaveat
   } else if (isRobust === false && level === undefined) {
     text = attestedNoFlip
       ? 'This run did not pass our stability checks. It scored low on the measures we tested.'
-      : `This run did not pass our stability checks. Small changes to your assumptions could change ${GOAL_FIT_PHRASE}.`;
+      : `This run did not pass our stability checks. Small changes to your assumptions could change ${RESULT_CHANGE_PHRASE}.`;
   } else if (level === 'medium' || level === 'moderate') {
     text = 'This run was only moderately stable under the changes we tested. Treat it as provisional.';
   } else if (level === 'low' || level === 'very_low') {
@@ -889,13 +889,13 @@ function buildRobustnessCaveat(input: BriefAssemblyInput): BriefRobustnessCaveat
     const restsOn = attestedNoFlip ? null : firstNamedFragileLink(input);
     text = attestedNoFlip
       ? 'This run scored low on stability under the changes we tested.'
-      : `${restsOn !== null ? `This run rests heavily on how much ${restsOn.from} changes ${restsOn.to}.` : 'This run was sensitive to the changes we tested.'} Small changes to your assumptions could change ${GOAL_FIT_PHRASE}.`;
+      : `${restsOn !== null ? `This run rests heavily on how much ${restsOn.from} changes ${restsOn.to}.` : 'This run was sensitive to the changes we tested.'} Small changes to your assumptions could change ${RESULT_CHANGE_PHRASE}.`;
   } else {
     // is_robust === false with a level that is not low/very_low, or an
     // unrecognised level value: state the weaker of the two signals.
     text = attestedNoFlip
       ? 'This run did not pass our stability checks. It scored low on the measures we tested.'
-      : `This run did not pass our stability checks. Small changes to your assumptions could change ${GOAL_FIT_PHRASE}.`;
+      : `This run did not pass our stability checks. Small changes to your assumptions could change ${RESULT_CHANGE_PHRASE}.`;
   }
 
   // Claim 2 — present ONLY when the probes support a claim.

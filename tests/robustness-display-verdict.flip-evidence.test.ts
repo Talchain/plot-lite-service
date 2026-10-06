@@ -34,7 +34,7 @@ import {
   ROBUSTNESS_DISPLAY_VERDICT_REASONS,
   ROBUSTNESS_DISPLAY_VERDICT_REASONS_ATTESTED_NO_FLIP,
 } from '../src/routes/v2/robustness-display-verdict.js';
-import { GOAL_FIT_PHRASE } from '../src/constants/result-voice.js';
+import { RESULT_CHANGE_PHRASE } from '../src/constants/result-voice.js';
 import type { DenormalisedFlipThreshold } from '../src/lib/flip-threshold-denormaliser.js';
 
 // ---------------------------------------------------------------------------
@@ -112,7 +112,7 @@ const BASE_FRAGILE_REASON = ROBUSTNESS_DISPLAY_VERDICT_REASONS.fragile;
  * copy the predicate is simply blind to (trap 13).
  */
 const CHANGE_CLAIM = new RegExp(
-  `could change ${GOAL_FIT_PHRASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|flip`,
+  `could change ${RESULT_CHANGE_PHRASE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}|flip`,
   'i',
 );
 
@@ -151,7 +151,7 @@ describe('ROADMAP 2.278 — flip evidence informs the verdict REASON', () => {
     // phrasing this pin used to assert: ISL probes only eligible root factors
     // with observed values/uncertainty, so the universal claim overclaimed).
     expect(out.display_verdict_reason).toMatch(/factors we could test/i);
-    expect(out.display_verdict_reason).toContain(GOAL_FIT_PHRASE);
+    expect(out.display_verdict_reason).toContain(RESULT_CHANGE_PHRASE);
     // ...and still disclose that the run scored badly on the OTHER checks,
     // so the corrected copy cannot read as an all-clear.
     expect(out.display_verdict_reason).toMatch(/robustness checks/i);
@@ -278,7 +278,7 @@ describe('ROADMAP 2.292 — the no-flip reason claims only what was tested', () 
   it('S3: the scoped copy still says what was measured and does not read as an all-clear', () => {
     const out = deriveRobustnessDisplayVerdict(FRAGILE_FACTS, true, [noFlipRow('f')]);
     // What was measured: the probed factors did not change the leading option.
-    expect(out.display_verdict_reason).toContain(GOAL_FIT_PHRASE);
+    expect(out.display_verdict_reason).toContain(RESULT_CHANGE_PHRASE);
     // Not an all-clear: the fragile variant still discloses the low score on
     // the other robustness checks.
     expect(out.display_verdict_reason).toMatch(/robustness checks/i);

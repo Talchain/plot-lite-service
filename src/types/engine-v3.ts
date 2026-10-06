@@ -3519,7 +3519,7 @@ export interface RobustnessAssessmentV3 {
   /**
    * ADDITIVE (lane PLoT-W5): producer-owned claim-safe phrase matching
    * display_verdict (e.g. fragile → 'small changes to your assumptions could
-   * change which option is most likely to achieve your goal').
+   * change the most-supported option').
    * No numbers, wording provisional_doctrine_v0 — the UI renders it verbatim
    * and must not re-derive meaning.
    */

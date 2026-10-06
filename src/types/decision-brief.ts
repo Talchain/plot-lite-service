@@ -209,14 +209,14 @@ export interface BriefRobustnessCaveat {
    * ROADMAP 2.1247: when the same run's flip evidence ATTESTS that no tested
    * factor can move the answer (`all_no_effect`), this claim keeps its marginal
    * verdict but drops the change language ("small changes ... could change
-   * which option is most likely to achieve your goal") that the payload's own
+   * the most-supported option") that the payload's own
    * evidence refutes — the same correction `display_verdict_reason` received in
    * ROADMAP 2.278.
    *
-   * ⚠ VOICE (2026-09-10): the phrase is `GOAL_FIT_PHRASE`
+   * ⚠ VOICE (2026-09-10, superseded 6 Oct): the phrase is `RESULT_CHANGE_PHRASE`
    * (`src/constants/result-voice.ts`) and is INTERPOLATED, never retyped. It
-   * anchors the claim to the user's goal rather than to a contest between the
-   * options, and it is not a rename of the `band` wire enum.
+   * names the most-supported option: no contest, and never a goal chance (a run
+   * share is not one). It is not a rename of the `band` wire enum.
    */
   text: string;
   /**
