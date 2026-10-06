@@ -1002,6 +1002,13 @@ export interface ISLOptionComparisonResult {
   outcome?: ISLOutcomeStats;
   /** Probability that this option achieves the goal */
   probability_of_goal?: number;
+  /**
+   * G4 / G5 (ISL #224): the figure's simulation precision and its drivers. Declared `unknown`
+   * on purpose: nothing may read them off the wire except `buildGoalChancePrecision` /
+   * `buildGoalChanceDrivers` (routes/v2/numeric-egress-guards.ts), which validate every field.
+   */
+  probability_of_goal_precision?: unknown;
+  probability_of_goal_drivers?: unknown;
   /** Win probability vs other options */
   win_probability?: number;
   /**

@@ -133,7 +133,7 @@ import { getISLClientConfig } from '../../integrations/isl/client.js';
 // getFactorsOverriddenByAllOptions from coaching/flip-thresholds.js) are gone
 // with the probe. Flip values now arrive closed-form on the ISL envelope.
 import { mapIslFactorFlipValues } from '../../integrations/isl/adapters/factor-flip-values.js';
-import { denormaliseFlipThresholds, type DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
+import { denormaliseFlipThresholds, factorCutDenormaliser, type DenormalisedFlipThreshold } from '../../lib/flip-threshold-denormaliser.js';
 // ROADMAP 2.676: the ONE conversion from denormalised rows to decision_review
 // prompt input, so the numbers the prompt quotes and the numbers the response
 // publishes cannot drift apart again.
@@ -240,7 +240,7 @@ import { buildEvidencePriorityCard, toEvidencePriorityFactorInputs, type FactorI
 import type { ProposalCardV1 } from '../../review-pass/types.js';
 import { assembleFactObjects, type ISLResponseInput, type FactorSensitivityInput } from '../../facts/index.js';
 import type { FactObjectV1, FactLineage } from '../../facts/types.js';
-import { finiteNum, prob01, nonNeg, nonNegInt, hasAllRequiredOutcomeStats, buildDownside } from './numeric-egress-guards.js';
+import { finiteNum, prob01, nonNeg, nonNegInt, hasAllRequiredOutcomeStats, buildDownside, buildGoalChancePrecision, buildGoalChanceDrivers } from './numeric-egress-guards.js';
 import { resolveConstraintIds } from './constraint-identity.js';
 import { resolveConfidenceBasis } from '../../integrations/isl/confidence-basis.js';
 import {
@@ -3453,6 +3453,8 @@ function buildResponse(
   // goal figures would rest on a cut version of the user's number: the SAME carrier withholds them.
   const clampedEffectsFound = meta.clampedEffects ?? { withhold: [], disclose: [] };
   const optionFiguresInvalid = goalIdentityWithheld.length > 0 || clampedEffectsFound.withhold.length > 0;
+  // G5: a goal-chance driver's cut on a FACTOR, in that factor's own units (its explicit cap).
+  const factorCutInUserUnits = factorCutDenormaliser(graph);
   const optionComparison = islOptionData?.map((r: any) => {
     const optionId = r.option_id ?? r.id;
     const option = options?.find((o) => o.id === optionId);
@@ -3561,6 +3563,20 @@ function buildResponse(
       goalProbabilityWithheld = true; // said once below, by the reason that applies
     } else if (probGoal !== undefined) {
       result.probability_of_goal = probGoal;
+      // G4 / G5 — the figure's precision and its drivers. ISL emits both beside
+      // `probability_of_goal`, and this builder (an explicit field selection) is where
+      // they would otherwise die. They are carried ONLY here, inside the branch that
+      // publishes the figure: every reason the figure is withheld above withholds them
+      // with it, and neither can ever ride beside an omitted figure. Each block is
+      // validated, never repaired; a block that fails is omitted (key absent).
+      const goalPrecision = buildGoalChancePrecision(r.probability_of_goal_precision, probGoal);
+      if (goalPrecision !== undefined) {
+        result.probability_of_goal_precision = goalPrecision;
+      }
+      const goalDrivers = buildGoalChanceDrivers(r.probability_of_goal_drivers, factorCutInUserUnits);
+      if (goalDrivers !== undefined) {
+        result.probability_of_goal_drivers = goalDrivers;
+      }
     }
 
     // Include win_probability only if ISL returned a value in [0,1] (omit when

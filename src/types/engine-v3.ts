@@ -2292,6 +2292,75 @@ export interface OutcomeStatsV3 {
  * `buildDownside` in routes/v2/numeric-egress-guards.ts. Every value is in the
  * SAME units as `OutcomeStatsV3.mean` — no normalisation.
  */
+/** Simulation precision of an option's `probability_of_goal` (ISL `GoalChancePrecision`). */
+export interface GoalChancePrecisionV3 {
+  basis: 'simulation_precision';
+  method: 'wilson_score';
+  confidence_level: number;
+  /** Draws the figure was counted over (its denominator). */
+  n_informative: number;
+  /** Informative draws that met the goal. */
+  n_met: number;
+  interval_lower: number;
+  interval_upper: number;
+}
+
+/**
+ * The goal chance within two groups of an option's informative draws (ISL `GoalChanceDriver`).
+ * A continuous quantity reports its low and high third; `link_existence` reports the draws
+ * where the link was absent and present. The other shape's fields are absent.
+ */
+export interface GoalChanceDriverV3 {
+  /** Node id, or `from->to` for a link. */
+  quantity_id: string;
+  kind: 'factor_value' | 'link_strength' | 'link_existence';
+  from?: string;
+  to?: string;
+  p_goal_if_low?: number;
+  p_goal_if_high?: number;
+  n_low?: number;
+  n_high?: number;
+  /** Model-scale cut: the largest value in the low third. */
+  low_upper_value?: number;
+  /** Model-scale cut: the smallest value in the high third. */
+  high_lower_value?: number;
+  /** PLoT: `low_upper_value` in the user's units. Absent means no user-unit cut. */
+  low_upper_display?: number;
+  /** PLoT: `high_lower_value` in the user's units. Absent means no user-unit cut. */
+  high_lower_display?: number;
+  /** PLoT: unit of the `*_display` cuts, when the factor states one. */
+  display_unit?: string;
+  p_goal_if_absent?: number;
+  p_goal_if_present?: number;
+  n_absent?: number;
+  n_present?: number;
+  /** Absolute difference between the two groups' goal chances; always above zero. */
+  spread: number;
+  /** Largest spread sampling noise alone is expected to produce, family-adjusted. */
+  spread_noise_floor: number;
+  status: 'resolved' | 'below_resolution';
+  /** Present (true) when the factor is drawn jointly with others. */
+  correlated?: true;
+}
+
+/** What moves an option's `probability_of_goal` (ISL `GoalChanceDrivers`). */
+export interface GoalChanceDriversV3 {
+  method: 'tercile_conditional_v1';
+  min_group_n: number;
+  n_candidates: number;
+  /** Quantities evaluated; the family the noise floor adjusts for. */
+  n_compared: number;
+  n_dropped: number;
+  dropped_by_reason: Record<string, number>;
+  /** The largest non-zero spreads, largest first. */
+  drivers: GoalChanceDriverV3[];
+  /**
+   * PLoT: rows that failed the egress guard and were dropped. Absent when none. When present
+   * the first row must not be read as the largest spread.
+   */
+  invalid_rows_dropped?: number;
+}
+
 export interface DownsideStatsV3 {
   /**
    * Expected shortfall: the MEAN of the worst 10% (lowest) outcome samples.
@@ -2362,6 +2431,19 @@ export interface OptionComparisonResultV3 {
    * Only present when goal_threshold provided in request.
    */
   probability_of_goal?: number;
+  /**
+   * Simulation precision of `probability_of_goal` (G4): the informative draws behind it and
+   * a Wilson interval. Monte Carlo precision only, not the model's uncertainty. Faithful
+   * passthrough of ISL's block. ABSENT whenever `probability_of_goal` is, and when the block
+   * fails the egress guard or does not reproduce the figure.
+   */
+  probability_of_goal_precision?: GoalChancePrecisionV3;
+  /**
+   * What moves `probability_of_goal` for this option (G5): the goal chance within the low and
+   * high third of each sampled quantity, or with a link absent and present. Numbers only; it
+   * ranks no option. ABSENT whenever `probability_of_goal` is.
+   */
+  probability_of_goal_drivers?: GoalChanceDriversV3;
   /**
    * Probability this option outperforms alternatives across simulated scenarios [0, 1].
    */

@@ -576,3 +576,33 @@ function resolveLabel(
   const option = options.find((o) => o.id === optionId);
   return option?.label ?? optionId; // Fallback to ID if label missing
 }
+
+/**
+ * A factor's model-scale value in the user's units (goal-chance driver cuts, G5).
+ *
+ * The SAME rule a flip row follows above: only the node's own `explicit_cap` range earns a
+ * user-unit number (see {@link explicitCapRange}), and the float tail is cleaned the same way
+ * (see {@link cleanDenormalised}). Returns `undefined`, so the caller omits the key, when:
+ *  - the node is unknown or has no explicit cap;
+ *  - the value cannot be written cleanly; or
+ *  - the value falls OUTSIDE the factor's range. A cut read off sampled draws can sit below
+ *    zero or above the cap, and "if churn is below -1.4%" is not a statement about the user's
+ *    factor.
+ */
+export function factorCutDenormaliser(
+  graph: EngineGraphV3 | undefined,
+): (factorId: string, modelValue: number) => { value: number; unit?: string } | undefined {
+  const nodesById = indexNodes(graph);
+  return (factorId, modelValue) => {
+    const node = nodesById?.get(factorId);
+    const range = explicitCapRange(node);
+    if (!range) return undefined;
+    const denormalised = denormaliseValue(modelValue, range);
+    if (!isFiniteNumber(denormalised)) return undefined;
+    if (denormalised < range.min || denormalised > range.max) return undefined;
+    const cleaned = cleanDenormalised(denormalised, range);
+    if (cleaned === undefined) return undefined;
+    const unit = typeof node?.observed_state?.unit === 'string' ? node.observed_state.unit.trim() : '';
+    return unit.length > 0 ? { value: cleaned, unit } : { value: cleaned };
+  };
+}
