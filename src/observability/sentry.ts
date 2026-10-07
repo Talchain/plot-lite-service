@@ -36,6 +36,11 @@ import { getReleaseSha } from '../util/build-id.js';
 
 export const SENTRY_SERVICE_TAG = 'plot';
 
+/** Request headers kept on an event (lower case); every other header is dropped. */
+const ALLOWED_HEADERS: ReadonlySet<string> = new Set([
+  'accept', 'accept-encoding', 'content-length', 'content-type', 'host', 'referer', 'user-agent', 'x-request-id',
+]);
+
 /** Header-name fragments that mark a credential or session header. */
 const SENSITIVE_HEADER_SNIPPETS = ['auth', 'key', 'token', 'secret', 'cookie', 'session', 'signature', 'password'];
 
@@ -57,13 +62,19 @@ const REDACTED = '[Redacted]';
  */
 const ALLOWED_EXTRA_KEYS: ReadonlySet<string> = new Set<string>();
 
-/** Contexts the SDK fills with runtime facts; any context set by code is dropped. */
-const ALLOWED_CONTEXTS: ReadonlySet<string> = new Set([
-  'runtime', 'os', 'device', 'app', 'culture', 'cloud_resource', 'trace', 'response', 'otel',
-]);
-
-/** Fields kept inside an allowed context whose shape is not SDK-fixed. */
+/**
+ * Contexts are an ALLOWLIST of SDK runtime contexts, each with its own FIELD
+ * allowlist: a context or field set by code (or a future SDK field) is
+ * dropped. `trace.data` goes through the span-data rules.
+ */
 const CONTEXT_FIELD_ALLOWLIST: Readonly<Record<string, ReadonlySet<string>>> = {
+  runtime: new Set(['name', 'version']),
+  os: new Set(['name', 'version', 'kernel_version', 'build']),
+  device: new Set(['arch', 'memory_size', 'free_memory', 'processor_count', 'cpu_description', 'processor_frequency', 'boot_time']),
+  app: new Set(['app_start_time', 'app_memory']),
+  culture: new Set(['locale', 'timezone']),
+  cloud_resource: new Set(['cloud.provider', 'cloud.platform', 'cloud.region']),
+  trace: new Set(['trace_id', 'span_id', 'parent_span_id', 'op', 'status', 'origin', 'data']),
   response: new Set(['status_code']),
 };
 
@@ -209,9 +220,12 @@ export function scrubSentryEvent<E extends SentryEvent>(input: E): E {
     if (typeof event.request.url === 'string') event.request.url = digestTokens(stripQuery(event.request.url) as string);
     const headers = event.request.headers;
     if (headers) {
+      // An ALLOWLIST: any header can carry caller-chosen text.
       for (const name of Object.keys(headers)) {
-        if (isSensitiveHeader(name)) delete headers[name];
-        else if (name.toLowerCase() === 'referer') headers[name] = stripQuery(headers[name]) as string;
+        const lower = name.toLowerCase();
+        if (isSensitiveHeader(name) || !ALLOWED_HEADERS.has(lower)) delete headers[name];
+        else if (lower === 'referer') headers[name] = digestTokens(stripQuery(headers[name]) as string);
+        else if (lower === 'x-request-id') headers[name] = safeRequestId(headers[name]);
       }
     }
   }
@@ -232,12 +246,12 @@ export function scrubSentryEvent<E extends SentryEvent>(input: E): E {
 
   if (event.contexts) {
     for (const key of Object.keys(event.contexts)) {
-      if (!ALLOWED_CONTEXTS.has(key) || isSensitiveKey(key)) delete event.contexts[key];
-      else if (event.contexts[key] && typeof event.contexts[key] === 'object') {
-        let ctx = event.contexts[key] as Record<string, unknown>;
-        const fields = CONTEXT_FIELD_ALLOWLIST[key];
-        if (fields) ctx = Object.fromEntries(Object.entries(ctx).filter(([f]) => fields.has(f)));
-        event.contexts[key] = digestTree(redactTree(ctx)) as Record<string, unknown>;
+      const fields = CONTEXT_FIELD_ALLOWLIST[key];
+      const ctx = event.contexts[key];
+      if (!fields || !ctx || typeof ctx !== 'object') delete event.contexts[key];
+      else {
+        const kept = Object.fromEntries(Object.entries(ctx as Record<string, unknown>).filter(([f]) => fields.has(f)));
+        event.contexts[key] = digestTree(redactTree(kept)) as Record<string, unknown>;
       }
     }
   }
@@ -306,9 +320,17 @@ export function buildSentryOptions(env: NodeJS.ProcessEnv): Sentry.NodeOptions {
       // also capture every thrown route error from the diagnostics channel —
       // including ones PLoT's handler maps to a typed 4xx / 501 / 504.
       Sentry.fastifyIntegration({ shouldHandleError: () => false }),
+      // Report, then exit 1 — as Node does with no listener. The SDK's default
+      // ('warn') would keep a process alive after a rejected start().
+      Sentry.onUnhandledRejectionIntegration({ mode: 'strict' }),
     ],
     beforeSend: (event) => scrubSentryEvent(event),
-    beforeSendTransaction: (event) => scrubSentryEvent(event),
+    // PLoT reports ERRORS only. A transaction is dropped even if someone sets
+    // SENTRY_TRACES_SAMPLE_RATE: span names and attributes are an open text
+    // channel that needs a typed allowlist before tracing can be switched on
+    // (follow-up). The span rules in scrubSentryEvent still apply to any span
+    // data attached to an error.
+    beforeSendTransaction: () => null,
     beforeBreadcrumb: (crumb) => scrubBreadcrumb(crumb),
   };
 }
@@ -341,13 +363,24 @@ export function captureServerError(
   safe.name = original.name;
   if (typeof original.stack === 'string') safe.stack = digestTokens(original.stack);
   Sentry.withScope((scope) => {
-    scope.setTag('route', ctx.route);
-    scope.setTag('request_id', ctx.requestId);
+    scope.setTag('route', digestTokens(ctx.route));
+    scope.setTag('request_id', safeRequestId(ctx.requestId));
     Sentry.captureException(safe);
   });
 }
 
 const CAPTURED = Symbol.for('plot.sentry.captured');
+const ERROR_CODE = Symbol.for('plot.sentry.errorCode');
+
+/**
+ * The request id is caller-controlled (x-request-id). Only an id-shaped value
+ * that is not one of this request's decision tokens is sent as a tag.
+ */
+function safeRequestId(id: unknown): string {
+  const v = String(id ?? '');
+  if (!/^[A-Za-z0-9._:-]{1,64}$/.test(v)) return 'invalid';
+  return digestTokens(v) === v ? v : 'redacted';
+}
 
 /** Enum-shaped error code from an error response body, or undefined. */
 function errorCodeOf(payload: unknown): string | undefined {
@@ -369,21 +402,35 @@ function errorCodeOf(payload: unknown): string | undefined {
 type ReportableRequest = { id: unknown; routeOptions?: { url?: string } };
 
 /**
+ * onSend arm: remember the enum-shaped error code of a 5xx body, so the
+ * onResponse arm can name it. Never reports by itself — the status here can
+ * still change (a later hook, a stream error).
+ */
+export function noteServerErrorPayload(req: ReportableRequest, statusCode: number, payload: unknown): void {
+  if (!initialised || statusCode < 500) return;
+  const code = errorCodeOf(payload);
+  if (code) (req as Record<PropertyKey, unknown>)[ERROR_CODE] = code;
+}
+
+/**
  * Every 5xx PLoT sends reaches Sentry exactly once — including the 28 route
  * sites that catch a failure and reply 5xx themselves, which never reach the
- * global error handler. Registered as an onSend hook in createServer. Skips a
+ * global error handler. Registered as an onResponse hook in createServer, so
+ * the status is the FINAL one on the wire (`reply.raw.statusCode`). Skips a
  * request whose error captureServerError already reported. Carries only the
  * route PATTERN, the status, the request id and an enum-shaped error code.
  */
-export function reportServerErrorResponse(req: ReportableRequest, statusCode: number, payload: unknown): void {
+export function reportServerErrorResponse(req: ReportableRequest, statusCode: number): void {
   if (!initialised || statusCode < 500) return;
-  if ((req as Record<PropertyKey, unknown>)[CAPTURED]) return;
+  const r = req as Record<PropertyKey, unknown>;
+  if (r[CAPTURED]) return;
+  r[CAPTURED] = true;
   const route = req.routeOptions?.url ?? 'unmatched';
-  const code = errorCodeOf(payload);
+  const code = typeof r[ERROR_CODE] === 'string' ? (r[ERROR_CODE] as string) : undefined;
   Sentry.withScope((scope) => {
     scope.setTag('route', route);
     scope.setTag('status_code', String(statusCode));
-    scope.setTag('request_id', String(req.id));
+    scope.setTag('request_id', safeRequestId(req.id));
     if (code) scope.setTag('error_code', code);
     scope.setFingerprint(['plot-5xx-response', route, String(statusCode), code ?? 'none']);
     Sentry.captureMessage(`PLoT ${route} responded ${statusCode}${code ? ` (${code})` : ''}`, 'error');

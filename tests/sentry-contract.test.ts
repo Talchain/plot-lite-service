@@ -81,10 +81,32 @@ describe('PLoT Sentry contract (S-H): through the real SDK and server', () => {
         extra: { [label]: 'anything' },
         // a field value NOT from the body (so not a registered token): only
         // the field allowlist can stop it
-        contexts: { response: { status_code: 500, candidate: 'CTX_FIELD_MARKER_9d2' } },
+        contexts: {
+          response: { status_code: 500, candidate: 'CTX_FIELD_MARKER_9d2' },
+          otel: { candidate: 'CTX_OTEL_MARKER_4e1' },
+        },
       });
       return { ok: true };
     });
+    // a route whose own onSend turns a 200 into a 503 after the handler
+    app.post('/__s-h/late503', {
+      onSend: async (_req, reply, payload) => {
+        reply.code(503);
+        return payload;
+      },
+    }, async () => ({ ok: true }));
+    // a hijacked raw 503 (the SSE rejection shape)
+    app.post('/__s-h/hijack', async (_req, reply) => {
+      reply.hijack();
+      reply.raw.writeHead(503, { 'content-type': 'text/plain' });
+      reply.raw.end('unavailable');
+    });
+    // a 503 that a later hook turns into a 500 (provisional status)
+    app.post('/__s-h/provisional', {
+      onSend: async () => {
+        throw new Error('late hook failure');
+      },
+    }, async (_req, reply) => reply.code(503).send({ code: 'UPSTREAM_UNAVAILABLE' }));
     // what the SDK holds as the request body BEFORE any hook runs
     Sentry.addEventProcessor((event) => {
       bodySeen.push(event.request?.data !== undefined);
@@ -106,10 +128,10 @@ describe('PLoT Sentry contract (S-H): through the real SDK and server', () => {
     bodySeen.length = 0;
   });
 
-  async function hit(path: string, status: number): Promise<string> {
+  async function hit(path: string, status: number, headers: Record<string, string> = {}): Promise<string> {
     const res = await fetch(`http://127.0.0.1:${port}${path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...headers },
       body: JSON.stringify({ nodes: [{ id: 'n1', label: SENTINEL }] }),
     });
     expect(res.status).toBe(status);
@@ -178,6 +200,24 @@ describe('PLoT Sentry contract (S-H): through the real SDK and server', () => {
     expect(wire).not.toContain(SENTINEL);
   });
 
+  it.each([
+    ['/__s-h/late503', 503, 'responded 503'],
+    ['/__s-h/hijack', 503, 'responded 503'],
+    ['/__s-h/provisional', 500, 'late hook failure'],
+  ])('%s: the FINAL status is reported, exactly once', async (path, status, marker) => {
+    const wire = await hit(path, status);
+    const events = sent.filter((e) => e.includes('"type":"event"'));
+    expect(events.length).toBe(1);
+    expect(wire).toContain(marker);
+    expect(wire).not.toContain('responded 503 (UPSTREAM_UNAVAILABLE)');
+  });
+
+  it('a caller-chosen request id that is decision content is not sent as a tag', async () => {
+    const wire = await hit('/__s-h/caught', 500, { 'x-request-id': SENTINEL });
+    expect(wire).toContain('"request_id":"redacted"');
+    expect(wire).not.toContain(SENTINEL);
+  });
+
   it('extra keys and context fields set in the request carry no content', async () => {
     const wire = await hit('/__s-h/ctx', 200);
     expect(wire).toContain('context probe');
@@ -185,6 +225,7 @@ describe('PLoT Sentry contract (S-H): through the real SDK and server', () => {
     expect(wire).toContain('"status_code":500');
     expect(wire).not.toContain(SENTINEL);
     expect(wire).not.toContain('CTX_FIELD_MARKER_9d2');
+    expect(wire).not.toContain('CTX_OTEL_MARKER_4e1');
   });
 
   it('the event carries service=plot, the environment override and the full SHA', async () => {
@@ -223,7 +264,12 @@ describe('PLoT Sentry contract (S-H): options and filter', () => {
           data: { nodes: [{ label: SENTINEL }] },
           cookies: { s: SENTINEL },
           query_string: `q=${SENTINEL}`,
-          headers: { authorization: SENTINEL, 'x-olumi-assist-key': SENTINEL, 'x-request-id': 'CONTROL_RID' },
+          headers: {
+            authorization: SENTINEL,
+            'x-olumi-assist-key': SENTINEL,
+            'x-decision-title': SENTINEL,
+            'x-request-id': 'CONTROL_RID',
+          },
         },
         extra: { factor_label: SENTINEL, candidate: SENTINEL, error_code: 'any value' },
         contexts: { run: { result: SENTINEL }, runtime: { name: 'CONTROL_RUNTIME' } },
@@ -262,6 +308,25 @@ describe('PLoT Sentry contract (S-H): options and filter', () => {
     expect(out).toContain('POST /v2/run');
     expect(out).toContain('"description":"POST http://isl/v2/robustness"');
   });
+
+  it('transactions are never sent (errors-only service)', () => {
+    const opts = buildSentryOptions({ SENTRY_DSN: 'x', SENTRY_TRACES_SAMPLE_RATE: '1' });
+    expect(opts.beforeSendTransaction!({ type: 'transaction' } as never, {})).toBeNull();
+  });
+
+  it.each([
+    ['sdk-default', true],
+    ['contract', false],
+  ])('unhandled rejection with %s: process survives = %s (contract keeps Node fatal default)', async (mode, survives) => {
+    const { spawnSync } = await import('node:child_process');
+    const r = spawnSync(process.execPath, ['--import', 'tsx', 'tests/_helpers/sentry-unhandled-rejection.child.ts'], {
+      env: { ...process.env, CHILD_MODE: mode },
+      encoding: 'utf8',
+      timeout: 20_000,
+    });
+    expect(r.stdout.includes('ALIVE')).toBe(survives);
+    if (!survives) expect(r.status).toBe(1);
+  }, 30_000);
 
   it('an underivable SHA is reported as unidentified, never inferred', () => {
     const opts = buildSentryOptions({ SENTRY_DSN: 'x', SENTRY_RELEASE: '9.9.9', BUILD_ID: 'abc1234' });
