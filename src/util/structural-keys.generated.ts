@@ -171,6 +171,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "estimate",
   "evaluated",
   "evalue_coef",
+  "event_risk",
   "evidence",
   "evidence_hint",
   "evidence_priority_card_present",
