@@ -1,0 +1,429 @@
+{
+ "envelope": {
+  "analysis_status": "computed",
+  "auto_noise_applied": false,
+  "build": "dev",
+  "critiques": [],
+  "decision_evpi": 0.0,
+  "endpoint_version": "analyze/v2",
+  "engine_version": "1.0.0",
+  "event_risks_applied": [
+   {
+    "node_id": "supplier_fails",
+    "occurrence_used": 0.1,
+    "p_high": 0.15,
+    "p_low": 0.05,
+    "range_width_propagated": false
+   }
+  ],
+  "factor_sensitivity_status": "skipped",
+  "inference_warnings": [
+   {
+    "code": "GOAL_DIRECTION_UNATTESTED",
+    "detail": {
+     "assumed_sense": "maximise",
+     "goal_node_id": "gross_profit",
+     "message": "No objective sense was stated for the goal node, so options were ranked by largest goal value. That is an assumption, not the team's stated aim: if the goal is a quantity to reduce, or the aim is to land near a target rather than as high as possible, this ranking answers a different question. Send goal_direction to rank against the stated objective.",
+     "reason": "goal_direction_absent"
+    },
+    "field": "goal_direction",
+    "severity": "warning"
+   },
+   {
+    "code": "FACTOR_EVPPI_NOT_COMPUTED",
+    "detail": {
+     "message": "Value-of-information was not requested for this analysis, so no ranking of which unknown is worth resolving next was computed.",
+     "reason": "voi_not_requested"
+    },
+    "field": "factor_evppi",
+    "severity": "info"
+   }
+  ],
+  "node_levels": [
+   {
+    "frame": "anchored_level",
+    "level": 0.8,
+    "level_anchor_source": "user_stated",
+    "level_domain_min": 0.0,
+    "level_out_of_domain_share": {
+     "dual_source": 0.0,
+     "status_quo": 0.0
+    },
+    "node_id": "gross_profit",
+    "observed_source": "user"
+   },
+   {
+    "frame": "no_level",
+    "no_level_reason": "no_observed_level",
+    "node_id": "supplier_fails"
+   }
+  ],
+  "objective_ranking": {
+   "attested": false,
+   "direction": "maximise",
+   "status": "computed"
+  },
+  "options": [
+   {
+    "downside": {
+     "cvar_10": 0.3992080775022244,
+     "expected_regret": 0.0,
+     "p05": 0.3991161542142231
+    },
+    "id": "status_quo",
+    "label": "Status quo",
+    "outcome": {
+     "mean": 0.7543576950503308,
+     "n_samples": 500,
+     "n_valid_samples": 500,
+     "p10": 0.40202635722213326,
+     "p50": 0.8,
+     "p90": 0.8,
+     "percentiles_source": "samples",
+     "std": 0.12724398520616564,
+     "validity_ratio": 1.0
+    },
+    "probability_of_goal": 0.886,
+    "probability_of_goal_drivers": {
+     "drivers": [
+      {
+       "from": "dual_source_cost",
+       "high_lower_value": -0.04922903213221457,
+       "kind": "link_strength",
+       "low_upper_value": -0.05095550655206786,
+       "n_high": 166,
+       "n_low": 166,
+       "p_goal_if_high": 0.8674698795180723,
+       "p_goal_if_low": 0.9156626506024096,
+       "quantity_id": "dual_source_cost->gross_profit",
+       "spread": 0.04819277108433728,
+       "spread_noise_floor": 0.12301295586721521,
+       "status": "below_resolution",
+       "to": "gross_profit"
+      }
+     ],
+     "dropped_by_reason": {
+      "group_below_min_n": 0,
+      "no_variance": 0,
+      "non_finite_values": 0,
+      "outcome_constant": 0,
+      "set_by_option": 0,
+      "set_by_option_upstream": 0,
+      "tied_at_tercile_boundary": 0,
+      "zero_spread": 1
+     },
+     "method": "tercile_conditional_v1",
+     "min_group_n": 30,
+     "n_candidates": 2,
+     "n_compared": 2,
+     "n_dropped": 1
+    },
+    "probability_of_goal_precision": {
+     "basis": "simulation_precision",
+     "confidence_level": 0.95,
+     "interval_lower": 0.8551509101576846,
+     "interval_upper": 0.9109630990059971,
+     "method": "wilson_score",
+     "n_informative": 500,
+     "n_met": 443
+    },
+    "status": "computed",
+    "win_probability": 0.918
+   },
+   {
+    "downside": {
+     "cvar_10": 0.6195769245552463,
+     "expected_regret": 0.022542367785946874,
+     "p05": 0.7456935768550597
+    },
+    "id": "dual_source",
+    "label": "Dual-source",
+    "outcome": {
+     "mean": 0.7371069369236504,
+     "n_samples": 500,
+     "n_valid_samples": 500,
+     "p10": 0.7469693341691424,
+     "p50": 0.7498134344922773,
+     "p90": 0.7524692243790785,
+     "percentiles_source": "samples",
+     "std": 0.07026778390030655,
+     "validity_ratio": 1.0
+    },
+    "probability_of_goal": 0.968,
+    "probability_of_goal_drivers": {
+     "drivers": [
+      {
+       "from": "dual_source_cost",
+       "high_lower_value": -0.04922903213221457,
+       "kind": "link_strength",
+       "low_upper_value": -0.05095550655206786,
+       "n_high": 166,
+       "n_low": 166,
+       "p_goal_if_high": 0.9457831325301205,
+       "p_goal_if_low": 0.9819277108433735,
+       "quantity_id": "dual_source_cost->gross_profit",
+       "spread": 0.03614457831325302,
+       "spread_noise_floor": 0.12301295586721521,
+       "status": "below_resolution",
+       "to": "gross_profit"
+      },
+      {
+       "from": "supplier_fails",
+       "high_lower_value": -0.39955848032410746,
+       "kind": "link_strength",
+       "low_upper_value": -0.4011560005069863,
+       "n_high": 166,
+       "n_low": 166,
+       "p_goal_if_high": 0.9578313253012049,
+       "p_goal_if_low": 0.9759036144578314,
+       "quantity_id": "supplier_fails->gross_profit",
+       "spread": 0.01807228915662651,
+       "spread_noise_floor": 0.12301295586721521,
+       "status": "below_resolution",
+       "to": "gross_profit"
+      }
+     ],
+     "dropped_by_reason": {
+      "group_below_min_n": 0,
+      "no_variance": 0,
+      "non_finite_values": 0,
+      "outcome_constant": 0,
+      "set_by_option": 0,
+      "set_by_option_upstream": 0,
+      "tied_at_tercile_boundary": 0,
+      "zero_spread": 0
+     },
+     "method": "tercile_conditional_v1",
+     "min_group_n": 30,
+     "n_candidates": 2,
+     "n_compared": 2,
+     "n_dropped": 0
+    },
+    "probability_of_goal_precision": {
+     "basis": "simulation_precision",
+     "confidence_level": 0.95,
+     "interval_lower": 0.9486551309545582,
+     "interval_upper": 0.9802084863734289,
+     "method": "wilson_score",
+     "n_informative": 500,
+     "n_met": 484
+    },
+    "status": "computed",
+    "win_probability": 0.082
+   }
+  ],
+  "processing_time_ms": 4219,
+  "request_echo": {
+   "goal_node_id_hash": "52a1b406f50d",
+   "graph_edge_count": 3,
+   "graph_node_count": 4,
+   "include_diagnostics": false,
+   "n_samples": 500,
+   "options_count": 2,
+   "response_version_requested": 2
+  },
+  "request_id": "event-risk-v1-fixture",
+  "robustness": {
+   "confidence": 0.918,
+   "confidence_basis": "recommendation_stability_uncalibrated",
+   "edge_sensitivity": [
+    {
+     "direction": "negative",
+     "edge_id": "supplier_fails->gross_profit",
+     "elasticity": -0.8762906100866503,
+     "from_id": "supplier_fails",
+     "importance_rank": 1,
+     "interpretation": "Decision is highly sensitive to supplier_fails->gross_profit existence - consider validating this relationship",
+     "sensitivity_score": 1.0,
+     "sensitivity_type": "existence",
+     "to_id": "gross_profit"
+    },
+    {
+     "direction": "positive",
+     "edge_id": "supplier_fails->gross_profit",
+     "elasticity": 0.004666754106271254,
+     "from_id": "supplier_fails",
+     "importance_rank": 2,
+     "interpretation": "Decision is robust to effect size variation in supplier_fails->gross_profit",
+     "sensitivity_score": 0.005325578127340417,
+     "sensitivity_type": "magnitude",
+     "to_id": "gross_profit"
+    },
+    {
+     "direction": "negative",
+     "edge_id": "dual_source_cost->gross_profit",
+     "elasticity": -0.0005844009193102618,
+     "from_id": "dual_source_cost",
+     "importance_rank": 3,
+     "interpretation": "Decision is robust to whether dual_source_cost->gross_profit exists",
+     "sensitivity_score": 0.000666903094228608,
+     "sensitivity_type": "existence",
+     "to_id": "gross_profit"
+    },
+    {
+     "direction": "negative",
+     "edge_id": "dual_source_cost->gross_profit",
+     "elasticity": -0.00022512744602340415,
+     "from_id": "dual_source_cost",
+     "importance_rank": 4,
+     "interpretation": "Decision is robust to effect size variation in dual_source_cost->gross_profit",
+     "sensitivity_score": 0.000256909572500318,
+     "sensitivity_type": "magnitude",
+     "to_id": "gross_profit"
+    }
+   ],
+   "fragile_edges": [
+    {
+     "alternative_winner_id": "dual_source",
+     "edge_id": "supplier_fails->gross_profit",
+     "from_id": "supplier_fails",
+     "marginal_switch_probability": 0.0,
+     "switch_probability": 0.112,
+     "to_id": "gross_profit"
+    }
+   ],
+   "fragile_edges_v1": [
+    "supplier_fails->gross_profit"
+   ],
+   "is_robust": true,
+   "level": "high",
+   "recommendation_stability": 0.918,
+   "robust_edges": [
+    "dual_source_cost->gross_profit"
+   ]
+  },
+  "robustness_status": "computed",
+  "sample_population_provenance": {
+   "auto_scaled_noise_applied": false,
+   "calibration_status": "uncalibrated_poc_heuristic",
+   "metric_populations": {
+    "cvar_10": "model_only",
+    "decision_evpi": "model_only",
+    "expected_regret": "model_only",
+    "factor_evpc": "model_only",
+    "factor_evppi": "model_only",
+    "mean": "model_only",
+    "p05": "model_only",
+    "p10": "model_only",
+    "p50": "model_only",
+    "p90": "model_only",
+    "probability_of_goal": "model_only",
+    "win_probability": "model_only"
+   },
+   "unnoised_constraint_node_ids": []
+  },
+  "seed_source": "client_provided",
+  "seed_used": "7",
+  "sensitivity_reference_option_id": "status_quo",
+  "timestamp": "2026-10-07T18:41:38.021301Z",
+  "version": "2.0"
+ },
+ "request": {
+  "goal_node_id": "gross_profit",
+  "goal_threshold": 0.6,
+  "goal_threshold_frame": "level",
+  "graph": {
+   "edges": [
+    {
+     "exists_probability": 0.8,
+     "from": "dual_sourcing",
+     "strength": {
+      "mean": -0.5,
+      "std": 0.1
+     },
+     "to": "supplier_fails"
+    },
+    {
+     "exists_probability": 1.0,
+     "from": "supplier_fails",
+     "strength": {
+      "mean": -0.4,
+      "std": 0.002
+     },
+     "to": "gross_profit"
+    },
+    {
+     "exists_probability": 1.0,
+     "from": "dual_source_cost",
+     "strength": {
+      "mean": -0.05,
+      "std": 0.002
+     },
+     "to": "gross_profit"
+    }
+   ],
+   "nodes": [
+    {
+     "id": "gross_profit",
+     "kind": "goal",
+     "label": "Gross profit",
+     "observed_state": {
+      "baseline": 0.8,
+      "source": "user",
+      "value": 0.8
+     }
+    },
+    {
+     "event_risk": {
+      "horizon": {
+       "months": 12
+      },
+      "mitigations": [
+       {
+        "factor_id": "dual_sourcing",
+        "occurrence_reduction": 0.7
+       }
+      ],
+      "occurrence": {
+       "basis": "reference",
+       "p_high": 0.15,
+       "p_low": 0.05
+      },
+      "version": 1
+     },
+     "id": "supplier_fails",
+     "kind": "risk",
+     "label": "Key supplier fails"
+    },
+    {
+     "id": "dual_sourcing",
+     "kind": "factor",
+     "label": "Dual sourcing in place",
+     "observed_state": {
+      "value": 0.0
+     }
+    },
+    {
+     "id": "dual_source_cost",
+     "kind": "factor",
+     "label": "Dual-source cost",
+     "observed_state": {
+      "value": 0.0
+     }
+    }
+   ]
+  },
+  "n_samples": 500,
+  "options": [
+   {
+    "id": "status_quo",
+    "interventions": {
+     "dual_source_cost": 0.0,
+     "dual_sourcing": 0.0
+    },
+    "label": "Status quo"
+   },
+   {
+    "id": "dual_source",
+    "interventions": {
+     "dual_source_cost": 1.0,
+     "dual_sourcing": 1.0
+    },
+    "label": "Dual-source"
+   }
+  ],
+  "request_id": "event-risk-v1-fixture",
+  "seed": 7
+ },
+ "status": 200
+}
