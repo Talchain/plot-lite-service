@@ -1594,6 +1594,12 @@ export async function createServer(opts: ServerOpts = {}) {
       stack: (err as any)?.stack,
     });
 
+    // Report the unexplained failure (system S-H). Inside the request, so the
+    // message and stack are digested against this request's decision tokens
+    // before the SDK sees them. No-op unless Sentry is initialised.
+    const { captureServerError } = await import('./observability/sentry.js');
+    captureServerError(err, { route, requestId: String(req.id) });
+
     const { msg } = await import('./lib/error-messages.js');
     return replyWithAppError(reply, { type: 'INTERNAL', statusCode: 500, message: msg('INTERNAL_UNEXPECTED') });
   });
