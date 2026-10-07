@@ -5745,6 +5745,26 @@ components:
               description: 'Parents added EXACTLY to the identity term (disjoint from factor_ids). Only a declared addend is definitional; it is never inferred from an edge.'
               items:
                 type: string
+        event_risk:
+          type: object
+          description: 'event_risk.v1 (Science pilot): on a risk node only, the risk is an EVENT that may happen within a horizon. PLoT forwards it VERBATIM to ISL (which owns the semantics and refuses with a typed 422 what v1 cannot evaluate) and fails closed (502 EVENT_RISK_NOT_APPLIED) when ISL does not echo it in event_risks_applied. A malformed block is refused (422), never dropped.'
+          required: [version, occurrence, horizon]
+          additionalProperties: false
+          properties:
+            version:
+              type: integer
+              enum: [1]
+            occurrence:
+              type: object
+              description: 'P(it happens at least once within the horizon) as a stated range {p_low, p_high, meaning, basis}.'
+            horizon:
+              type: object
+              description: 'The window the occurrence is stated over, {months}.'
+            mitigations:
+              type: array
+              description: 'Preventers: [{factor_id, occurrence_reduction}]; each a root factor an option sets, linked to this risk.'
+              items:
+                type: object
 
     edgeV3:
       type: object

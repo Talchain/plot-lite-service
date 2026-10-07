@@ -21,6 +21,7 @@ import { NON_CAUSAL_NODE_KINDS, ENGINE_CAUSAL_NODE_KINDS } from '../types/engine
 import { DEFAULT_EXISTS_PROBABILITY } from '../constants/limits.js';
 import { REPAIR_CODES } from './repair-codes.js';
 import { QuantityFrame } from '@talchain/schemas';
+import type { EventRiskV1 } from '../integrations/isl/event-risk.js';
 
 // -----------------------------------------------------------------------------
 // Error Types
@@ -171,6 +172,57 @@ const NONLINEAR_IDENTITY_KEYS: ReadonlySet<string> = new Set([
  * returned as a fresh object; anything else throws, naming the field. An UNKNOWN KEY throws too:
  * the object is rebuilt from the known keys, so an unknown one would otherwise be dropped silently.
  */
+// event_risk.v1 (Science 393023 pilot §4): read, refuse a malformed block, forward VERBATIM.
+// ISL owns the deep semantics; src/integrations/isl/event-risk.ts owns the forward + echo.
+const EVENT_RISK_KEYS = new Set(['version', 'occurrence', 'horizon', 'mitigations']);
+
+const isPlainEventRiskObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === 'object' && v !== null && !Array.isArray(v);
+
+/**
+ * Read a node's `event_risk` (top level, or under `data` like every other upstream field).
+ * Returns undefined when absent. Throws NormalisationError (400) when it is present but is not a
+ * v1 block on a `risk` node. The result is a deep copy, so later in-place edits to the ISL
+ * request cannot reach the caller's body.
+ */
+export function readEventRisk(node: UpstreamNode, kind: string): EventRiskV1 | undefined {
+  const raw = (node as any).event_risk ?? (node as any).data?.event_risk;
+  if (raw === undefined || raw === null) return undefined;
+  const field = 'event_risk';
+  if (!isPlainEventRiskObject(raw)) {
+    throw new NormalisationError(`${field} must be an object`, field, node.id);
+  }
+  if (kind !== 'risk') {
+    throw new NormalisationError(
+      `${field} is only valid on a 'risk' node (got kind ${JSON.stringify(kind)})`,
+      field,
+      node.id,
+    );
+  }
+  const unknownKeys = Object.keys(raw).filter((key) => !EVENT_RISK_KEYS.has(key));
+  if (unknownKeys.length > 0) {
+    throw new NormalisationError(
+      `${field} has unknown key(s) ${unknownKeys.map((key) => `${field}.${key}`).join(', ')} — refused, never dropped`,
+      `${field}.${unknownKeys[0]}`,
+      node.id,
+    );
+  }
+  if (raw.version !== 1) {
+    throw new NormalisationError(
+      `${field}.version must be 1 (got ${JSON.stringify(raw.version)})`,
+      `${field}.version`,
+      node.id,
+    );
+  }
+  if (!isPlainEventRiskObject(raw.occurrence) || !isPlainEventRiskObject(raw.horizon)) {
+    throw new NormalisationError(`${field} needs occurrence and horizon objects`, field, node.id);
+  }
+  if (raw.mitigations !== undefined && !(Array.isArray(raw.mitigations) && raw.mitigations.every(isPlainEventRiskObject))) {
+    throw new NormalisationError(`${field}.mitigations must be a list of objects`, `${field}.mitigations`, node.id);
+  }
+  return structuredClone(raw) as unknown as EventRiskV1;
+}
+
 export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | undefined {
   const raw = (node as any).nonlinear_identity ?? (node as any).data?.nonlinear_identity;
   if (raw === undefined || raw === null) return undefined;
@@ -543,6 +595,9 @@ export function normaliseNode(
   // evaluated case R3-4 must then say, so an unknown operation or a malformed declaration is a 400.
   const nonlinearIdentity = readNonlinearIdentity(node);
 
+  // event_risk.v1: carried VERBATIM on a risk node, or the node is refused (never dropped).
+  const eventRisk = readEventRisk(node, kind);
+
   // R1 S3 (DL #72 5871412823; wire R3 5872798858): what the node's value measures. Validated
   // against the contract's own enum, so a junk token degrades to ABSENT (= level) instead of
   // reaching ISL's Literal and failing the whole run. PLoT forwards it; it never mints one.
@@ -564,6 +619,7 @@ export function normaliseNode(
     ...ceeConstraintFields,
     ...(nonlinearIdentity ? { nonlinear_identity: nonlinearIdentity } : {}),
     ...(quantityFrame.success ? { quantity_frame: quantityFrame.data } : {}),
+    ...(eventRisk ? { event_risk: eventRisk } : {}),
   } as EngineNodeV3;
 }
 

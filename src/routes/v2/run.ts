@@ -18,6 +18,7 @@
  * @see P0-PLOT Workstream
  */
 
+import { eventRiskEchoMatches, eventRiskIdsSent } from '../../integrations/isl/event-risk.js';
 import { changeQuantityLevelLimitsAsChanges } from '../../lib/change-quantity-limits.js';
 import { randomUUID, createHash } from 'node:crypto';
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
@@ -8690,6 +8691,34 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             islStatusCode = 200;
             islEchoedRequestId = response.isl_echoed_request_id ?? null;
             islResultDrawStructureKey = response.isl_draw_structure_key ?? null;
+
+            // event_risk.v1 FAIL-CLOSED ECHO (src/integrations/isl/event-risk.ts). An ISL that does
+            // not know `event_risk` drops it and runs the risk as an ordinary node, which would
+            // present the user's "may happen" risk as never happening. Vacuous when none was sent.
+            const eventRisksSent = eventRiskIdsSent(islRequest.graph.nodes);
+            if (!eventRiskEchoMatches(eventRisksSent, islResult)) {
+              req.log.error({
+                event: 'event_risk_not_applied',
+                sent: eventRisksSent,
+                request_id: requestId,
+              });
+              return sendBlockedResponse(502,
+                'ISL did not apply event_risk',
+                [{
+                  id: randomUUID(),
+                  code: 'EVENT_RISK_NOT_APPLIED',
+                  severity: 'blocker' as const,
+                  message: 'The analysis could not treat the risk as an event that may happen, so no figures were produced.',
+                  source: 'isl' as const,
+                  blocks_analysis: true,
+                }],
+                filteredGraph,
+                normalizedOptions,
+                requestId,
+                requestComputedAt,
+              );
+            }
+
             // Capture timestamp when ISL response received (before any PLoT processing).
             // The V2 wire carries this as top-level `timestamp` (the V1-era
             // `computed_at` is never emitted on V2 — verified live 2026-07-06,

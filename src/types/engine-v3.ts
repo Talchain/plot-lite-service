@@ -111,6 +111,8 @@ export interface NonlinearIdentity {
   addends?: string[];
 }
 
+import type { EventRiskV1 } from '../integrations/isl/event-risk.js';
+
 export interface UpstreamNode {
   id: string;
   kind?: string;
@@ -394,6 +396,12 @@ export interface EngineNodeV3 {
    * PLoT validates it against the contract enum and forwards it, never mints it.
    */
   quantity_frame?: 'level' | 'change';
+  /**
+   * event_risk.v1 (Science 393023 pilot §4): this risk is an EVENT that may happen within a
+   * horizon. Read and refused-if-malformed by `readEventRisk`, forwarded VERBATIM to ISL by
+   * presence; PLoT never mints or edits it.
+   */
+  event_risk?: EventRiskV1;
 }
 
 /**

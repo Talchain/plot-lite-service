@@ -27,6 +27,7 @@ import {
   resolveUserSuppliedStd,
 } from './parameter-uncertainty-bounds.js';
 import { sha8 } from '../../util/pii-redact.js';
+import type { EventRiskV1 } from './event-risk.js';
 import { resolveNodeFrame, type NodeFrameCarrier } from '../../lib/intervention-normaliser.js';
 import { buildAdjacencyList, checkPathToGoal } from '../../validation/path-to-goal.js';
 // ROADMAP 2.258. DERIVED from the shared contract, never hand-mirrored.
@@ -166,6 +167,11 @@ export interface ISLNodeV3 {
    * `min = 0`.
    */
   raw_range?: { min: number; max: number };
+  /**
+   * event_risk.v1: forwarded VERBATIM by presence (src/integrations/isl/event-risk.ts). Absent on
+   * every other node, so a legacy request's ISL body and response_hash are byte-identical.
+   */
+  event_risk?: EventRiskV1;
 }
 
 /**
@@ -1118,6 +1124,7 @@ export function toISLNode(node: EngineNodeV3): ISLNodeV3 {
         }
       : {}),
     ...(node.quantity_frame !== undefined ? { quantity_frame: node.quantity_frame } : {}),
+    ...(node.event_risk !== undefined ? { event_risk: structuredClone(node.event_risk) } : {}),
   };
 }
 
