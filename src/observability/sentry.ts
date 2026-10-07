@@ -62,6 +62,23 @@ const ALLOWED_CONTEXTS: ReadonlySet<string> = new Set([
   'runtime', 'os', 'device', 'app', 'culture', 'cloud_resource', 'trace', 'response', 'otel',
 ]);
 
+/** Fields kept inside an allowed context whose shape is not SDK-fixed. */
+const CONTEXT_FIELD_ALLOWLIST: Readonly<Record<string, ReadonlySet<string>>> = {
+  response: new Set(['status_code']),
+};
+
+/**
+ * Span / trace data is an ALLOWLIST of SDK semantic-convention prefixes;
+ * any other attribute (set by code) is redacted.
+ */
+const SPAN_DATA_KEY_PREFIXES = [
+  'http.', 'url.', 'server.', 'client.', 'net.', 'network.', 'sentry.', 'otel.', 'db.system',
+  'fastify.', 'hook.', 'code.', 'thread.', 'process.', 'user_agent.',
+];
+
+/** Span ops whose description the SDK writes (method + URL, hook or driver name). */
+const SAFE_DESCRIPTION_OP_PREFIXES = ['http.', 'hook.', 'middleware.', 'request_handler.', 'db', 'cache', 'fastify'];
+
 /** Span / trace attribute keys that ARE a query or fragment: dropped. */
 const QUERY_ATTRIBUTE_KEYS: ReadonlySet<string> = new Set(['http.query', 'url.query', 'http.fragment', 'url.fragment']);
 
@@ -125,21 +142,48 @@ export function scrubBreadcrumb(crumb: Breadcrumb): Breadcrumb | null {
   if (data && typeof data === 'object') {
     const kept: Record<string, unknown> = {};
     if (typeof data.method === 'string') kept.method = data.method;
-    if (data.url !== undefined) kept.url = stripQuery(data.url);
+    if (data.url !== undefined) {
+      const url = stripQuery(data.url);
+      kept.url = typeof url === 'string' ? digestTokens(url) : url;
+    }
     if (typeof data.status_code === 'number') kept.status_code = data.status_code;
     out.data = kept;
   }
   return out;
 }
 
-/** Span / trace data: key-class redaction, query attributes dropped, URLs query-stripped. */
+/**
+ * Span / trace data: an allowlist of SDK attribute prefixes (anything else is
+ * redacted), query attributes dropped, URLs query-stripped and token-digested.
+ */
 function scrubSpanData(data: Record<string, unknown>): Record<string, unknown> {
-  const out = redactTree(data) as Record<string, unknown>;
-  for (const key of Object.keys(out)) {
-    if (QUERY_ATTRIBUTE_KEYS.has(key)) delete out[key];
-    else if (isUrlAttributeKey(key)) out[key] = stripQuery(out[key]);
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (QUERY_ATTRIBUTE_KEYS.has(key)) continue;
+    if (!SPAN_DATA_KEY_PREFIXES.some((p) => key.startsWith(p))) {
+      out[REDACTED_KEY] = (Number(out[REDACTED_KEY]) || 0) + 1;
+      continue;
+    }
+    const v = isUrlAttributeKey(key) ? stripQuery(value) : redactTree(value);
+    out[key] = typeof v === 'string' ? digestTokens(v) : v;
   }
   return out;
+}
+
+/** Count of attributes removed from a span's data (the keys themselves can be content). */
+const REDACTED_KEY = 'redacted_attributes';
+
+/** Deep-walk strings through the request's token digest (no-op outside a scope). */
+function digestTree(value: unknown, depth = 0): unknown {
+  if (depth > MAX_DEPTH) return REDACTED;
+  if (typeof value === 'string') return digestTokens(value);
+  if (Array.isArray(value)) return value.map((v) => digestTree(v, depth + 1));
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[digestTokens(k)] = digestTree(v, depth + 1);
+    return out;
+  }
+  return value;
 }
 
 /**
@@ -162,7 +206,7 @@ export function scrubSentryEvent<E extends SentryEvent>(input: E): E {
     event.request.data = undefined;
     event.request.cookies = undefined;
     event.request.query_string = undefined;
-    if (typeof event.request.url === 'string') event.request.url = stripQuery(event.request.url) as string;
+    if (typeof event.request.url === 'string') event.request.url = digestTokens(stripQuery(event.request.url) as string);
     const headers = event.request.headers;
     if (headers) {
       for (const name of Object.keys(headers)) {
@@ -174,8 +218,15 @@ export function scrubSentryEvent<E extends SentryEvent>(input: E): E {
   if (typeof event.transaction === 'string') event.transaction = stripQueriesInText(event.transaction);
 
   if (event.extra) {
+    // Keys can be content too (data-derived ids), so a non-allowlisted entry
+    // leaves no trace but a count.
     const extra: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(event.extra)) extra[k] = ALLOWED_EXTRA_KEYS.has(k) ? redactTree(v) : REDACTED;
+    let dropped = 0;
+    for (const [k, v] of Object.entries(event.extra)) {
+      if (ALLOWED_EXTRA_KEYS.has(k)) extra[k] = redactTree(v);
+      else dropped += 1;
+    }
+    if (dropped) extra.redacted_extra = dropped;
     event.extra = extra;
   }
 
@@ -183,7 +234,10 @@ export function scrubSentryEvent<E extends SentryEvent>(input: E): E {
     for (const key of Object.keys(event.contexts)) {
       if (!ALLOWED_CONTEXTS.has(key) || isSensitiveKey(key)) delete event.contexts[key];
       else if (event.contexts[key] && typeof event.contexts[key] === 'object') {
-        event.contexts[key] = redactTree(event.contexts[key]) as Record<string, unknown>;
+        let ctx = event.contexts[key] as Record<string, unknown>;
+        const fields = CONTEXT_FIELD_ALLOWLIST[key];
+        if (fields) ctx = Object.fromEntries(Object.entries(ctx).filter(([f]) => fields.has(f)));
+        event.contexts[key] = digestTree(redactTree(ctx)) as Record<string, unknown>;
       }
     }
   }
@@ -199,7 +253,12 @@ export function scrubSentryEvent<E extends SentryEvent>(input: E): E {
   }
   for (const span of event.spans ?? []) {
     if (span.data) span.data = scrubSpanData(span.data) as typeof span.data;
-    if (typeof span.description === 'string') span.description = stripQueriesInText(span.description);
+    if (typeof span.description === 'string') {
+      const op = typeof span.op === 'string' ? span.op : '';
+      span.description = SAFE_DESCRIPTION_OP_PREFIXES.some((p) => op.startsWith(p))
+        ? digestTokens(stripQueriesInText(span.description))
+        : op || 'span';
+    }
   }
 
   // Token arm: when a request scope is live, digest registered decision
@@ -270,8 +329,13 @@ export function initSentry(
  * handler). Call INSIDE the request: the message and stack are digested
  * against this request's decision tokens before the SDK sees them.
  */
-export function captureServerError(err: unknown, ctx: { route: string; requestId: string }): void {
+export function captureServerError(
+  err: unknown,
+  ctx: { route: string; requestId: string },
+  req?: object,
+): void {
   if (!initialised) return;
+  if (req) (req as Record<PropertyKey, unknown>)[CAPTURED] = true;
   const original = err instanceof Error ? err : new Error(String(err));
   const safe = new Error(digestTokens(original.message));
   safe.name = original.name;
@@ -280,6 +344,49 @@ export function captureServerError(err: unknown, ctx: { route: string; requestId
     scope.setTag('route', ctx.route);
     scope.setTag('request_id', ctx.requestId);
     Sentry.captureException(safe);
+  });
+}
+
+const CAPTURED = Symbol.for('plot.sentry.captured');
+
+/** Enum-shaped error code from an error response body, or undefined. */
+function errorCodeOf(payload: unknown): string | undefined {
+  if (typeof payload !== 'string' || payload.length > 65_536) return undefined;
+  let body: unknown;
+  try {
+    body = JSON.parse(payload);
+  } catch {
+    return undefined;
+  }
+  const b = body as Record<string, unknown> | null;
+  const nested = (b?.error && typeof b.error === 'object' ? b.error : {}) as Record<string, unknown>;
+  for (const c of [b?.code, nested.code, b?.type, nested.type]) {
+    if (typeof c === 'string' && /^[A-Z][A-Z0-9_]{0,63}$/.test(c)) return c;
+  }
+  return undefined;
+}
+
+type ReportableRequest = { id: unknown; routeOptions?: { url?: string } };
+
+/**
+ * Every 5xx PLoT sends reaches Sentry exactly once — including the 28 route
+ * sites that catch a failure and reply 5xx themselves, which never reach the
+ * global error handler. Registered as an onSend hook in createServer. Skips a
+ * request whose error captureServerError already reported. Carries only the
+ * route PATTERN, the status, the request id and an enum-shaped error code.
+ */
+export function reportServerErrorResponse(req: ReportableRequest, statusCode: number, payload: unknown): void {
+  if (!initialised || statusCode < 500) return;
+  if ((req as Record<PropertyKey, unknown>)[CAPTURED]) return;
+  const route = req.routeOptions?.url ?? 'unmatched';
+  const code = errorCodeOf(payload);
+  Sentry.withScope((scope) => {
+    scope.setTag('route', route);
+    scope.setTag('status_code', String(statusCode));
+    scope.setTag('request_id', String(req.id));
+    if (code) scope.setTag('error_code', code);
+    scope.setFingerprint(['plot-5xx-response', route, String(statusCode), code ?? 'none']);
+    Sentry.captureMessage(`PLoT ${route} responded ${statusCode}${code ? ` (${code})` : ''}`, 'error');
   });
 }
 

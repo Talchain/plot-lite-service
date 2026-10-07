@@ -28,6 +28,7 @@ const SENTINEL = 'SENTINEL-3b9d-acquire-northwind-for-40m';
 const SHA40 = '0123456789abcdef0123456789abcdef01234567';
 
 const sent: string[] = [];
+const bodySeen: boolean[] = [];
 
 function collectingTransport() {
   return {
@@ -67,6 +68,28 @@ describe('PLoT Sentry contract (S-H): through the real SDK and server', () => {
       }
       throw err;
     });
+    // a route that CATCHES a failure and replies 500 itself (28 such sites in src/)
+    app.post('/__s-h/caught', async (req, reply) => {
+      const body = req.body as { nodes: Array<{ label: string }> };
+      return reply.code(500).send({ code: 'INTERNAL_UNEXPECTED', message: `engine failed on ${body.nodes[0].label}` });
+    });
+    // code that sets extra / contexts inside the request scope
+    app.post('/__s-h/ctx', async (req) => {
+      const body = req.body as { nodes: Array<{ label: string }> };
+      const label = body.nodes[0].label;
+      Sentry.captureMessage('context probe', {
+        extra: { [label]: 'anything' },
+        // a field value NOT from the body (so not a registered token): only
+        // the field allowlist can stop it
+        contexts: { response: { status_code: 500, candidate: 'CTX_FIELD_MARKER_9d2' } },
+      });
+      return { ok: true };
+    });
+    // what the SDK holds as the request body BEFORE any hook runs
+    Sentry.addEventProcessor((event) => {
+      bodySeen.push(event.request?.data !== undefined);
+      return event;
+    });
     await app.listen({ port: 0, host: '127.0.0.1' });
     const addr = app.server.address();
     port = typeof addr === 'object' && addr ? addr.port : 0;
@@ -80,7 +103,21 @@ describe('PLoT Sentry contract (S-H): through the real SDK and server', () => {
 
   beforeEach(() => {
     sent.length = 0;
+    bodySeen.length = 0;
   });
+
+  async function hit(path: string, status: number): Promise<string> {
+    const res = await fetch(`http://127.0.0.1:${port}${path}`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ nodes: [{ id: 'n1', label: SENTINEL }] }),
+    });
+    expect(res.status).toBe(status);
+    await res.text();
+    await new Promise((r) => setTimeout(r, 50));
+    await Sentry.flush(2000);
+    return sent.join('\n');
+  }
 
   async function boom(raw: boolean): Promise<string> {
     const res = await fetch(`http://127.0.0.1:${port}/__s-h/boom`, {
@@ -124,6 +161,30 @@ describe('PLoT Sentry contract (S-H): through the real SDK and server', () => {
     expect(wire).toContain('no factor matches');
     expect(wire).toMatch(/sha8:[0-9a-f]{8}/);
     expect(wire).not.toContain(SENTINEL);
+  });
+
+  it('the SDK never holds a request body (seen by an event processor, before any hook)', async () => {
+    await boom(false);
+    expect(bodySeen.length).toBeGreaterThan(0);
+    expect(bodySeen.every((seen) => seen === false)).toBe(true);
+  });
+
+  it('a route that catches a failure and replies 500 itself is reported once, with its code, no content', async () => {
+    const wire = await hit('/__s-h/caught', 500);
+    const events = sent.filter((e) => e.includes('"type":"event"'));
+    expect(events.length).toBe(1);
+    expect(wire).toContain('PLoT /__s-h/caught responded 500 (INTERNAL_UNEXPECTED)');
+    expect(wire).toContain('"error_code":"INTERNAL_UNEXPECTED"');
+    expect(wire).not.toContain(SENTINEL);
+  });
+
+  it('extra keys and context fields set in the request carry no content', async () => {
+    const wire = await hit('/__s-h/ctx', 200);
+    expect(wire).toContain('context probe');
+    expect(wire).toContain('"redacted_extra":1');
+    expect(wire).toContain('"status_code":500');
+    expect(wire).not.toContain(SENTINEL);
+    expect(wire).not.toContain('CTX_FIELD_MARKER_9d2');
   });
 
   it('the event carries service=plot, the environment override and the full SHA', async () => {
@@ -171,8 +232,9 @@ describe('PLoT Sentry contract (S-H): options and filter', () => {
     expect(out).not.toContain(SENTINEL);
     expect(out).toContain('CONTROL_RID');
     expect(out).toContain('http://plot/v2/run');
-    // extra is an allowlist: keys survive for diagnosis, values do not
-    expect(out).toContain('"candidate":"[Redacted]"');
+    // extra is an allowlist (empty in PLoT): keys can be content too, so only a count survives
+    expect(out).toContain('"redacted_extra":3');
+    expect(out).not.toContain('candidate');
     // contexts: SDK runtime contexts kept, contexts set by code dropped
     expect(out).toContain('CONTROL_RUNTIME');
     expect(out).not.toContain('"run"');
@@ -187,6 +249,7 @@ describe('PLoT Sentry contract (S-H): options and filter', () => {
         contexts: { trace: { data: { 'url.full': `http://plot/v2/run?x=${SENTINEL}`, 'url.query': `x=${SENTINEL}` } } },
         spans: [
           {
+            op: 'http.client',
             description: `POST http://isl/v2/robustness?label=${SENTINEL}`,
             data: { 'http.url': `http://isl/v2/robustness?label=${SENTINEL}`, 'http.query': `label=${SENTINEL}` },
           },
@@ -197,6 +260,7 @@ describe('PLoT Sentry contract (S-H): options and filter', () => {
     expect(out).toContain('http://isl/v2/robustness');
     expect(out).toContain('https://olumi.invalid/s/1');
     expect(out).toContain('POST /v2/run');
+    expect(out).toContain('"description":"POST http://isl/v2/robustness"');
   });
 
   it('an underivable SHA is reported as unidentified, never inferred', () => {
@@ -218,17 +282,24 @@ describe('PLoT Sentry contract (S-H): options and filter', () => {
     expect(http).toContain('503');
   });
 
-  it('transaction span data is redacted by the key class', () => {
+  it('span data is an allowlist of SDK attributes; custom span names become their op', () => {
     const out = JSON.stringify(
       scrubSentryEvent({
         type: 'transaction',
         contexts: { trace: { data: { goal_label: SENTINEL, 'http.route': 'CONTROL_ROUTE' } } },
-        spans: [{ data: { factor_label: SENTINEL, 'db.system': 'CONTROL_DB' } }],
+        spans: [
+          {
+            op: 'function',
+            description: `child ${SENTINEL}`,
+            data: { node_id: SENTINEL, candidate: SENTINEL, value: 5, 'db.system': 'CONTROL_DB' },
+          },
+        ],
       } as never),
     );
     expect(out).not.toContain(SENTINEL);
     expect(out).toContain('CONTROL_ROUTE');
     expect(out).toContain('CONTROL_DB');
+    expect(out).toContain('"description":"function"');
   });
 });
 
