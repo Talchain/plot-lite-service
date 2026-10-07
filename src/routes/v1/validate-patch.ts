@@ -530,6 +530,9 @@ export const HASHED_NODE_FIELDS: readonly (keyof EngineNodeV3)[] = [
   // R1 S3 (@talchain/schemas 0.61.0 adds it to the analysis-hash node fields): what a node's value
   // measures changes how ISL compares a target on it. Classification only — nodes are hashed whole.
   'quantity_frame',
+  // event_risk.v1 (Science 393023 pilot): a risk's occurrence range, horizon and mitigations change every
+  // option's figures. Classification only — nodes are hashed whole.
+  'event_risk',
 ];
 
 /** Node fields deliberately kept OUT of `graph_hash`. Empty by design — see above. */
