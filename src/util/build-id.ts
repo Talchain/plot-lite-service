@@ -38,6 +38,23 @@ export function getBuildId(): string {
 }
 
 /**
+ * The FULL 40-char build SHA, for error-reporting releases (Sentry). Separate
+ * from getBuildId() on purpose: that one is the 7-char id every health surface
+ * already publishes, and changing it would move those surfaces.
+ *
+ * Render sets RENDER_GIT_COMMIT on every deploy; GITHUB_SHA covers CI; an
+ * explicit BUILD_ID is honoured only when it is itself a full SHA. Anything
+ * else is undefined — never a short id or a package version.
+ */
+export function getReleaseSha(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  for (const candidate of [env.RENDER_GIT_COMMIT, env.GITHUB_SHA, env.BUILD_ID]) {
+    const v = candidate?.trim().toLowerCase();
+    if (v && /^[0-9a-f]{40}$/.test(v)) return v;
+  }
+  return undefined;
+}
+
+/**
  * Test-only: clear the memoized id. The cache is resolved once per process (correct
  * in prod, where the build env never changes), but a test that mutates BUILD_ID /
  * GITHUB_SHA must clear it so the next getBuildId() re-resolves — otherwise a prior

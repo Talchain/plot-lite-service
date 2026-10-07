@@ -3,6 +3,7 @@ import { validateEnv } from './config-validator.js';
 import { loadFromFile } from './config/runtimeConfig.js';
 import { logResolvedTimeouts, validateTimeoutChain } from './config/timeouts.js';
 import { warmIslComputeAdmission } from './integrations/isl/compute-admission.js';
+import { initSentry } from './observability/sentry.js';
 
 const PORT = Number(process.env.PORT || 4311);
 const HOST = '0.0.0.0';
@@ -13,6 +14,12 @@ let closing = false;
 async function start() {
   // Validate environment variables first (fail-fast)
   validateEnv();
+
+  // Error reporting (system S-H). No-op unless SENTRY_DSN is set. Before the
+  // server is built so boot failures and process-level crashes are captured.
+  const sentryEnabled = initSentry();
+  // eslint-disable-next-line no-console -- startup diagnostic; boot logs are deliberately plain stdout, outside request scope (log-boundary.ts)
+  console.log('[STARTUP] Sentry:', { enabled: sentryEnabled });
 
   // Log all resolved timeout values (single source of truth)
   logResolvedTimeouts();
