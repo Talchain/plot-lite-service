@@ -6,6 +6,7 @@ import { resolve, join as joinPath } from 'path';
 import { createHash, randomUUID } from 'crypto';
 import { promises as fsp } from 'node:fs';
 import { redactLogRecord, redactLogArgs, installConsoleBoundary } from './logging/log-boundary.js';
+import { noteServerErrorPayload, reportServerErrorResponse } from './observability/sentry.js';
 import { beginDecisionTokenScope, registerDecisionTokens } from './logging/decision-tokens.js';
 import { makeRateLimiter } from './middleware/rate-limit.js';
 import { refreshFromEnv } from './config/runtimeConfig.js';
@@ -268,6 +269,19 @@ export async function createServer(opts: ServerOpts = {}) {
   // Echo X-Request-Id back to client
   app.addHook('onSend', async (request, reply) => {
     reply.header('x-request-id', request.id);
+  });
+
+  // System S-H: every 5xx response reaches Sentry exactly once — route sites
+  // that catch a failure and reply 5xx themselves included. onSend only notes
+  // the error code; onResponse reports with the FINAL status on the wire.
+  // No-op unless Sentry is initialised; skips errors captureServerError
+  // already reported.
+  app.addHook('onSend', async (request, reply, payload) => {
+    noteServerErrorPayload(request, reply.statusCode, payload);
+    return payload;
+  });
+  app.addHook('onResponse', async (request, reply) => {
+    reportServerErrorResponse(request, reply.raw.statusCode);
   });
 
   // Guard: prevent test routes in production
@@ -1593,6 +1607,12 @@ export async function createServer(opts: ServerOpts = {}) {
       status_code: (err as any)?.statusCode,
       stack: (err as any)?.stack,
     });
+
+    // Report the unexplained failure (system S-H). Inside the request, so the
+    // message and stack are digested against this request's decision tokens
+    // before the SDK sees them. No-op unless Sentry is initialised.
+    const { captureServerError } = await import('./observability/sentry.js');
+    captureServerError(err, { route, requestId: String(req.id) }, req);
 
     const { msg } = await import('./lib/error-messages.js');
     return replyWithAppError(reply, { type: 'INTERNAL', statusCode: 500, message: msg('INTERNAL_UNEXPECTED') });
