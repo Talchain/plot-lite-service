@@ -124,7 +124,7 @@ const ENDPOINT_MANIFEST: ManifestRow[] = [
     plotLiveness: 'live',
     islMounted: true,
     why:
-      'The only endpoint PLoT both calls live and ISL mounts. EIGHT producers over four call sites target it: ' +
+      'A live PLoT endpoint mounted by ISL at this pin. EIGHT producers over four call sites target it: ' +
       'routes/v2/run.ts (base; caller-supplied constraint weight; and the two goal-stamped shapes added by ' +
       'ROADMAP 2.762 — frame "level" and frame "delta"), analysis/flip-thresholds.ts (both probe branches), ' +
       'integrations/isl/index.ts analyseRobustness (from routes/v1/run.ts), and the dead analyseFactorSensitivity.',
@@ -205,12 +205,13 @@ const ENDPOINT_MANIFEST: ManifestRow[] = [
     endpoint: '/api/v1/robustness/decision-flip/v2',
     reachability: 'call-site-not-captured',
     plotLiveness: 'live',
-    islMounted: false,
+    islMounted: true,
     why:
       'SCIENCE ROBUSTNESS (EXPERIMENT; SCIENCE/DSK, #85). routes/v2/run.ts calls it only when a /v2/run body carries ' +
-      '`decision_flip` (decision-flip-forward.ts), reusing the Run\'s own ISL request as `request`. NOT MOUNTED at ' +
-      'this pin: the route is ISL #220, unmerged; until it is served the call answers a typed ' +
-      '`decision_flip_unavailable` (ISL_ERROR 404), never a Run. Route rows: tests/decision-flip-forward.route.test.ts.',
+      '`decision_flip`, through run.ts:8669 and decision-flip-forward.ts:13, reusing the Run\'s own ISL request ' +
+      'as `request`. MOUNTED at this pin: ISL #220 is included in 8efe2457. No standing producer captures this ' +
+      'endpoint yet; the manifest establishes mount status, not served-body validity. ' +
+      'Route rows: tests/decision-flip-forward.route.test.ts.',
   },
 ];
 
@@ -916,14 +917,13 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
       // Slice 6 flagged this by reading the code. The pinned model now says it.
     });
 
-    it('exactly TWO live call sites target an endpoint ISL does not mount at the pin', () => {
+    it('exactly ONE live endpoint is not mounted by ISL at the pin', () => {
       const liveUnmounted = ENDPOINT_MANIFEST.filter((r) => r.plotLiveness === 'live' && !r.islMounted)
         .map((r) => r.endpoint)
         .sort();
-      expect(liveUnmounted).toEqual(['/api/v1/causal/validate', '/api/v1/robustness/decision-flip/v2']);
-      // 2 Oct 2026 (SCIENCE ROBUSTNESS, EXPERIMENT): '/api/v1/robustness/decision-flip/v2' joined BY DESIGN — ISL #220
-      // adds it, unmerged; PLoT calls it only for a body carrying `decision_flip`, which no producer sends yet, and an
-      // unmounted route answers a typed `decision_flip_unavailable` (never a Run, never a 5xx). Re-pin when #220 serves.
+      expect(liveUnmounted).toEqual(['/api/v1/causal/validate']);
+      // 8 Oct 2026: decision-flip/v2 leaves this list because ISL #220 is mounted at 8efe2457.
+      // PLoT still calls it only for a body carrying `decision_flip`; no standing producer sends that body yet.
       // Was TWO until 2026-08-26. '/api/v1/analysis/thresholds' left this list
       // because its call site was DELETED (Lane 3) — not because ISL mounted it.
       // '/api/v1/causal/validate' remains live-against-unmounted BY DECISION: see
@@ -932,9 +932,13 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
       // PLoT adding a SECOND — is a visible change.
     });
 
-    it('the endpoints PLoT can reach and ISL mounts are exactly two', () => {
+    it('the endpoints PLoT can reach and ISL mounts are exactly three', () => {
       const pairable = ENDPOINT_MANIFEST.filter((r) => r.islMounted).map((r) => r.endpoint).sort();
-      expect(pairable).toEqual(['/api/v1/causal/counterfactual', '/api/v1/robustness/analyze/v2']);
+      expect(pairable).toEqual([
+        '/api/v1/causal/counterfactual',
+        '/api/v1/robustness/analyze/v2',
+        '/api/v1/robustness/decision-flip/v2',
+      ]);
     });
   });
 });

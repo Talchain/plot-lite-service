@@ -218,12 +218,13 @@ def main() -> int:
         )
         return 2
 
-    from src.models.robustness_v2 import RobustnessRequestV2  # noqa: E402
+    from src.models.robustness_v2 import DecisionFlipRequestV2, RobustnessRequestV2  # noqa: E402
     from src.models.requests import CounterfactualRequest  # noqa: E402
 
     MODELS = {
         "/api/v1/robustness/analyze/v2": ("RobustnessRequestV2", RobustnessRequestV2),
         "/api/v1/causal/counterfactual": ("CounterfactualRequest", CounterfactualRequest),
+        "/api/v1/robustness/decision-flip/v2": ("DecisionFlipRequestV2", DecisionFlipRequestV2),
     }
 
     openapi = json.loads(OPENAPI_PATH.read_text())

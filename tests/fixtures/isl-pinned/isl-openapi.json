@@ -442,7 +442,7 @@
                 "type": "null"
               }
             ],
-            "description": "P(all constraints satisfied simultaneously). ABSENT while any requested constraint is unscored (B5): each refused constraint is named by a CONSTRAINT_NOT_CONVERTIBLE / CONSTRAINT_FRAME_UNSPECIFIED warning and has no row in `constraints`; the scored ones keep theirs. Never computed over the scored subset.",
+            "description": "P(all constraints satisfied simultaneously). ABSENT while any requested constraint is unscored (B5): each refused constraint is named by a CONSTRAINT_NOT_CONVERTIBLE / CONSTRAINT_FRAME_UNSPECIFIED warning and has no row in `constraints`; the scored ones keep theirs. Never computed over the scored subset. Also ABSENT (with the conditionals) for an option whose rows mix a limit scored from a stated range with other limits (TEMPORAL step 1), named by CONSTRAINT_JOINT_WITHHELD.",
             "title": "Joint Probability"
           }
         },
@@ -492,7 +492,7 @@
                 "type": "null"
               }
             ],
-            "description": "P(all constraints satisfied simultaneously). ABSENT while any requested constraint is unscored (B5): each refused constraint is named by a CONSTRAINT_NOT_CONVERTIBLE / CONSTRAINT_FRAME_UNSPECIFIED warning and has no row in `constraints`; the scored ones keep theirs. Never computed over the scored subset.",
+            "description": "P(all constraints satisfied simultaneously). ABSENT while any requested constraint is unscored (B5): each refused constraint is named by a CONSTRAINT_NOT_CONVERTIBLE / CONSTRAINT_FRAME_UNSPECIFIED warning and has no row in `constraints`; the scored ones keep theirs. Never computed over the scored subset. Also ABSENT (with the conditionals) for an option whose rows mix a limit scored from a stated range with other limits (TEMPORAL step 1), named by CONSTRAINT_JOINT_WITHHELD.",
             "title": "Joint Probability"
           }
         },
@@ -1197,7 +1197,7 @@
             "type": "string"
           },
           "operation": {
-            "description": "'product' | 'sum'",
+            "description": "'product' | 'sum' | 'accumulation'",
             "title": "Operation",
             "type": "string"
           },
@@ -1234,7 +1234,7 @@
             "title": "Stated"
           },
           "withheld_reason": {
-            "description": "identity_frame_missing | identity_operand_missing | identity_zero_level | identity_inconsistent | identity_scale_out_of_range",
+            "description": "identity_frame_missing | identity_operand_missing | identity_zero_level | identity_inconsistent | identity_scale_out_of_range | identity_rate_out_of_range | identity_non_finite",
             "title": "Withheld Reason",
             "type": "string"
           }
@@ -1349,6 +1349,58 @@
           "source"
         ],
         "title": "CritiqueV2",
+        "type": "object"
+      },
+      "DecisionFlipLinkRefV2": {
+        "description": "One link whose tipping point is asked for (a directed edge of the request's graph).",
+        "properties": {
+          "from_id": {
+            "minLength": 1,
+            "title": "From Id",
+            "type": "string"
+          },
+          "to_id": {
+            "minLength": 1,
+            "title": "To Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_id",
+          "to_id"
+        ],
+        "title": "DecisionFlipLinkRefV2",
+        "type": "object"
+      },
+      "DecisionFlipRequestV2": {
+        "description": "On demand: where would the recommendation change if each link were WEAKER?",
+        "properties": {
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/DecisionFlipLinkRefV2"
+            },
+            "maxItems": 12,
+            "minItems": 1,
+            "title": "Links",
+            "type": "array"
+          },
+          "replicates": {
+            "default": 4,
+            "description": "K replicate seeds; a link is quoted only when they agree",
+            "maximum": 8.0,
+            "minimum": 2.0,
+            "title": "Replicates",
+            "type": "integer"
+          },
+          "request": {
+            "$ref": "#/components/schemas/RobustnessRequestV2"
+          }
+        },
+        "required": [
+          "request",
+          "links"
+        ],
+        "title": "DecisionFlipRequestV2",
         "type": "object"
       },
       "DecisionRule": {
@@ -2110,6 +2162,163 @@
           "retryable"
         ],
         "title": "ErrorResponse",
+        "type": "object"
+      },
+      "EventRiskAppliedV1": {
+        "description": "Echo of one applied event risk, with the probability the analysis actually used.\n\nScience Q5: with one occurrence draw per Monte Carlo draw, occurrence marginalises to the\nmidpoint of the stated range. The range's WIDTH therefore changes no v1 figure (goal chance,\nmean, downside). That is disclosed here rather than implied away; only a twin at\n``p_low`` / ``p_high`` shows the width's effect.",
+        "properties": {
+          "node_id": {
+            "title": "Node Id",
+            "type": "string"
+          },
+          "occurrence_used": {
+            "description": "The probability every v1 figure reflects: the midpoint of the range",
+            "title": "Occurrence Used",
+            "type": "number"
+          },
+          "p_high": {
+            "title": "P High",
+            "type": "number"
+          },
+          "p_low": {
+            "title": "P Low",
+            "type": "number"
+          },
+          "range_width_propagated": {
+            "const": false,
+            "default": false,
+            "description": "Always false in v1: the range's width changes no figure; the midpoint is used",
+            "title": "Range Width Propagated"
+          }
+        },
+        "required": [
+          "node_id",
+          "occurrence_used",
+          "p_low",
+          "p_high"
+        ],
+        "title": "EventRiskAppliedV1",
+        "type": "object"
+      },
+      "EventRiskHorizonV1": {
+        "additionalProperties": false,
+        "description": "The window the occurrence probability is stated over.",
+        "properties": {
+          "months": {
+            "exclusiveMinimum": 0.0,
+            "maximum": 600.0,
+            "title": "Months",
+            "type": "number"
+          }
+        },
+        "required": [
+          "months"
+        ],
+        "title": "EventRiskHorizonV1",
+        "type": "object"
+      },
+      "EventRiskMitigationV1": {
+        "additionalProperties": false,
+        "description": "A preventer: an ordinary factor an option sets (0 = not in place, 1 = in place). While it\nis in place the occurrence probability is scaled by (1 - occurrence_reduction).",
+        "properties": {
+          "factor_id": {
+            "pattern": "^[a-z0-9_:-]+$",
+            "title": "Factor Id",
+            "type": "string"
+          },
+          "occurrence_reduction": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Occurrence Reduction",
+            "type": "number"
+          }
+        },
+        "required": [
+          "factor_id",
+          "occurrence_reduction"
+        ],
+        "title": "EventRiskMitigationV1",
+        "type": "object"
+      },
+      "EventRiskOccurrenceV1": {
+        "additionalProperties": false,
+        "description": "P(the event happens at least once within the horizon), as a stated range.",
+        "properties": {
+          "basis": {
+            "description": "Whose figure the range is: the user's, Olumi's estimate, or a reference",
+            "enum": [
+              "user",
+              "olumi",
+              "reference"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "meaning": {
+            "const": "at_least_once_within_horizon",
+            "default": "at_least_once_within_horizon",
+            "description": "What p means: the probability it happens at least once within the horizon",
+            "title": "Meaning"
+          },
+          "p_high": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "P High",
+            "type": "number"
+          },
+          "p_low": {
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "P Low",
+            "type": "number"
+          }
+        },
+        "required": [
+          "p_low",
+          "p_high",
+          "basis"
+        ],
+        "title": "EventRiskOccurrenceV1",
+        "type": "object"
+      },
+      "EventRiskV1": {
+        "additionalProperties": false,
+        "description": "event_risk.v1 on a ``kind: \"risk\"`` node (see the block comment above).",
+        "properties": {
+          "horizon": {
+            "$ref": "#/components/schemas/EventRiskHorizonV1"
+          },
+          "mitigations": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/EventRiskMitigationV1"
+                },
+                "maxItems": 8,
+                "minItems": 1,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mitigations"
+          },
+          "occurrence": {
+            "$ref": "#/components/schemas/EventRiskOccurrenceV1"
+          },
+          "version": {
+            "const": 1,
+            "description": "Contract version; only 1 exists",
+            "title": "Version"
+          }
+        },
+        "required": [
+          "version",
+          "occurrence",
+          "horizon"
+        ],
+        "title": "EventRiskV1",
         "type": "object"
       },
       "ExecutionFrameV2": {
@@ -3565,6 +3774,344 @@
         "title": "FragileEdgeV2",
         "type": "object"
       },
+      "GoalChanceDriver": {
+        "description": "The goal chance within two groups of this option's informative draws.\n\nA continuous quantity (``factor_value``, ``link_strength``) is split at its thirds and\nreports the low and the high third; ``link_existence`` reports the draws where the link\nwas absent and where it was present. The fields of the other shape are omitted.",
+        "properties": {
+          "correlated": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "True when the factor is drawn jointly with others: the two chances are then conditional on its correlated factors moving with it",
+            "title": "Correlated"
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Link source node id",
+            "title": "From"
+          },
+          "high_lower_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Smallest value of the quantity in the high third",
+            "title": "High Lower Value"
+          },
+          "kind": {
+            "description": "Which sampled quantity the draws were grouped by",
+            "enum": [
+              "factor_value",
+              "link_strength",
+              "link_existence"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "low_upper_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Largest value of the quantity in the low third",
+            "title": "Low Upper Value"
+          },
+          "n_absent": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Draws where the link was absent",
+            "title": "N Absent"
+          },
+          "n_high": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Draws in the high third",
+            "title": "N High"
+          },
+          "n_low": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Draws in the low third",
+            "title": "N Low"
+          },
+          "n_present": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Draws where the link was present",
+            "title": "N Present"
+          },
+          "p_goal_if_absent": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Goal chance within the draws where the link was absent",
+            "title": "P Goal If Absent"
+          },
+          "p_goal_if_high": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Goal chance within the high third of the quantity",
+            "title": "P Goal If High"
+          },
+          "p_goal_if_low": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Goal chance within the low third of the quantity",
+            "title": "P Goal If Low"
+          },
+          "p_goal_if_present": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Goal chance within the draws where the link was present",
+            "title": "P Goal If Present"
+          },
+          "quantity_id": {
+            "description": "Node id, or 'from->to' for a link",
+            "title": "Quantity Id",
+            "type": "string"
+          },
+          "spread": {
+            "description": "Absolute difference between the two groups' goal chances",
+            "exclusiveMinimum": 0.0,
+            "maximum": 1.0,
+            "title": "Spread",
+            "type": "number"
+          },
+          "spread_noise_floor": {
+            "description": "Largest spread sampling noise alone is expected to produce, adjusted for the number of quantities compared for this option",
+            "minimum": 0.0,
+            "title": "Spread Noise Floor",
+            "type": "number"
+          },
+          "status": {
+            "description": "'resolved' when the spread exceeds spread_noise_floor",
+            "enum": [
+              "resolved",
+              "below_resolution"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "to": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Link target node id",
+            "title": "To"
+          }
+        },
+        "required": [
+          "quantity_id",
+          "kind",
+          "spread",
+          "spread_noise_floor",
+          "status"
+        ],
+        "title": "GoalChanceDriver",
+        "type": "object"
+      },
+      "GoalChanceDrivers": {
+        "description": "What moves ``probability_of_goal`` for one option, from the draws already made.",
+        "properties": {
+          "drivers": {
+            "description": "The largest non-zero spreads, largest first (at most five)",
+            "items": {
+              "$ref": "#/components/schemas/GoalChanceDriver"
+            },
+            "title": "Drivers",
+            "type": "array"
+          },
+          "dropped_by_reason": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "description": "n_dropped, by reason. A 'zero_spread' quantity was evaluated (it is also in n_compared) and its two groups did not differ; every other reason means the quantity was not evaluated. 'outcome_constant': every informative draw agreed, so nothing could be compared.",
+            "title": "Dropped By Reason",
+            "type": "object"
+          },
+          "method": {
+            "const": "tercile_conditional_v1",
+            "default": "tercile_conditional_v1",
+            "description": "How the draws were grouped",
+            "title": "Method"
+          },
+          "min_group_n": {
+            "description": "Fewest draws a reported group may hold",
+            "title": "Min Group N",
+            "type": "integer"
+          },
+          "n_candidates": {
+            "description": "Sampled quantities considered",
+            "minimum": 0.0,
+            "title": "N Candidates",
+            "type": "integer"
+          },
+          "n_compared": {
+            "description": "Quantities evaluated; the family the noise floor adjusts for",
+            "minimum": 0.0,
+            "title": "N Compared",
+            "type": "integer"
+          },
+          "n_dropped": {
+            "description": "Quantities with no listable row: the sum of dropped_by_reason",
+            "minimum": 0.0,
+            "title": "N Dropped",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "min_group_n",
+          "n_candidates",
+          "n_compared",
+          "n_dropped",
+          "dropped_by_reason",
+          "drivers"
+        ],
+        "title": "GoalChanceDrivers",
+        "type": "object"
+      },
+      "GoalChancePrecision": {
+        "description": "How precisely the simulation estimated ``probability_of_goal``.\n\nMonte Carlo precision only (``basis``): it narrows with more draws and says nothing about\nhow right the model is. The drivers carry that.",
+        "properties": {
+          "basis": {
+            "const": "simulation_precision",
+            "default": "simulation_precision",
+            "description": "What the interval measures",
+            "title": "Basis"
+          },
+          "confidence_level": {
+            "description": "Coverage of the interval",
+            "exclusiveMaximum": 1.0,
+            "exclusiveMinimum": 0.0,
+            "title": "Confidence Level",
+            "type": "number"
+          },
+          "interval_lower": {
+            "description": "Lower bound of the interval",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Interval Lower",
+            "type": "number"
+          },
+          "interval_upper": {
+            "description": "Upper bound of the interval",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Interval Upper",
+            "type": "number"
+          },
+          "method": {
+            "const": "wilson_score",
+            "default": "wilson_score",
+            "description": "Interval method",
+            "title": "Method"
+          },
+          "n_informative": {
+            "description": "Draws the figure was counted over (its denominator)",
+            "minimum": 1.0,
+            "title": "N Informative",
+            "type": "integer"
+          },
+          "n_met": {
+            "description": "Informative draws that met the goal",
+            "minimum": 0.0,
+            "title": "N Met",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "confidence_level",
+          "n_informative",
+          "n_met",
+          "interval_lower",
+          "interval_upper"
+        ],
+        "title": "GoalChancePrecision",
+        "type": "object"
+      },
       "GoalConstraint": {
         "description": "A constraint on a goal/outcome node for multi-constraint analysis.\n\nAllows specifying success criteria like \"revenue >= 100k\" or \"cost <= 50k\".\nMultiple constraints can be specified to compute joint probabilities.",
         "example": {
@@ -3949,6 +4496,21 @@
             "description": "ISL engine version",
             "title": "Engine Version",
             "type": "string"
+          },
+          "event_risks_applied": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/EventRiskAppliedV1"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "One entry per risk node evaluated as an EVENT (event_risk.v1): its id, the probability every figure reflects (the midpoint of the stated range) and the range. Absent when the request carried no event_risk. A caller that sent event_risk and finds no matching entry must fail closed: the risk was evaluated as an ordinary node.",
+            "title": "Event Risks Applied"
           },
           "factor_evpc": {
             "anyOf": [
@@ -4364,6 +4926,36 @@
             "title": "Factor Ids",
             "type": "array"
           },
+          "horizon_months": {
+            "anyOf": [
+              {
+                "maximum": 120.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Evaluated accumulation only: the integer horizon actually evaluated",
+            "title": "Horizon Months"
+          },
+          "level_author": {
+            "anyOf": [
+              {
+                "enum": [
+                  "user",
+                  "olumi"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "identity_inputs only: 'user' when every operand's level today is the user's, else 'olumi' (the weakest operand decides). A goal anchored on it is scored from Olumi's estimate of today's level when 'olumi'",
+            "title": "Level Author"
+          },
           "level_source": {
             "anyOf": [
               {
@@ -4387,7 +4979,8 @@
           "operation": {
             "enum": [
               "product",
-              "sum"
+              "sum",
+              "accumulation"
             ],
             "title": "Operation",
             "type": "string"
@@ -4406,6 +4999,18 @@
             "title": "Stated In Brief",
             "type": "boolean"
           },
+          "today_level": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "identity_inputs only: the input-derived level in USER units; at the declared horizon for accumulation",
+            "title": "Today Level"
+          },
           "withheld_reason": {
             "anyOf": [
               {
@@ -4414,7 +5019,9 @@
                   "identity_operand_missing",
                   "identity_zero_level",
                   "identity_inconsistent",
-                  "identity_scale_out_of_range"
+                  "identity_scale_out_of_range",
+                  "identity_rate_out_of_range",
+                  "identity_non_finite"
                 ],
                 "type": "string"
               },
@@ -4516,6 +5123,21 @@
             "title": "Id",
             "type": "string"
           },
+          "intervention_ranges": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "$ref": "#/components/schemas/InterventionRange"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "node_id -> the option's stated range for the value it sets there. Each key must also be in `interventions` (the point, within the range's P40-P60).",
+            "title": "Intervention Ranges"
+          },
           "interventions": {
             "additionalProperties": {
               "type": "number"
@@ -4537,6 +5159,69 @@
           "interventions"
         ],
         "title": "InterventionOption",
+        "type": "object"
+      },
+      "InterventionRange": {
+        "description": "TEMPORAL step 1: an option's stated RANGE for a quantity it sets (e.g. downtime days).\n\nThe caller states the range and what it MEANS, never a distribution family: ISL chooses\nthe science-owned family for the meaning and echoes what it used\n(``OptionResult.sampled_intervention_ranges``). ``low``/``high`` are RAW units (days);\n``normalisation`` maps them onto the node's frame (absent = the frame is raw units).\nThe option's point in ``interventions`` stays. It must lie between the range's fitted\nP40 and P60 without moving the verdict's side, or the limit is refused and the user\nasked (R3 #75 5911436566 (1)). The range is scored with its own median.",
+        "properties": {
+          "high": {
+            "description": "The stated bad case, raw units (> low)",
+            "exclusiveMinimum": 0.0,
+            "title": "High",
+            "type": "number"
+          },
+          "low": {
+            "description": "The stated good case, raw units (> 0)",
+            "exclusiveMinimum": 0.0,
+            "title": "Low",
+            "type": "number"
+          },
+          "meaning": {
+            "description": "What the user's words say the range is. Sampled only for 'likely_range' (read as the quartiles, lognormal); any other meaning refuses the limit by name.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Meaning",
+            "type": "string"
+          },
+          "normalisation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/InterventionRangeNormalisation"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Raw \u2192 node-frame map (computational only, never a bound)"
+          }
+        },
+        "required": [
+          "low",
+          "high",
+          "meaning"
+        ],
+        "title": "InterventionRange",
+        "type": "object"
+      },
+      "InterventionRangeNormalisation": {
+        "description": "How the caller's normaliser maps this node's RAW units onto its [0, 1] frame.\n\nA COMPUTATIONAL map only (PLoT's affine intervention normaliser), never a bound on\nwhat the quantity can take: a draw beyond ``raw_at_one`` is valid arithmetic. A\nsemantic bound is the limit's own ``level_domain``, which a range must not cross\n(TEMPORAL step 1 refuses it; R3 rules truncate vs refuse).",
+        "properties": {
+          "raw_at_one": {
+            "description": "The raw value the normaliser maps to 1",
+            "title": "Raw At One",
+            "type": "number"
+          },
+          "raw_at_zero": {
+            "description": "The raw value the normaliser maps to 0",
+            "title": "Raw At Zero",
+            "type": "number"
+          }
+        },
+        "required": [
+          "raw_at_zero",
+          "raw_at_one"
+        ],
+        "title": "InterventionRangeNormalisation",
         "type": "object"
       },
       "InterventionRegion": {
@@ -4793,6 +5478,17 @@
             "title": "Epsilon Std",
             "type": "number"
           },
+          "event_risk": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventRiskV1"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "event_risk.v1: the risk is an EVENT that may happen within a horizon. Per Monte Carlo draw it occurs (1) or not (0), with P = p x prod(1 - m x preventer); each child link's strength is the severity conditional on occurrence. Only on kind 'risk'."
+          },
           "execution_frame": {
             "anyOf": [
               {
@@ -4899,7 +5595,65 @@
       },
       "NonlinearIdentityV2": {
         "additionalProperties": false,
-        "description": "R3 slice 1: the node is EXACTLY the product or the sum of named parents (an accounting\nidentity such as MRR = price x paying subscribers), not a guessed straight-line effect.\n\nCEE declares it and is its only minter; PLoT forwards it verbatim. ISL never infers an\nidentity from the graph's shape (AIQ 5859633012). Strict: an unknown operation or key is\nREFUSED (422), never dropped, because a dropped declaration is silently \"declared, not used\".",
+        "allOf": [
+          {
+            "else": {
+              "not": {
+                "anyOf": [
+                  {
+                    "required": [
+                      "horizon_months"
+                    ]
+                  },
+                  {
+                    "required": [
+                      "rate_scale"
+                    ]
+                  }
+                ]
+              }
+            },
+            "if": {
+              "properties": {
+                "operation": {
+                  "const": "accumulation"
+                }
+              },
+              "required": [
+                "operation"
+              ]
+            },
+            "then": {
+              "not": {
+                "required": [
+                  "addends"
+                ]
+              },
+              "properties": {
+                "factor_ids": {
+                  "maxItems": 3,
+                  "minItems": 3,
+                  "uniqueItems": true
+                },
+                "horizon_months": {
+                  "maximum": 120.0,
+                  "minimum": 1.0,
+                  "type": "integer"
+                },
+                "rate_scale": {
+                  "exclusiveMinimum": 0.0,
+                  "maximum": 1.0,
+                  "type": "number"
+                }
+              },
+              "required": [
+                "horizon_months",
+                "rate_scale"
+              ]
+            }
+          }
+        ],
+        "description": "R3/P45: an exact declared accounting identity over named parents. Product and sum use\nnamed operands; accumulation uses positional stock today, monthly churn and monthly inflow\nto derive stock at a stated horizon. Its carrier is the derived stock node, not the goal.\n\nCEE declares it and is its only minter; PLoT forwards it verbatim. ISL never infers an\nidentity from the graph's shape (AIQ 5859633012). Strict: an unknown operation or key is\nREFUSED (422), never dropped, because a dropped declaration is silently \"declared, not used\".",
         "properties": {
           "addends": {
             "anyOf": [
@@ -4918,7 +5672,7 @@
             "title": "Addends"
           },
           "factor_ids": {
-            "description": "The parents the node is the product/sum of",
+            "description": "Named product/sum parents; accumulation has exactly three distinct positional parents: [stock_today, monthly_churn_rate, monthly_inflow]",
             "items": {
               "type": "string"
             },
@@ -4926,14 +5680,43 @@
             "title": "Factor Ids",
             "type": "array"
           },
+          "horizon_months": {
+            "anyOf": [
+              {
+                "maximum": 120.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Accumulation only: required integer horizon in months (1 through 120)",
+            "title": "Horizon Months"
+          },
           "operation": {
-            "description": "product | sum of factor_ids",
+            "description": "product | sum | accumulation over factor_ids",
             "enum": [
               "product",
-              "sum"
+              "sum",
+              "accumulation"
             ],
             "title": "Operation",
             "type": "string"
+          },
+          "rate_scale": {
+            "anyOf": [
+              {
+                "exclusiveMinimum": 0.0,
+                "maximum": 1.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Accumulation only: required multiplier converting the churn parent's user value to a monthly fraction (0.01 for percent, 1 for a fraction); ISL does not parse units",
+            "title": "Rate Scale"
           },
           "stated_in_brief": {
             "description": "True when the brief itself states it",
@@ -5298,12 +6081,56 @@
             "description": "P(outcome >= goal_threshold). Only present when goal_threshold is provided in request.",
             "title": "Probability Of Goal"
           },
+          "probability_of_goal_drivers": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GoalChanceDrivers"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The sampled quantities probability_of_goal moves with most, from this option's own draws. Absent whenever that figure is."
+          },
+          "probability_of_goal_precision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GoalChancePrecision"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Simulation precision of probability_of_goal. Absent whenever that figure is."
+          },
+          "sampled_intervention_ranges": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SampledInterventionRange"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The stated ranges ISL sampled to score this option's limits. Absent when none.",
+            "title": "Sampled Intervention Ranges"
+          },
           "win_probability": {
+            "anyOf": [
+              {
+                "maximum": 1.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "description": "P(this option is best)",
-            "maximum": 1.0,
-            "minimum": 0.0,
-            "title": "Win Probability",
-            "type": "number"
+            "title": "Win Probability"
           }
         },
         "required": [
@@ -5378,6 +6205,43 @@
             "description": "P(outcome >= goal_threshold). Only present when goal_threshold is provided in request.",
             "title": "Probability Of Goal"
           },
+          "probability_of_goal_drivers": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GoalChanceDrivers"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The sampled quantities probability_of_goal moves with most: the goal chance within the low and high third of each (or with a link absent and present), from the draws already made. Numbers only; ranks nothing."
+          },
+          "probability_of_goal_precision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GoalChancePrecision"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Simulation precision of probability_of_goal: the informative draws behind it and a 95% Wilson interval. Monte Carlo precision only, not the model's uncertainty."
+          },
+          "sampled_intervention_ranges": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/SampledInterventionRangeV2"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "TEMPORAL step 1: the stated ranges ISL sampled to score this option's own limits (each read as the quartiles of a lognormal). Present iff a limit row of this option was scored from a range; a consumer that sent a range and finds no entry here must not show that limit's probability.",
+            "title": "Sampled Intervention Ranges"
+          },
           "status": {
             "description": "Option-specific status",
             "enum": [
@@ -5434,24 +6298,52 @@
         },
         "properties": {
           "ci_lower": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "description": "Lower bound of confidence interval",
-            "title": "Ci Lower",
-            "type": "number"
+            "title": "Ci Lower"
           },
           "ci_upper": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "description": "Upper bound of confidence interval",
-            "title": "Ci Upper",
-            "type": "number"
+            "title": "Ci Upper"
           },
           "mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "description": "Mean outcome value",
-            "title": "Mean",
-            "type": "number"
+            "title": "Mean"
           },
           "median": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "description": "Median outcome value",
-            "title": "Median",
-            "type": "number"
+            "title": "Median"
           },
           "samples": {
             "anyOf": [
@@ -5469,9 +6361,16 @@
             "title": "Samples"
           },
           "std": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "description": "Standard deviation",
-            "title": "Std",
-            "type": "number"
+            "title": "Std"
           }
         },
         "required": [
@@ -6962,6 +7861,21 @@
             "description": "E-value analogue per edge: minimum strength perturbation to flip recommendation. Only included when computed within time budget.",
             "title": "Edge E Values"
           },
+          "event_risks_applied": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/EventRiskAppliedV1"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Applied event-risk occurrence probabilities; absent when no event risk was supplied.",
+            "title": "Event Risks Applied"
+          },
           "factor_evpc": {
             "anyOf": [
               {
@@ -7525,6 +8439,96 @@
           "metric_populations"
         ],
         "title": "SamplePopulationProvenanceV2",
+        "type": "object"
+      },
+      "SampledInterventionRange": {
+        "description": "TEMPORAL step 1 echo: a stated range ISL SAMPLED to score this option's limit(s).\n\nPresent only when at least one of the option's constraint rows was scored from the\nrange; PLoT's fail-closed forward keys on it. Says how the range was read, so every\nsurface can name the reading (AIQ #75 5909998288).",
+        "properties": {
+          "coverage": {
+            "description": "Central share of mass the stated bounds hold (0.5 = quartiles)",
+            "title": "Coverage",
+            "type": "number"
+          },
+          "family": {
+            "const": "lognormal",
+            "description": "The family ISL chose for that meaning",
+            "title": "Family"
+          },
+          "high": {
+            "description": "Stated bad case, raw units",
+            "title": "High",
+            "type": "number"
+          },
+          "low": {
+            "description": "Stated good case, raw units",
+            "title": "Low",
+            "type": "number"
+          },
+          "meaning": {
+            "description": "The stated meaning ISL read (e.g. 'likely_range')",
+            "title": "Meaning",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "The node whose range was sampled",
+            "title": "Node Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id",
+          "meaning",
+          "family",
+          "coverage",
+          "low",
+          "high"
+        ],
+        "title": "SampledInterventionRange",
+        "type": "object"
+      },
+      "SampledInterventionRangeV2": {
+        "description": "TEMPORAL step 1: a stated range ISL sampled to score this option's limit(s).",
+        "properties": {
+          "coverage": {
+            "description": "Central share of mass the stated bounds hold (0.5 = the quartiles)",
+            "title": "Coverage",
+            "type": "number"
+          },
+          "family": {
+            "const": "lognormal",
+            "description": "The family ISL chose for that meaning",
+            "title": "Family"
+          },
+          "high": {
+            "description": "Stated bad case, raw units",
+            "title": "High",
+            "type": "number"
+          },
+          "low": {
+            "description": "Stated good case, raw units",
+            "title": "Low",
+            "type": "number"
+          },
+          "meaning": {
+            "description": "The stated meaning ISL read (e.g. 'likely_range')",
+            "title": "Meaning",
+            "type": "string"
+          },
+          "node_id": {
+            "description": "The node whose range was sampled",
+            "title": "Node Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "node_id",
+          "meaning",
+          "family",
+          "coverage",
+          "low",
+          "high"
+        ],
+        "title": "SampledInterventionRangeV2",
         "type": "object"
       },
       "ScenarioDescription": {
@@ -8451,6 +9455,21 @@
       "StructuralInfluence": {
         "description": "One factor node's structural influence on the goal, normalised over EVERY factor node.",
         "properties": {
+          "gated_by": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Set only when the score is withheld because EVERY path from this factor to the goal runs through a product with another input at 0 today: those zero inputs. The influence depends on the option chosen (STRUCTURAL_INFLUENCE_GATED); a consumer shows that, never 0 and never a rank.",
+            "title": "Gated By"
+          },
           "influence_rank": {
             "anyOf": [
               {
@@ -8461,7 +9480,7 @@
                 "type": "null"
               }
             ],
-            "description": "Rank by influence_score, 1 = highest, over every factor node. None when the walk truncated.",
+            "description": "Rank by influence_score, 1 = highest, over every factor node with a score. None when the walk truncated or the factor is gated.",
             "title": "Influence Rank"
           },
           "influence_score": {
@@ -8475,7 +9494,7 @@
                 "type": "null"
               }
             ],
-            "description": "Sum of |path strengths| to the goal, normalised to 0-1 across EVERY factor node (an evaluated identity's operand and addend edges carry its partial at the centre). None for every row when the walk truncated (exact-or-null; STRUCTURAL_INFLUENCE_TRUNCATED).",
+            "description": "Expected NET effect on the goal: |sum of signed path strengths|, each edge at mean x exists_probability, normalised to 0-1 across EVERY factor node (an evaluated identity's operand and addend edges carry its partial at the centre). None for every row when the walk truncated (exact-or-null; STRUCTURAL_INFLUENCE_TRUNCATED), and for a factor whose every path runs through a product with another input at 0 today (STRUCTURAL_INFLUENCE_GATED).",
             "title": "Influence Score"
           },
           "node_id": {
@@ -9157,6 +10176,103 @@
           }
         },
         "summary": "Analyze robustness with dual uncertainty (v2.2 schema)",
+        "tags": [
+          "FACET Robustness"
+        ]
+      }
+    },
+    "/api/v1/robustness/decision-flip/v2": {
+      "post": {
+        "description": "SCIENCE ROBUSTNESS, on demand only (PLoT /v2/run decision_flip). For each requested link: the link strength at which the analyser's recommendation would change, from K replicate seeds, quoted only when they agree (range <= 0.01 and <= 15% of the median), otherwise an honest absence with a reason.",
+        "operationId": "decision_flip_v2_api_v1_robustness_decision_flip_v2_post",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Request-Id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Request-Id"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-API-Key",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "X-Api-Key"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecisionFlipRequestV2"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "description": "Unknown link or invalid request"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Caller concurrency limit exceeded"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Service at compute capacity"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            },
+            "description": "Exceeded the hard compute deadline"
+          }
+        },
+        "summary": "EXPERIMENT: where would the recommendation change if each link were weaker?",
         "tags": [
           "FACET Robustness"
         ]
