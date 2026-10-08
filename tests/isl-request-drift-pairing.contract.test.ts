@@ -423,6 +423,13 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
       expect(Object.keys(TRANSCRIPT.egress).sort()).toEqual(PRODUCERS.map((p) => p.name).sort());
     });
 
+    it('the pinned model accepts the accumulation producer without validation errors', () => {
+      const entry = TRANSCRIPT.egress['v2-run-accumulation-identity'];
+      expect(entry, 'the accumulation producer must have an executed-model replay').toBeDefined();
+      expect(entry!.parses).toBe(true);
+      expect(entry!.validation_errors).toEqual([]);
+    });
+
     for (const producer of PRODUCERS) {
       describe(`${producer.name} → ${producer.endpoint}`, () => {
         const fixture = FIXTURES.get(producer.name);
