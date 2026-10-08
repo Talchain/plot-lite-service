@@ -163,12 +163,14 @@ const NONLINEAR_IDENTITY_KEYS: ReadonlySet<string> = new Set([
   'factor_ids',
   'stated_in_brief',
   'addends',
+  'reading_licence',
 ]);
 
 /**
  * Validate a node's R3 identity declaration (`nonlinear_identity`, CEE NodeV3). Absent → undefined.
  * Present → exactly `{ operation: 'product' | 'sum', factor_ids: non-empty unique strings,
- * stated_in_brief: boolean, addends?: non-empty unique strings disjoint from factor_ids }`,
+ * stated_in_brief: boolean, addends?: non-empty unique strings disjoint from factor_ids,
+ * reading_licence?: 'olumi_reading' (inferred products only) }`,
  * returned as a fresh object; anything else throws, naming the field. An UNKNOWN KEY throws too:
  * the object is rebuilt from the known keys, so an unknown one would otherwise be dropped silently.
  */
@@ -238,7 +240,7 @@ export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | u
       node.id
     );
   }
-  const { operation, factor_ids, stated_in_brief, addends } = raw as Record<string, unknown>;
+  const { operation, factor_ids, stated_in_brief, addends, reading_licence } = raw as Record<string, unknown>;
   if (typeof operation !== 'string' || !NONLINEAR_IDENTITY_OPERATIONS.has(operation)) {
     throw new NormalisationError(
       `${field}.operation must be one of product | sum (got ${JSON.stringify(operation)})`,
@@ -261,6 +263,23 @@ export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | u
   if (typeof stated_in_brief !== 'boolean') {
     throw new NormalisationError(`${field}.stated_in_brief must be a boolean`, `${field}.stated_in_brief`, node.id);
   }
+  // Presence matters: an explicitly malformed licence (including null/undefined) is refused,
+  // never silently rebuilt as an unlicensed identity.
+  const hasReadingLicence = Object.prototype.hasOwnProperty.call(raw, 'reading_licence');
+  if (hasReadingLicence && reading_licence !== 'olumi_reading') {
+    throw new NormalisationError(
+      `${field}.reading_licence must be olumi_reading (got ${JSON.stringify(reading_licence)})`,
+      `${field}.reading_licence`,
+      node.id,
+    );
+  }
+  if (hasReadingLicence && (stated_in_brief !== false || operation !== 'product')) {
+    throw new NormalisationError(
+      `${field}.reading_licence is only valid with stated_in_brief:false and operation:product`,
+      `${field}.reading_licence`,
+      node.id,
+    );
+  }
   if (
     addends !== undefined &&
     (!Array.isArray(addends) ||
@@ -280,6 +299,7 @@ export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | u
     factor_ids: [...factor_ids],
     stated_in_brief,
     ...(addends !== undefined ? { addends: [...(addends as string[])] } : {}),
+    ...(hasReadingLicence ? { reading_licence: reading_licence as NonlinearIdentity['reading_licence'] } : {}),
   };
 }
 

@@ -96,7 +96,7 @@ export type EngineNodeKindV3 = (typeof ENGINE_CAUSAL_NODE_KINDS)[number];
  *
  * CEE-minted at construction (C46 `markProductIdentities`; `sum` from the A4b tally recogniser,
  * AIQ ruling #70 5859633012) and persisted on CEE's NodeV3 (`cee-v3.ts` `nonlinear_identity`).
- * PLoT carries it VERBATIM to ISL, which evaluates only what is declared (never infers an identity
+ * PLoT carries its calculation fields to ISL, which evaluates only what is declared (never infers an identity
  * from the graph's shape). An unknown `operation` is REJECTED at ingress, never dropped: a dropped
  * identity is the declared-but-not-evaluated case (R3-4).
  */
@@ -104,6 +104,11 @@ export interface NonlinearIdentity {
   operation: 'product' | 'sum';
   factor_ids: string[];
   stated_in_brief: boolean;
+  /**
+   * Science §(e): CEE licenses a labelled goal reading only for an inferred product
+   * (`stated_in_brief:false`, `operation:'product'`). PLoT-only; never sent to ISL.
+   */
+  reading_licence?: 'olumi_reading';
   /**
    * Parents added EXACTLY to the identity term (AIQ #70 5860087988 item 5; minted by CEE with
    * the same rules as `sum`, MG's rung c). Optional; disjoint from `factor_ids`.

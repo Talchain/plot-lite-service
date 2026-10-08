@@ -141,11 +141,11 @@ export interface ISLNodeV3 {
   intercept?: number;
   epsilon_std?: number;
   /**
-   * R3 slice 1 (B2): the node is exactly `operation` of `factor_ids`. Forwarded VERBATIM only when
-   * the node declares one (validated at ingress by `readNonlinearIdentity`), so every other
-   * request's ISL body — and its response_hash — is byte-identical.
+   * R3 slice 1 (B2): the node is exactly `operation` of `factor_ids`. Only calculation fields
+   * reach ISL: Science §(e)'s `reading_licence` is PLoT metadata, absent from ISL's strict schema.
+   * Every other request's ISL body — and its response_hash — is byte-identical.
    */
-  nonlinear_identity?: NonlinearIdentity;
+  nonlinear_identity?: Omit<NonlinearIdentity, 'reading_licence'>;
   /**
    * R3-8: the node's frame (user units = normalised × frame), resolved by THE node-frame reader
    * (`resolveNodeFrame`: cap → scale_frame → pair). Runtime metadata, attached ONLY to a declared
@@ -235,17 +235,22 @@ export function attachIdentityExecutionFrames(
   // ⛔ Variant (d) (AIQ #72 5891286280; R3 5891423959): an INFERRED (`stated_in_brief: false`) PRODUCT identity ON THE
   // GOAL is Olumi's reading of how the user's goal is made, and the user has not confirmed it. The brief's own words
   // license a silent product (then it arrives `stated_in_brief: true`); anything else waits for the user's Yes on the
-  // card (CEE #2292 writes it `stated_in_brief: true`). Until then it is NOT forwarded: the goal stays linear and
+  // card (CEE #2292 writes it `stated_in_brief: true`). Without a licence it is NOT forwarded: the goal stays linear and
   // `goalIdentitiesNotEvaluated` withholds every goal figure under its own code — never a chance through an unconfirmed
   // product (served: "reaches above £85k MRR in 99.8%"), never one from the linear walk. Sums, stated identities and
   // non-goal carriers fall through to the variants below untouched.
   // The card domain decides, not the node kind (AIQ 5891608873; DL 5891633125; PR Review CR 5891899825): a goal carrier
   // (`goalCarrierIds` — units compose to the goal's, the user's three levels, within 5%) is a reading of the goal too,
   // however many parents the goal has. A carrier outside the domain (DL A15: an Olumi level) is not (d)'s.
+  // Science §(e), GOAL-REACH build 2: CEE's `olumi_reading` stamp licenses the labelled reading (including addends).
+  // Read it from the engine node: `toISLNode` deliberately excludes it from ISL's strict identity schema. It bypasses
+  // only (d); canonical frames, (a), (b) and ISL's reconciliation/(c) still apply. CEE owns the licence predicate;
+  // the older three-user-level carrier recognition is not an additional veto on a licensed carrier.
   const notForwarded: IdentityNotForwarded[] = [];
   for (const node of islNodes) {
     const identity = node.nonlinear_identity;
     if (!identity || identity.stated_in_brief !== false || identity.operation !== 'product') continue;
+    if (engineById.get(node.id)?.nonlinear_identity?.reading_licence === 'olumi_reading') continue;
     if (engineById.get(node.id)?.kind !== 'goal' && !goalCarriers.has(node.id)) continue;
     delete node.nonlinear_identity;
     notForwarded.push({ node_id: node.id, reason: 'inferred_identity_unconfirmed', frameless_node_ids: [] });
