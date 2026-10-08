@@ -1352,6 +1352,10 @@ export interface ISLRobustnessAnalyzeV2Response {
     /** The real nested payload. */
     detail?: {
       reason?: string;
+      /** GOAL-REACH 3a: key presence identifies root_goal case (a); value is not forwarded. */
+      root_value_source?: unknown;
+      /** GOAL-REACH 3a: key presence identifies root_goal case (b); value is not forwarded. */
+      root_intercept?: unknown;
       message?: string;
       elapsed_ms?: number;
       node_id?: string;
