@@ -4,6 +4,8 @@ import { readFileSync } from 'node:fs';
 import { parse } from 'yaml';
 import Ajv from 'ajv';
 import * as admission from '../src/integrations/isl/compute-admission.js';
+import { toISLNode, type ISLRobustnessRequestV3 } from '../src/integrations/isl/translator-v3.js';
+import { normaliseGraph } from '../src/normalisation/graph-normaliser.js';
 import { makeComputedIslResponse, makeValidRunBody } from './helpers/run-fixtures.js';
 
 const ACCUMULATION_EVALUATION = {
@@ -17,10 +19,12 @@ const ACCUMULATION_EVALUATION = {
 };
 
 let evaluations: unknown = [ACCUMULATION_EVALUATION];
+let capturedISLRequest: ISLRobustnessRequestV3 | undefined;
 const mockISLService = {
   isEnabled(): boolean { return true; },
   async isAvailable(): Promise<boolean> { return true; },
-  async callAnalysisEndpoint<T>(): Promise<{ data: T }> {
+  async callAnalysisEndpoint<T>(_endpoint: string, body: ISLRobustnessRequestV3): Promise<{ data: T }> {
+    capturedISLRequest = structuredClone(body);
     return { data: {
       ...makeComputedIslResponse(),
       // A measured band keeps this complete computed response inside the
@@ -43,6 +47,43 @@ vi.mock('../src/integrations/isl/index.ts', async () => {
 import { createServer } from '../src/createServer.js';
 
 const spec = parse(readFileSync(new URL('../contracts/openapi.yaml', import.meta.url), 'utf8'));
+
+function accumulationRunBody() {
+  return {
+    ...makeValidRunBody(),
+    graph: {
+      nodes: [
+        { id: 'factor-0', kind: 'factor', label: 'Price', observed_state: { value: 0.245, raw_value: 49, cap: 200 } },
+        { id: 'stock_today', kind: 'factor', label: 'Stock today', observed_state: { value: 0.3, raw_value: 1500, cap: 5000 } },
+        { id: 'monthly_churn', kind: 'factor', label: 'Churn', observed_state: { value: 2.5 } },
+        { id: 'monthly_inflow', kind: 'factor', label: 'Inflow', observed_state: { value: 0.1, raw_value: 100, cap: 1000 } },
+        { id: 'subscribers_at_horizon', kind: 'outcome', label: 'Stock at month 12',
+          observed_state: { value: 0, cap: 10000 },
+          nonlinear_identity: { operation: 'accumulation',
+            factor_ids: ['stock_today', 'monthly_churn', 'monthly_inflow'],
+            horizon_months: 12, rate_scale: 0.01, stated_in_brief: false } },
+        { id: 'goal', kind: 'goal', label: 'MRR', observed_state: { value: 0, cap: 2000000 },
+          nonlinear_identity: { operation: 'product', factor_ids: ['factor-0', 'subscribers_at_horizon'], stated_in_brief: true } },
+      ],
+      edges: [
+        ...['stock_today', 'monthly_churn', 'monthly_inflow'].map((from) => ({ from, to: 'subscribers_at_horizon' })),
+        ...['factor-0', 'subscribers_at_horizon'].map((from) => ({ from, to: 'goal' })),
+      ].map((edge) => ({ ...edge, exists_probability: 1, strength: { mean: 1, std: 0.05 } })),
+    },
+  };
+}
+
+const FRAMED_CHURN_SHAPES = [
+  { name: 'value/raw_value pair on 100', observed_state: { value: 0.03, unit: '%', raw_value: 3 }, scale_frame: 100 },
+  { name: 'value/cap on 20', observed_state: { value: 0.15, unit: '%', cap: 20 }, scale_frame: 20 },
+];
+
+function churnFacts(node: { observed_state?: unknown; quantity_frame?: unknown; scale_frame?: unknown }) {
+  return {
+    observed_state: node.observed_state,
+    ...(node.quantity_frame !== undefined ? { quantity_frame: node.quantity_frame } : {}),
+  };
+}
 
 // OpenAPI 3 request schemas use boolean exclusiveMinimum/Maximum. Ajv 8
 // accepts JSON Schema's numeric form; preserve the published bound when
@@ -75,9 +116,113 @@ describe('accumulation identity wire disclosure and published schemas', () => {
   afterAll(async () => { await app?.close(); vi.unstubAllEnvs(); });
   beforeEach(() => {
     evaluations = [ACCUMULATION_EVALUATION];
+    capturedISLRequest = undefined;
     admission.__setIslComputeAdmissionForTest({ admission: null, skew: false, status: 'disabled' });
   });
   afterEach(() => { admission.__resetIslComputeAdmission(); });
+
+  async function hashFor(payload: Record<string, unknown>) {
+    capturedISLRequest = undefined;
+    const response = await app.inject({ method: 'POST', url: '/v2/run', payload });
+    expect(response.statusCode, response.body).toBe(200);
+    const body = response.json();
+    expect(body.analysis_status).toBe('computed');
+    expect(body._meta.response_hash).toMatch(/^[a-f0-9]{16}$/);
+    expect(capturedISLRequest).toBeDefined();
+    return { hash: body._meta.response_hash as string, isl: capturedISLRequest! };
+  }
+
+  it.each(FRAMED_CHURN_SHAPES.flatMap((shape) => [false, true].map((withFrames) => ({ ...shape, withFrames }))))(
+    'Round 2 (b) keeps framed % churn $name byte-identical at normalization, projection and ISL egress; optional frames=$withFrames',
+    async ({ observed_state, scale_frame, withFrames }) => {
+      const payload = accumulationRunBody();
+      const input = payload.graph.nodes.find((node) => node.id === 'monthly_churn')!;
+      Object.assign(input, { observed_state, ...(withFrames ? { scale_frame, quantity_frame: 'level' } : {}) });
+      const before = structuredClone(payload);
+      const expected = churnFacts(input);
+      const engine = normaliseGraph(payload.graph).graph.nodes.find((node) => node.id === input.id)!;
+      const projected = toISLNode(engine);
+      const { isl } = await hashFor(payload);
+      const wire = isl.graph.nodes.find((node) => node.id === input.id)!;
+
+      for (const [stage, node] of [['normalization', engine], ['toISLNode', projected], ['ISL egress', wire]] as const) {
+        // JSON bytes discard absent internal keys, while preserving the producer's exact numeric values and fields.
+        expect.soft(JSON.stringify(churnFacts(node)), stage).toBe(JSON.stringify(expected));
+        expect.soft(JSON.stringify(node.observed_state), `${stage} observed_state`).toBe(JSON.stringify(observed_state));
+      }
+      expect(wire).not.toHaveProperty('execution_frame');
+      // ISL's NodeV2 declares no scale_frame: the level is recovered from observed_state (raw_value / cap), never a
+      // forwarded node frame (b2, 8 Oct; pinned isl-openapi.json NodeV2).
+      expect(wire).not.toHaveProperty('scale_frame');
+      expect(isl.graph.nodes.find((node) => node.id === 'subscribers_at_horizon')!.nonlinear_identity)
+        .toEqual(payload.graph.nodes.find((node) => node.id === 'subscribers_at_horizon')!.nonlinear_identity);
+      expect(isl.graph.nodes.find((node) => node.id === 'goal')!.nonlinear_identity)
+        .toEqual(payload.graph.nodes.find((node) => node.id === 'goal')!.nonlinear_identity);
+      expect(payload).toEqual(before);
+    },
+  );
+
+  it.each(FRAMED_CHURN_SHAPES)(
+    'Round 2 (b) non-participant % control keeps the existing wire behavior for $name',
+    async ({ observed_state, scale_frame }) => {
+      const payload = accumulationRunBody();
+      // Churn remains on the causal path, but no accumulation identity declares it as a participant.
+      delete payload.graph.nodes.find((node) => node.id === 'subscribers_at_horizon')!.nonlinear_identity;
+      const input = payload.graph.nodes.find((node) => node.id === 'monthly_churn')!;
+      Object.assign(input, { observed_state, scale_frame, quantity_frame: 'level' });
+      const engine = normaliseGraph(payload.graph).graph.nodes.find((node) => node.id === input.id)!;
+      const projected = toISLNode(engine);
+      const { isl } = await hashFor(payload);
+      const wire = isl.graph.nodes.find((node) => node.id === input.id)!;
+      const expected = { observed_state, quantity_frame: 'level' };
+      for (const node of [engine, projected, wire]) {
+        expect(JSON.stringify(churnFacts(node))).toBe(JSON.stringify(expected));
+        expect(node).not.toHaveProperty('scale_frame');
+      }
+      expect(wire).toEqual({ id: 'monthly_churn', kind: 'factor', label: 'Churn',
+        observed_state, intercept: 0, epsilon_std: 0, quantity_frame: 'level' });
+    },
+  );
+
+  it('Round 1 #3 swapping accumulation factor_ids changes the response hash', async () => {
+    const original = accumulationRunBody();
+    const swapped = structuredClone(original);
+    const carrier = swapped.graph.nodes.find((node) => node.id === 'subscribers_at_horizon')!;
+    carrier.nonlinear_identity!.factor_ids.reverse();
+    const a = await hashFor(original);
+    const b = await hashFor(swapped);
+    const identityOf = (isl: ISLRobustnessRequestV3) => isl.graph.nodes
+      .find((node) => node.id === 'subscribers_at_horizon')!.nonlinear_identity;
+    expect(identityOf(a.isl)).toEqual({ operation: 'accumulation',
+      factor_ids: ['stock_today', 'monthly_churn', 'monthly_inflow'],
+      horizon_months: 12, rate_scale: 0.01, stated_in_brief: false });
+    expect(identityOf(b.isl)).toEqual({ ...identityOf(a.isl),
+      factor_ids: ['monthly_inflow', 'monthly_churn', 'stock_today'] });
+    expect(b.hash).not.toBe(a.hash);
+  });
+
+  it('Round 1 #3 a same-order accumulation clone has the same response hash', async () => {
+    const payload = accumulationRunBody();
+    const a = await hashFor(payload);
+    const b = await hashFor(structuredClone(payload));
+    expect(b.isl.graph).toEqual(a.isl.graph);
+    expect(b.hash).toBe(a.hash);
+  });
+
+  it.each(['product', 'sum'])('Round 1 #3 swapping %s factor_ids keeps the same response hash', async (operation) => {
+    const original = accumulationRunBody();
+    const goal = original.graph.nodes.find((node) => node.id === 'goal')!;
+    goal.nonlinear_identity!.operation = operation;
+    const swapped = structuredClone(original);
+    swapped.graph.nodes.find((node) => node.id === 'goal')!.nonlinear_identity!.factor_ids.reverse();
+    const a = await hashFor(original);
+    const b = await hashFor(swapped);
+    expect(a.isl.graph.nodes.find((node) => node.id === 'goal')!.nonlinear_identity)
+      .toEqual({ operation, factor_ids: ['factor-0', 'subscribers_at_horizon'], stated_in_brief: true });
+    expect(b.isl.graph.nodes.find((node) => node.id === 'goal')!.nonlinear_identity)
+      .toEqual({ operation, factor_ids: ['subscribers_at_horizon', 'factor-0'], stated_in_brief: true });
+    expect(b.hash).toBe(a.hash);
+  });
 
   it('T5 forwards the exact ISL accumulation evaluation, including horizon_months, in an Ajv-valid 200 response', async () => {
     const response = await app.inject({ method: 'POST', url: '/v2/run', payload: makeValidRunBody() });

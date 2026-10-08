@@ -175,6 +175,7 @@ const NONLINEAR_IDENTITY_KEYS: ReadonlySet<string> = new Set([
  * reading_licence?: 'olumi_reading' (inferred products only) }`. Accumulation → exactly three
  * positional distinct factor ids (stock today, churn rate, inflow), integer horizon_months 1..120,
  * finite rate_scale in (0,1], and boolean stated_in_brief; addends and reading_licence are forbidden.
+ * An accumulation belongs on the derived stock-at-horizon node, never on a goal.
  * The carrier is returned as a fresh object; anything else throws, naming the field. An UNKNOWN KEY throws too:
  * the object is rebuilt from the known keys, so an unknown one would otherwise be dropped silently.
  */
@@ -270,6 +271,14 @@ export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | u
   // Accumulation is its own calculation contract, never the sum/product rebuild below.
   // Presence matters for forbidden keys: even an explicit undefined must be refused.
   if (operation === 'accumulation') {
+    const kind = (node.kind ?? node.type ?? node.data?.kind ?? node.data?.type ?? 'factor').toLowerCase();
+    if (kind === 'goal') {
+      throw new NormalisationError(
+        `${field} with operation:accumulation must be on the derived stock-at-horizon node, never on a goal`,
+        field,
+        node.id,
+      );
+    }
     if (factor_ids.length !== 3) {
       throw new NormalisationError(
         `${field}.factor_ids must contain exactly three distinct positional node ids (stock today, churn rate, inflow)`,

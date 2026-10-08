@@ -255,7 +255,7 @@ function canonicaliseNumber(value: number | undefined | null): number {
 
 /**
  * Canonicalise the EFFECTIVE ISL request — the bytes PLoT actually sends to the
- * compute layer — into a deterministic, order-insensitive form.
+ * compute layer — into a deterministic form that preserves semantic order.
  *
  * WHY THIS EXISTS (ROADMAP 2.1024). Up to v7 the hash was computed from a
  * PARALLEL SEMANTIC PROJECTION of the inbound request: a hand-maintained list of
@@ -297,7 +297,8 @@ function canonicaliseNumber(value: number | undefined | null): number {
  *
  * ORDER HANDLING — AND `options` IS NOT A SET (ROADMAP 2.1026).
  * Object keys are sorted recursively. Arrays are sorted by their canonical
- * serialisation **except** the ones named in {@link ORDER_SIGNIFICANT_ISL_KEYS}.
+ * serialisation **except** the ones named in {@link ORDER_SIGNIFICANT_ISL_KEYS}
+ * and accumulation identity `factor_ids`, whose stock/churn/inflow roles are positional.
  *
  * ⚠ AN EARLIER VERSION OF THIS COMMENT CLAIMED EVERY ARRAY HERE IS A SET. THAT
  * WAS FALSE, AND THE FALSE CLAIM WAS LOAD-BEARING. `options[0]` is
@@ -342,12 +343,19 @@ function canonicaliseDeep(value: unknown): unknown {
       });
   }
 
+  const record = value as Record<string, unknown>;
   const out: Record<string, unknown> = {};
-  for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-    const v = (value as Record<string, unknown>)[key];
+  for (const key of Object.keys(record).sort()) {
+    const v = record[key];
     // `undefined` is absent, not a value — JSON.stringify drops it anyway, and
     // materialising it as null would make an omitted key differ from itself.
     if (v === undefined) continue;
+    if (key === 'factor_ids' && record.operation === 'accumulation' && Array.isArray(v)) {
+      // Stock, churn and inflow occupy distinct positions. Product/sum factors
+      // remain commutative and use the ordinary array-sorting path below.
+      out[key] = v.map(canonicaliseDeep);
+      continue;
+    }
     out[key] = canonicaliseDeep(v);
   }
   return out;
