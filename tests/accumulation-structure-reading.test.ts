@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { islDrawStructureKey } from '../src/lib/isl-draw-structure-key.js';
+import { canonicaliseISLRequest } from '../src/normalisation/canonicalise.js';
 import {
   goalIdentityWithheldMessage,
   goalIdentitiesNotEvaluated,
@@ -45,6 +46,36 @@ describe('T3 accumulation draw structure', () => {
     ['rate_scale', { ...ACCUMULATION, rate_scale: 1 }],
   ])('a change only to %s changes the key', (_field, changed) => {
     expect(islDrawStructureKey(request(changed))).not.toBe(islDrawStructureKey(request(ACCUMULATION)));
+  });
+
+  it.each([
+    ['churn spread', [0.246, 0.246]],
+    ['inflow spread', [0.136, 0.136]],
+    ['spread positions', [0.246, 0.136]],
+  ])('a change only to %s changes the key', (_field, rateSigmaLog) => {
+    const identity = { ...ACCUMULATION, rate_sigma_log: [0.136, 0.246] };
+    const changed = { ...identity, rate_sigma_log: rateSigmaLog };
+    expect(islDrawStructureKey(request(changed))).not.toBe(islDrawStructureKey(request(identity)));
+  });
+
+  it('absent and explicit zero rate spreads have the same key', () => {
+    expect(islDrawStructureKey(request(ACCUMULATION))).toBe(
+      islDrawStructureKey(request({ ...ACCUMULATION, rate_sigma_log: [0, 0] })),
+    );
+  });
+});
+
+describe('accumulation canonicalisation keeps positional operands and rate spreads', () => {
+  it('preserves churn then inflow spread order alongside stock/churn/inflow factor order', () => {
+    const identity = { ...ACCUMULATION, rate_sigma_log: [0.246, 0.136] };
+    const canonical = canonicaliseISLRequest(request(identity)) as ReturnType<typeof request>;
+    expect(canonical.graph.nodes[0].nonlinear_identity).toEqual(identity);
+  });
+
+  it('swapping rate spread positions changes the canonical request', () => {
+    const identity = { ...ACCUMULATION, rate_sigma_log: [0.136, 0.246] };
+    const changed = { ...identity, rate_sigma_log: [0.246, 0.136] };
+    expect(canonicaliseISLRequest(request(changed))).not.toEqual(canonicaliseISLRequest(request(identity)));
   });
 });
 

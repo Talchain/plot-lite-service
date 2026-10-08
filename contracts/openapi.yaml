@@ -5722,7 +5722,7 @@ components:
               type: string
         nonlinear_identity:
           type: object
-          description: 'The node IS an accounting identity of the named parents (a product, a sum, or a stock accumulated to a stated horizon). An accumulation is carried on the derived stock-at-horizon node; its goal retains an ordinary product over price and that node. CEE-minted at construction; PLoT forwards it verbatim to ISL, which evaluates only what is declared. An unknown operation or a malformed declaration is refused (422), never dropped.'
+          description: 'The node IS an accounting identity of the named parents (a product, a sum, or a stock accumulated to a stated horizon). An accumulation is carried on the derived stock-at-horizon node; its goal retains an ordinary product over price and that node. CEE-minted at construction; PLoT forwards it verbatim to ISL, which evaluates only what is declared. An unknown operation or a malformed declaration is refused (422, naming the field), never dropped.'
           required: [operation, factor_ids, stated_in_brief]
           additionalProperties: false
           oneOf:
@@ -5733,6 +5733,7 @@ components:
                 anyOf:
                   - required: [horizon_months]
                   - required: [rate_scale]
+                  - required: [rate_sigma_log]
             - required: [horizon_months, rate_scale]
               properties:
                 operation:
@@ -5767,6 +5768,14 @@ components:
               exclusiveMinimum: true
               maximum: 1
               description: 'Accumulation only: converts the churn factor''s user-unit value into a fraction per month, in (0,1]. Use 0.01 for percent and 1 for a fraction; ISL never parses units.'
+            rate_sigma_log:
+              type: array
+              minItems: 2
+              maxItems: 2
+              description: 'Accumulation only: positional lognormal rate spreads [churn, inflow], aligned with factor_ids[1] and factor_ids[2]. Exactly two finite nonnegative numbers. An absent field means zero spread for both rates and stays absent on the wire.'
+              items:
+                type: number
+                minimum: 0
             stated_in_brief:
               type: boolean
               description: 'True only when the brief itself states the identity; otherwise it is Olumi''s reading.'

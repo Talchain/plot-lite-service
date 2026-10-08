@@ -166,6 +166,7 @@ const NONLINEAR_IDENTITY_KEYS: ReadonlySet<string> = new Set([
   'reading_licence',
   'horizon_months',
   'rate_scale',
+  'rate_sigma_log',
 ]);
 
 /**
@@ -174,7 +175,8 @@ const NONLINEAR_IDENTITY_KEYS: ReadonlySet<string> = new Set([
  * stated_in_brief: boolean, addends?: non-empty unique strings disjoint from factor_ids,
  * reading_licence?: 'olumi_reading' (inferred products only) }`. Accumulation → exactly three
  * positional distinct factor ids (stock today, churn rate, inflow), integer horizon_months 1..120,
- * finite rate_scale in (0,1], and boolean stated_in_brief; addends and reading_licence are forbidden.
+ * finite rate_scale in (0,1], boolean stated_in_brief, and optional positional rate_sigma_log
+ * (exactly two finite numbers >= 0: churn, inflow); addends and reading_licence are forbidden.
  * An accumulation belongs on the derived stock-at-horizon node, never on a goal.
  * The carrier is returned as a fresh object; anything else throws, naming the field. An UNKNOWN KEY throws too:
  * the object is rebuilt from the known keys, so an unknown one would otherwise be dropped silently.
@@ -245,7 +247,7 @@ export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | u
       node.id
     );
   }
-  const { operation, factor_ids, stated_in_brief, addends, reading_licence, horizon_months, rate_scale } = raw as Record<string, unknown>;
+  const { operation, factor_ids, stated_in_brief, addends, reading_licence, horizon_months, rate_scale, rate_sigma_log } = raw as Record<string, unknown>;
   if (typeof operation !== 'string' || !NONLINEAR_IDENTITY_OPERATIONS.has(operation)) {
     throw new NormalisationError(
       `${field}.operation must be one of product | sum | accumulation (got ${JSON.stringify(operation)})`,
@@ -300,6 +302,21 @@ export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | u
         node.id,
       );
     }
+    let rateSigmaLog: [number, number] | undefined;
+    if (Object.prototype.hasOwnProperty.call(raw, 'rate_sigma_log')) {
+      if (
+        !Array.isArray(rate_sigma_log) || rate_sigma_log.length !== 2 ||
+        ![rate_sigma_log[0], rate_sigma_log[1]].every((sigma) => typeof sigma === 'number' && Number.isFinite(sigma) && sigma >= 0)
+      ) {
+        throw new NormalisationError(
+          `${field}.rate_sigma_log must contain exactly two finite numbers >= 0 (churn, inflow)`,
+          `${field}.rate_sigma_log`,
+          node.id,
+        );
+      }
+      // Indexed validation also refuses sparse arrays; absence never becomes a wire default.
+      rateSigmaLog = [rate_sigma_log[0], rate_sigma_log[1]];
+    }
     for (const forbidden of ['addends', 'reading_licence'] as const) {
       if (Object.prototype.hasOwnProperty.call(raw, forbidden)) {
         throw new NormalisationError(
@@ -315,10 +332,12 @@ export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | u
       horizon_months,
       rate_scale,
       stated_in_brief,
+      ...(rateSigmaLog !== undefined ? { rate_sigma_log: rateSigmaLog } : {}),
     };
   }
   // A widened allowlist must not make product/sum silently drop carrier-only fields.
-  for (const forbidden of ['horizon_months', 'rate_scale'] as const) {
+  // Name the new spread even if an operation edit left horizon/rate metadata behind.
+  for (const forbidden of ['rate_sigma_log', 'horizon_months', 'rate_scale'] as const) {
     if (Object.prototype.hasOwnProperty.call(raw, forbidden)) {
       throw new NormalisationError(
         `${field}.${forbidden} is only permitted for operation:accumulation`,
