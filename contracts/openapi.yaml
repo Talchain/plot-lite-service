@@ -5953,6 +5953,53 @@ components:
             decision_flip_unavailable:
               type: object
 
+    InferenceWarning:
+      type: object
+      properties:
+        code: { type: string, description: PLoT or ISL warning code }
+        message: { type: string }
+        severity: { type: string, enum: [info, warning] }
+        detail:
+          type: object
+          description: >
+            GOAL_THRESHOLD_NOT_CONVERTIBLE recovery contract. Unknown or absent
+            ISL reasons become unknown. root_goal carries root_case derived
+            from ISL detail key presence; raw detail values are never forwarded.
+            The existing human message remains at the warning's top level.
+          additionalProperties: false
+          required: [reason]
+          properties:
+            reason:
+              type: string
+              enum:
+                - missing_goal_baseline
+                - root_goal
+                - goal_pinned_by_intervention
+                - goal_values_outside_normalised_domain
+                - non_finite_conversion_input
+                - epsilon_breaks_status_quo_reference
+                - auto_scaled_noise_breaks_status_quo_reference
+                - change_rel_raw_range_missing
+                - change_rel_base_zero
+                - goal_node_missing
+                - unknown
+            root_case:
+              type: string
+              enum: [root_value_source, root_intercept, unknown]
+          oneOf:
+            - properties:
+                reason: { enum: [root_goal] }
+              required: [root_case]
+            - properties:
+                reason: { not: { enum: [root_goal] } }
+              not: { required: [root_case] }
+      required: [code, message]
+      oneOf:
+        - properties:
+            code: { enum: [GOAL_THRESHOLD_NOT_CONVERTIBLE] }
+          required: [detail]
+        - properties:
+            code: { not: { enum: [GOAL_THRESHOLD_NOT_CONVERTIBLE] } }
     runResponseV3:
       type: object
       required: [request_schema_version, endpoint_version, preflight_version, request_id, analysis_status, option_comparison_status, robustness_status, drivers_status, critiques, meta, review_cards, fact_objects]
@@ -5996,6 +6043,11 @@ components:
           type: string
           enum: [computed, unavailable, skipped, error]
           description: Per-feature status (UI vocabulary)
+        inference_warnings:
+          type: array
+          description: Always present; [] means assessed with no warnings.
+          items:
+            $ref: '#/components/schemas/InferenceWarning'
         auto_noise_applied:
           type: boolean
           nullable: true

@@ -62,12 +62,14 @@ import type {
   FactorStabilityEntry,
   StabilityThresholds,
   InferenceWarning,
+  GoalThresholdNotConvertibleReason,
+  GoalThresholdNotConvertibleDetail,
   JointWithheld,
   OutcomeStatsV3,
   InterventionValueV3,
   InterventionSource,
 } from '../../types/engine-v3.js';
-import { INFERENCE_WARNING_CODES } from '../../types/engine-v3.js';
+import { GOAL_THRESHOLD_NOT_CONVERTIBLE_REASONS, INFERENCE_WARNING_CODES } from '../../types/engine-v3.js';
 import { sha8 } from '../../util/pii-redact.js';
 import { getBuildId } from '../../util/build-id.js';
 import { addUserMessages, withExactInputZeroVarianceWording } from '../../critique-humaniser.js';
@@ -4640,6 +4642,27 @@ function buildResponse(
           typeof rawNodeLabel === 'string' && rawNodeLabel.trim() !== ''
             ? rawNodeLabel.trim()
             : undefined;
+        // GOAL-REACH 3a: CEE routes recovery from this closed reason, never
+        // from raw producer content or the human message. Root sub-cases are
+        // identified by ISL's detail KEY, not its source-string/numeric value.
+        let thresholdDetail: GoalThresholdNotConvertibleDetail | undefined;
+        if (w.code === 'GOAL_THRESHOLD_NOT_CONVERTIBLE') {
+          const rawReason = w?.detail?.reason;
+          const reason: GoalThresholdNotConvertibleReason =
+            typeof rawReason === 'string' && (GOAL_THRESHOLD_NOT_CONVERTIBLE_REASONS as readonly string[]).includes(rawReason)
+              ? rawReason as GoalThresholdNotConvertibleReason
+              : 'unknown';
+          if (reason === 'root_goal') {
+            const hasValueSource = Object.prototype.hasOwnProperty.call(w.detail ?? {}, 'root_value_source');
+            const hasIntercept = Object.prototype.hasOwnProperty.call(w.detail ?? {}, 'root_intercept');
+            thresholdDetail = {
+              reason,
+              root_case: hasValueSource === hasIntercept ? 'unknown' : hasValueSource ? 'root_value_source' : 'root_intercept',
+            };
+          } else {
+            thresholdDetail = { reason };
+          }
+        }
         inferenceWarnings.push({
           code: w.code,
           message,
@@ -4652,7 +4675,16 @@ function buildResponse(
           ...(field !== undefined && { field }),
           ...(elapsedMs !== undefined && { elapsed_ms: elapsedMs }),
           ...(nodeLabel !== undefined && { node_label: nodeLabel }),
+          ...(thresholdDetail !== undefined && { detail: thresholdDetail }),
         });
+        if (thresholdDetail) {
+          // One event per emitted warning (after dedup); closed vocabulary only.
+          logger?.warn({
+            event: 'goal_threshold_not_convertible',
+            reason: thresholdDetail.reason,
+            root_case: thresholdDetail.root_case ?? 'unknown',
+          });
+        }
         existingKeys.add(dedupKey);
       }
     }

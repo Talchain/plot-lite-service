@@ -3373,6 +3373,27 @@ export const INFERENCE_WARNING_CODES = {
 
 export type InferenceWarningCode = (typeof INFERENCE_WARNING_CODES)[keyof typeof INFERENCE_WARNING_CODES];
 
+/** GOAL-REACH 3a: closed ISL refusal vocabulary, plus PLoT's defensive fallback. */
+export const GOAL_THRESHOLD_NOT_CONVERTIBLE_REASONS = [
+  'missing_goal_baseline',
+  'root_goal',
+  'goal_pinned_by_intervention',
+  'goal_values_outside_normalised_domain',
+  'non_finite_conversion_input',
+  'epsilon_breaks_status_quo_reference',
+  'auto_scaled_noise_breaks_status_quo_reference',
+  'change_rel_raw_range_missing',
+  'change_rel_base_zero',
+  'goal_node_missing',
+  'unknown',
+] as const;
+
+export type GoalThresholdNotConvertibleReason = (typeof GOAL_THRESHOLD_NOT_CONVERTIBLE_REASONS)[number];
+export type GoalThresholdRootCase = 'root_value_source' | 'root_intercept' | 'unknown';
+export type GoalThresholdNotConvertibleDetail =
+  | { reason: 'root_goal'; root_case: GoalThresholdRootCase }
+  | { reason: Exclude<GoalThresholdNotConvertibleReason, 'root_goal'>; root_case?: never };
+
 /**
  * Diagnostic warning emitted when inference metadata is inconsistent.
  * Code is typed as string to accept both PLoT-originated and ISL-forwarded codes.
@@ -3388,6 +3409,13 @@ export interface InferenceWarning {
   code: InferenceWarningCode | string;
   message: string;
   severity: 'info' | 'warning';
+  /**
+   * GOAL_THRESHOLD_NOT_CONVERTIBLE always carries a closed reason. root_goal
+   * also carries the case identified by ISL's root_value_source/root_intercept
+   * detail key; absent or ambiguous keys become unknown. Raw ISL detail is
+   * never forwarded. The existing human message stays at top level.
+   */
+  detail?: GoalThresholdNotConvertibleDetail;
   /**
    * B5: the limit(s) this warning is about, by their ratified ids — set on
    * CONSTRAINT_TARGET_UNRELIABLE, which is emitted once per target NODE and so
