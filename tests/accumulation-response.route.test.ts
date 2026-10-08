@@ -61,7 +61,7 @@ function accumulationRunBody() {
           observed_state: { value: 0, cap: 10000 },
           nonlinear_identity: { operation: 'accumulation',
             factor_ids: ['stock_today', 'monthly_churn', 'monthly_inflow'],
-            horizon_months: 12, rate_scale: 0.01, stated_in_brief: false } },
+            horizon_months: 12, rate_scale: 0.01, stated_in_brief: true } },
         { id: 'goal', kind: 'goal', label: 'MRR', observed_state: { value: 0, cap: 2000000 },
           nonlinear_identity: { operation: 'product', factor_ids: ['factor-0', 'subscribers_at_horizon'], stated_in_brief: true } },
       ],
@@ -196,7 +196,7 @@ describe('accumulation identity wire disclosure and published schemas', () => {
       .find((node) => node.id === 'subscribers_at_horizon')!.nonlinear_identity;
     expect(identityOf(a.isl)).toEqual({ operation: 'accumulation',
       factor_ids: ['stock_today', 'monthly_churn', 'monthly_inflow'],
-      horizon_months: 12, rate_scale: 0.01, stated_in_brief: false });
+      horizon_months: 12, rate_scale: 0.01, stated_in_brief: true });
     expect(identityOf(b.isl)).toEqual({ ...identityOf(a.isl),
       factor_ids: ['monthly_inflow', 'monthly_churn', 'stock_today'] });
     expect(b.hash).not.toBe(a.hash);

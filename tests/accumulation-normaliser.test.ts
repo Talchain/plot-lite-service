@@ -26,13 +26,13 @@ describe('Round 2 cap-only accumulation carrier after normalisation', () => {
     stated_in_brief: true,
   };
 
-  function normalisedCarrier(withValue: boolean) {
+  function normalisedCarrier(withValue: boolean, statedInBrief = false) {
     const input = {
       nodes: [
         {
           id: 'stock_at_horizon', kind: 'outcome', label: 'Stock at month 12',
           observed_state: { cap: 10000, ...(withValue ? { value: 0.5 } : {}) },
-          nonlinear_identity: carrier(),
+          nonlinear_identity: { ...carrier(), stated_in_brief: statedInBrief },
         },
         { id: 'stock_today', kind: 'factor', observed_state: { value: 0.3, raw_value: 1500, cap: 5000 } },
         { id: 'churn_rate', kind: 'factor', observed_state: { value: 0.03, raw_value: 3, unit: '%' } },
@@ -53,7 +53,7 @@ describe('Round 2 cap-only accumulation carrier after normalisation', () => {
     return { input, graph, isl: graph.nodes.map(toISLNode) };
   }
 
-  it('withdraws the cap-only carrier by rule (b) with the exact record, preserving the confirmed goal product', () => {
+  it('withdraws the unconfirmed cap-only carrier by rule (d) before (b), preserving the confirmed goal product', () => {
     const { input, graph, isl } = normalisedCarrier(false);
     expect(input.nodes[0].observed_state).toEqual({ cap: 10000 });
     // Pin today's ingress: a cap without a value is not a normalised observed state.
@@ -66,8 +66,8 @@ describe('Round 2 cap-only accumulation carrier after normalisation', () => {
     expect(attachIdentityExecutionFrames(isl, graph.nodes, new Map(), new Map(), derived)).toEqual([
       {
         node_id: 'stock_at_horizon',
-        reason: 'inferred_identity_frame_unresolved',
-        frameless_node_ids: ['stock_at_horizon'],
+        reason: 'inferred_identity_unconfirmed',
+        frameless_node_ids: [],
       },
     ]);
     expect(isl[0]).not.toHaveProperty('nonlinear_identity');
@@ -77,14 +77,14 @@ describe('Round 2 cap-only accumulation carrier after normalisation', () => {
     expect(input.nodes[0].observed_state).toEqual({ cap: 10000 });
   });
 
-  it('CONTROL: the same carrier with a value keeps the accumulation and confirmed goal identities', () => {
-    const { input, graph, isl } = normalisedCarrier(true);
+  it('CONTROL: the same stated carrier with a value keeps the accumulation and confirmed goal identities', () => {
+    const { input, graph, isl } = normalisedCarrier(true, true);
     expect(input.nodes[0].observed_state).toEqual({ cap: 10000, value: 0.5 });
     expect(graph.nodes[0].observed_state).toMatchObject({ cap: 10000, value: 0.5 });
 
     const derived: IdentityDerivedFrame[] = [];
     expect(attachIdentityExecutionFrames(isl, graph.nodes, new Map(), new Map(), derived)).toEqual([]);
-    expect(isl[0].nonlinear_identity).toEqual(carrier());
+    expect(isl[0].nonlinear_identity).toEqual({ ...carrier(), stated_in_brief: true });
     expect(isl[0].execution_frame).toEqual({ frame: 10000, carrier: 'cap' });
     expect(isl.find((node) => node.id === 'stock_today')?.execution_frame).toEqual({ frame: 5000, carrier: 'cap' });
     expect(isl.find((node) => node.id === 'inflow')?.execution_frame).toEqual({ frame: 1000, carrier: 'cap' });

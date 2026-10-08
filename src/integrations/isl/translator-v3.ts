@@ -253,23 +253,24 @@ export function attachIdentityExecutionFrames(
   // card (CEE #2292 writes it `stated_in_brief: true`). Without a licence it is NOT forwarded: the goal stays linear and
   // `goalIdentitiesNotEvaluated` withholds every goal figure under its own code — never a chance through an unconfirmed
   // product (served: "reaches above £85k MRR in 99.8%"), never one from the linear walk. Sums, stated identities and
-  // non-goal carriers fall through to the variants below untouched.
+  // non-goal products fall through to the variants below untouched.
   // The card domain decides, not the node kind (AIQ 5891608873; DL 5891633125; PR Review CR 5891899825): a goal carrier
   // (`goalCarrierIds` — units compose to the goal's, the user's three levels, within 5%) is a reading of the goal too,
-  // however many parents the goal has. A carrier outside the domain (DL A15: an Olumi level) is not (d)'s.
+  // however many parents the goal has. A product carrier outside the domain (DL A15: an Olumi level) is not (d)'s.
   // Science §(e), GOAL-REACH build 2: CEE's `olumi_reading` stamp licenses the labelled reading (including addends).
   // Read it from the engine node: `toISLNode` deliberately excludes it from ISL's strict identity schema. It bypasses
   // only (d); canonical frames, (a), (b) and ISL's reconciliation/(c) still apply. CEE owns the licence predicate;
   // the older three-user-level carrier recognition is not an additional veto on a licensed carrier.
+  // Every unconfirmed accumulation is withheld regardless of goal-carrier domain; no reading_licence bypass applies.
   const notForwarded: IdentityNotForwarded[] = [];
   for (const node of islNodes) {
     const identity = node.nonlinear_identity;
-    // Accumulation is the stock carrier, not a product reading of the goal. Rule (d) still
-    // applies to the goal's separate product over [price, accumulation carrier].
-    if (identity?.operation === 'accumulation') continue;
-    if (!identity || identity.stated_in_brief !== false || identity.operation !== 'product') continue;
-    if (engineById.get(node.id)?.nonlinear_identity?.reading_licence === 'olumi_reading') continue;
-    if (engineById.get(node.id)?.kind !== 'goal' && !goalCarriers.has(node.id)) continue;
+    if (!identity || identity.stated_in_brief !== false) continue;
+    if (identity.operation !== 'accumulation') {
+      if (identity.operation !== 'product') continue;
+      if (engineById.get(node.id)?.nonlinear_identity?.reading_licence === 'olumi_reading') continue;
+      if (engineById.get(node.id)?.kind !== 'goal' && !goalCarriers.has(node.id)) continue;
+    }
     delete node.nonlinear_identity;
     notForwarded.push({ node_id: node.id, reason: 'inferred_identity_unconfirmed', frameless_node_ids: [] });
   }

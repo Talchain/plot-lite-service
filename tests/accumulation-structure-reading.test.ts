@@ -63,8 +63,8 @@ describe('T6 operation sites: withheld reading refuses accumulation arithmetic',
 
   it('evaluated accumulation is not withheld', () => {
     const evaluation = { node_id: 'stock_at_horizon', operation: 'accumulation',
-      evaluated: true, horizon_months: 12, reason: null } as any;
-    expect(goalIdentitiesNotEvaluated(graph(ACCUMULATION), [evaluation], [])).toEqual([]);
+      stated_in_brief: true, evaluated: true, horizon_months: 12, reason: null } as any;
+    expect(goalIdentitiesNotEvaluated(graph({ ...ACCUMULATION, stated_in_brief: true }), [evaluation], [])).toEqual([]);
   });
 
   it('goalIdentityWithheldMessage uses the existing generic sentence for a null reading', () => {
