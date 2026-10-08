@@ -680,7 +680,7 @@ const STATED_ACCUMULATION = {
 };
 
 /** CEE #4's carrier has a node scale_frame and no observed_state. */
-function buildV2AccumulationRequest(): ISLRobustnessRequestV3 {
+function buildV2AccumulationRequest(rateSigmaLog?: [number, number]): ISLRobustnessRequestV3 {
   const graph: EngineGraphV3 = {
     nodes: [
       {
@@ -697,7 +697,10 @@ function buildV2AccumulationRequest(): ISLRobustnessRequestV3 {
       },
       {
         id: 'stock_at_horizon', kind: 'outcome', label: 'Stock at month 12',
-        scale_frame: 1000, nonlinear_identity: structuredClone(STATED_ACCUMULATION),
+        scale_frame: 1000, nonlinear_identity: {
+          ...structuredClone(STATED_ACCUMULATION),
+          ...(rateSigmaLog === undefined ? {} : { rate_sigma_log: [...rateSigmaLog] }),
+        },
       },
       {
         id: 'price', kind: 'factor', label: 'Price',
@@ -854,7 +857,7 @@ export const PRODUCERS: ProducerSpec[] = [
     note: 'PLoT #446: stated accumulation with three direct parents, node scale_frame (CEE #4), ' +
       'framed percent churn and a stated goal product over price and the carrier. Real translator ' +
       'plus the route frame attachment; carrier fields asserted at the fetch boundary. ' +
-      'No rate_sigma_log: the current ISL pin 8efe2457 forbids it.',
+      'No rate_sigma_log: retain coverage of the optional spread omission path.',
     run: async () => {
       await newClient().request({
         endpoint: '/api/v1/robustness/analyze/v2',
@@ -875,6 +878,33 @@ export const PRODUCERS: ProducerSpec[] = [
         .map((edge) => edge.from).sort(), [...STATED_ACCUMULATION.factor_ids].sort());
       assert.deepStrictEqual(body.graph.nodes.find((node) => node.id === 'goal_revenue')?.nonlinear_identity,
         { operation: 'product', factor_ids: ['price', 'stock_at_horizon'], stated_in_brief: true });
+      return captures;
+    },
+  },
+  {
+    name: 'v2-run-accumulation-identity-rate-sigma',
+    endpoint: '/api/v1/robustness/analyze/v2',
+    site: 'routes/v2/run.ts → islService.callAnalysisEndpoint (stated accumulation rate spread, PLoT #447)',
+    liveness: 'live',
+    note: 'PLoT #447: CEE served rate_sigma_log [0.136, 0.246] on the accumulation carrier. ' +
+      'Real translator plus the route frame attachment; the positional pair is asserted ' +
+      'byte-identically at the fetch boundary. ISL #231 declares the optional pair.',
+    run: async () => {
+      const rateSigmaLog: [number, number] = [0.136, 0.246];
+      await newClient().request({
+        endpoint: '/api/v1/robustness/analyze/v2',
+        body: buildV2AccumulationRequest(rateSigmaLog),
+        requestId: 'req_slice2_pairing_accumulation',
+      });
+      const captures = takeCaptured();
+      assert.equal(captures.length, 1);
+      const body = captures[0]!.body as ISLRobustnessRequestV3;
+      const carrier = body.graph.nodes.find((node) => node.id === 'stock_at_horizon');
+      const expected = { ...STATED_ACCUMULATION, rate_sigma_log: rateSigmaLog };
+      assert.equal(JSON.stringify(carrier?.nonlinear_identity), JSON.stringify(expected));
+      assert.ok(captures[0]!.bodyText.includes('"rate_sigma_log":[0.136,0.246]'));
+      assert.deepStrictEqual(carrier?.execution_frame, { frame: 1000, carrier: 'scale_frame' });
+      assert.equal(carrier?.observed_state, undefined);
       return captures;
     },
   },

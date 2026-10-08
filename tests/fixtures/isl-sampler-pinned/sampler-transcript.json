@@ -5,9 +5,9 @@
     "parameter_uncertainties entry, plus whether ISL's root-default detector fires.",
     "Consumed hermetically by tests/isl-factor-sampler-centre.contract.test.ts."
   ],
-  "pin_digest": "549029af48a09d98a70f3eec1821e0c3d5f6adb1ba3012ef03f8c477cff485b1",
+  "pin_digest": "bf5291f54f24ca067f98598a9328fe80872791c26f19f2f4ab4d015a8087c56a",
   "cases_sha256": "70f25cd6ff57e397b69742631347508428a4d470405bde6561e61398f9494193",
-  "isl_sha": "8efe2457cfc81da3c4741fbe01cf07af699ee804",
+  "isl_sha": "87a031f73d8f43dacd3455626a15d274a2edb8d4",
   "runtime": {
     "python": "3.11.14",
     "pydantic": "2.6.1"
