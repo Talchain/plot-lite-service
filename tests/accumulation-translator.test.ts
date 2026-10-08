@@ -30,6 +30,20 @@ function carrierNodes(statedInBrief = false): EngineNodeV3[] {
 }
 
 describe('accumulation translator — exact carrier and frame decisions', () => {
+  it.each([[0.136, 0.246], [0, 0], [Number.MIN_VALUE, Number.MAX_VALUE]])(
+    'forwards rate spreads %j byte-identically and copies the positional array',
+    (churn, inflow) => {
+      const engine = carrierNodes(true)[0];
+      const expected = { ...structuredClone(STATED_ACCUMULATION), rate_sigma_log: [churn, inflow] };
+      engine.nonlinear_identity = expected as unknown as NonNullable<EngineNodeV3['nonlinear_identity']>;
+      const before = structuredClone(engine);
+      const actual = toISLNode(engine).nonlinear_identity;
+      expect(JSON.stringify(actual)).toBe(JSON.stringify(expected));
+      expect((actual as any).rate_sigma_log).not.toBe(expected.rate_sigma_log);
+      expect(engine).toEqual(before);
+    },
+  );
+
   it('R1 rule (d) withholds an inferred accumulation with all frames, regardless of domain or licence', () => {
     for (const inGoalDomain of [false, true]) {
       for (const readingLicence of [undefined, 'olumi_reading']) {

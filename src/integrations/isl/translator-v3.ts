@@ -1137,6 +1137,9 @@ function toISLNonlinearIdentity(identity: NonlinearIdentity): ISLNonlinearIdenti
         horizon_months: identity.horizon_months,
         rate_scale: identity.rate_scale,
         stated_in_brief: identity.stated_in_brief,
+        ...(identity.rate_sigma_log !== undefined
+          ? { rate_sigma_log: [identity.rate_sigma_log[0], identity.rate_sigma_log[1]] as [number, number] }
+          : {}),
       };
     case 'product':
     case 'sum':

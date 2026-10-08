@@ -461,6 +461,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "rank_stability",
   "ranked_factor_ids",
   "rate_scale",
+  "rate_sigma_log",
   "rationale",
   "raw_value",
   "reachable",

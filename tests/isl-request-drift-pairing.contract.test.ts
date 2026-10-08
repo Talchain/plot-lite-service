@@ -423,6 +423,17 @@ describe('PLoT → ISL request drift pairing (contract step-2 slice 2)', () => {
       expect(Object.keys(TRANSCRIPT.egress).sort()).toEqual(PRODUCERS.map((p) => p.name).sort());
     });
 
+    // The generic METHOD rows below run only for successful parses. Require both
+    // accumulation variants explicitly so a rejected optional sigma carrier cannot skip them.
+    it.each(['v2-run-accumulation-identity', 'v2-run-accumulation-identity-rate-sigma'])(
+      'the pinned model accepts %s without validation errors', (producer) => {
+        const entry = TRANSCRIPT.egress[producer];
+        expect(entry, 'the accumulation producer must have an executed-model replay').toBeDefined();
+        expect(entry!.parses).toBe(true);
+        expect(entry!.validation_errors).toEqual([]);
+      },
+    );
+
     for (const producer of PRODUCERS) {
       describe(`${producer.name} → ${producer.endpoint}`, () => {
         const fixture = FIXTURES.get(producer.name);

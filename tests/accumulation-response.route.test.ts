@@ -132,6 +132,73 @@ describe('accumulation identity wire disclosure and published schemas', () => {
     return { hash: body._meta.response_hash as string, isl: capturedISLRequest! };
   }
 
+  it.each([
+    { name: 'authored spreads', rate_sigma_log: [0.136, 0.246] },
+    { name: 'explicit zero spreads', rate_sigma_log: [0, 0] },
+    { name: 'absent spreads', rate_sigma_log: undefined },
+  ])('rate_sigma_log $name retains exact carrier bytes through normalise, toISLNode and route egress', async ({ rate_sigma_log }) => {
+    const payload = accumulationRunBody();
+    const input = payload.graph.nodes.find((node) => node.id === 'subscribers_at_horizon')!;
+    // The level-less derived carrier resolves its frame from node-level scale_frame.
+    delete (input as { observed_state?: unknown }).observed_state;
+    Object.assign(input, { scale_frame: 10000 });
+    if (rate_sigma_log !== undefined) Object.assign(input.nonlinear_identity!, { rate_sigma_log });
+    const before = structuredClone(payload);
+    const engine = normaliseGraph(payload.graph).graph.nodes.find((node) => node.id === input.id)!;
+    const projected = toISLNode(engine);
+    const { isl } = await hashFor(payload);
+    const wire = isl.graph.nodes.find((node) => node.id === input.id)!;
+    for (const [stage, node] of [['normalise', engine], ['toISLNode', projected], ['route egress', wire]] as const) {
+      expect.soft(JSON.stringify(node.nonlinear_identity), stage).toBe(JSON.stringify(input.nonlinear_identity));
+      if (rate_sigma_log === undefined) expect.soft(node.nonlinear_identity, stage).not.toHaveProperty('rate_sigma_log');
+    }
+    expect(wire.execution_frame).toEqual({ frame: 10000, carrier: 'scale_frame' });
+    expect(JSON.parse(JSON.stringify(wire))).not.toHaveProperty('observed_state');
+    if (rate_sigma_log === undefined) {
+      // Literal pre-field wire bytes: no sigma key or implicit zero pair.
+      expect(JSON.stringify(wire)).toBe(JSON.stringify({
+        id: 'subscribers_at_horizon', kind: 'outcome', label: 'Stock at month 12', intercept: 0, epsilon_std: 0,
+        nonlinear_identity: { operation: 'accumulation', factor_ids: ['stock_today', 'monthly_churn', 'monthly_inflow'],
+          horizon_months: 12, rate_scale: 0.01, stated_in_brief: true },
+        execution_frame: { frame: 10000, carrier: 'scale_frame' },
+      }));
+    }
+    expect(payload).toEqual(before);
+  });
+
+  it.each([
+    ['negative', [-0.1, 0.2]],
+    ['one entry', [0.1]],
+    ['three entries', [0.1, 0.2, 0.3]],
+    // JSON serialises non-finite numbers as null; direct-reader rows cover the originals.
+    ['NaN on JSON wire', [NaN, 0.1]],
+    ['Infinity on JSON wire', [0.1, Infinity]],
+    ['non-array', 'x'],
+  ])('returns 422 naming nonlinear_identity.rate_sigma_log for %s before ISL egress', async (_name, rate_sigma_log) => {
+    const payload = accumulationRunBody();
+    Object.assign(payload.graph.nodes.find((node) => node.id === 'subscribers_at_horizon')!.nonlinear_identity!, { rate_sigma_log });
+    const response = await app.inject({ method: 'POST', url: '/v2/run', payload });
+    expect(response.statusCode, response.body).toBe(422);
+    expect(response.body).toContain('nonlinear_identity.rate_sigma_log');
+    expect(capturedISLRequest).toBeUndefined();
+  });
+
+  it.each(['product', 'sum'])('returns 422 naming rate_sigma_log on a %s before ISL egress', async (operation) => {
+    const payload = accumulationRunBody();
+    Object.assign(payload.graph.nodes.find((node) => node.id === 'goal')!.nonlinear_identity!, { operation, rate_sigma_log: [0.136, 0.246] });
+    const response = await app.inject({ method: 'POST', url: '/v2/run', payload });
+    expect(response.statusCode, response.body).toBe(422);
+    expect(response.body).toContain('nonlinear_identity.rate_sigma_log');
+    expect(capturedISLRequest).toBeUndefined();
+    const edited = accumulationRunBody();
+    Object.assign(edited.graph.nodes.find((node) => node.id === 'subscribers_at_horizon')!.nonlinear_identity!,
+      { operation, rate_sigma_log: [0.136, 0.246] });
+    const editedResponse = await app.inject({ method: 'POST', url: '/v2/run', payload: edited });
+    expect(editedResponse.statusCode, editedResponse.body).toBe(422);
+    expect(editedResponse.body).toContain('nonlinear_identity.rate_sigma_log');
+    expect(capturedISLRequest).toBeUndefined();
+  });
+
   it.each(FRAMED_CHURN_SHAPES.flatMap((shape) => [false, true].map((withFrames) => ({ ...shape, withFrames }))))(
     'Round 2 (b) keeps framed % churn $name byte-identical at normalization, projection and ISL egress; optional frames=$withFrames',
     async ({ observed_state, scale_frame, frameCarrier, withFrames }) => {

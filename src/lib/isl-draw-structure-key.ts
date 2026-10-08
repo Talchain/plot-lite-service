@@ -11,7 +11,7 @@
  * staging, and the always-on downstream record keeps a size-capped debug copy (`sanitizePayloadForDebug` truncates long
  * arrays). The key is computed from the EXACT body the ISL client sends, before any of that.
  *
- * IN THE KEY, in list order: nodes (epsilon noise on or off; a nonlinear identity's operands), edges (`exists_probability`;
+ * IN THE KEY, in list order: nodes (epsilon noise on or off; a nonlinear identity's operands and accumulation rate spreads), edges (`exists_probability`;
  * a strength mean at exactly 0), the parameter uncertainties with their distribution type, each option's intervention set
  * and stated ranges, factor correlations, and the analysis switches. NOT in the key: values that do not change what is
  * drawn (a strength mean or std off 0, a prior's bounds, an intervention level, the seed). Same definition as CEE #2410's
@@ -34,14 +34,21 @@ export function islDrawStructureKey(islRequest: unknown): string | null {
   const g = islRequest.graph;
   if (!Array.isArray(g.nodes) || !Array.isArray(g.edges)) return null;
   const nodes = g.nodes.filter(isRec).map((n) => {
+    const rateSigmaLog = isRec(n.nonlinear_identity) ? n.nonlinear_identity.rate_sigma_log : undefined;
+    // Absence means two zero spreads. Keep both semantically equal and preserve
+    // the existing absent-carrier digest; this affects the key only, never the wire.
+    const rateSpreadKey = rateSigmaLog === undefined
+      || (Array.isArray(rateSigmaLog) && rateSigmaLog.length === 2 && rateSigmaLog.every(isZero))
+      ? []
+      : [rateSigmaLog];
     const nli = isRec(n.nonlinear_identity)
       ? JSON.stringify([
           n.nonlinear_identity.operation ?? null,
           n.nonlinear_identity.factor_ids ?? null,
           n.nonlinear_identity.addends ?? null,
-          // The accumulation carrier's horizon and rate basis must bind the key too.
+          // The accumulation carrier's horizon, rate basis and positional spreads bind the key.
           ...(n.nonlinear_identity.operation === 'accumulation'
-            ? [n.nonlinear_identity.horizon_months ?? null, n.nonlinear_identity.rate_scale ?? null]
+            ? [n.nonlinear_identity.horizon_months ?? null, n.nonlinear_identity.rate_scale ?? null, ...rateSpreadKey]
             : []),
         ])
       : '';

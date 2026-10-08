@@ -116,6 +116,7 @@ export interface ProductOrSumIdentity {
   addends?: string[];
   horizon_months?: never;
   rate_scale?: never;
+  rate_sigma_log?: never;
 }
 
 /**
@@ -129,6 +130,8 @@ export interface AccumulationIdentity {
   horizon_months: number;
   rate_scale: number;
   stated_in_brief: boolean;
+  /** Positional log-rate spreads: churn, inflow. Absent means zero; never default on the wire. */
+  readonly rate_sigma_log?: readonly [number, number];
   addends?: never;
   reading_licence?: never;
 }

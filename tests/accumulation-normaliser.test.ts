@@ -111,6 +111,43 @@ function expectRefused(identity: unknown, field: string): void {
 }
 
 describe('T2 accumulation carrier ingress is strict and positional', () => {
+  it.each([[0.136, 0.246], [0, 0], [Number.MIN_VALUE, Number.MAX_VALUE]])(
+    'preserves the exact positional rate spread %j without sharing the input array',
+    (churn, inflow) => {
+      const identity = { ...carrier(), rate_sigma_log: [churn, inflow] };
+      const result = normaliseNode({ id: 'stock_at_horizon', nonlinear_identity: identity } as any).nonlinear_identity;
+      expect(JSON.stringify(result)).toBe(JSON.stringify(identity));
+      expect(result).toHaveProperty('rate_sigma_log', identity.rate_sigma_log);
+      expect((result as any).rate_sigma_log).not.toBe(identity.rate_sigma_log);
+    },
+  );
+
+  it('keeps an absent rate spread absent through normalisation and projection', () => {
+    const identity = carrier();
+    const node = normaliseNode({ id: 'stock_at_horizon', nonlinear_identity: identity } as any);
+    for (const result of [node.nonlinear_identity, toISLNode(node).nonlinear_identity]) {
+      expect(JSON.stringify(result)).toBe(JSON.stringify(identity));
+      expect(result).not.toHaveProperty('rate_sigma_log');
+    }
+  });
+
+  it.each([
+    ['negative churn', [-0.1, 0.2]],
+    ['negative inflow', [0.1, -0.2]],
+    ['one entry', [0.1]],
+    ['three entries', [0.1, 0.2, 0.3]],
+    ['NaN', [NaN, 0.1]],
+    ['Infinity', [0.1, Infinity]],
+    ['negative Infinity', [-Infinity, 0.1]],
+    ['non-array', 'x'],
+    ['non-number entry', [0.1, '0.2']],
+    ['null', null],
+    ['explicit undefined', undefined],
+    ['sparse array', new Array(2)],
+  ])('refuses %s and names the exact rate_sigma_log field', (_label, rate_sigma_log) => {
+    expectRefused({ ...carrier(), rate_sigma_log }, 'rate_sigma_log');
+  });
+
   it('accepts the contract example with every exact field and returns a fresh carrier', () => {
     const identity = carrier();
     const result = normaliseNode({
@@ -242,5 +279,10 @@ describe('T2 accumulation carrier ingress is strict and positional', () => {
     for (const rate_scale of [0.01, undefined]) {
       expectRefused({ ...identity, rate_scale }, 'rate_scale');
     }
+    for (const rate_sigma_log of [[0.136, 0.246], undefined]) {
+      expectRefused({ ...identity, rate_sigma_log }, 'rate_sigma_log');
+    }
+    // An operation edit can leave other carrier-only fields behind; sigma still names its refusal.
+    expectRefused({ ...carrier(), operation, rate_sigma_log: [0.136, 0.246] }, 'rate_sigma_log');
   });
 });
