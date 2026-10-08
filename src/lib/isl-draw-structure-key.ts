@@ -35,7 +35,15 @@ export function islDrawStructureKey(islRequest: unknown): string | null {
   if (!Array.isArray(g.nodes) || !Array.isArray(g.edges)) return null;
   const nodes = g.nodes.filter(isRec).map((n) => {
     const nli = isRec(n.nonlinear_identity)
-      ? JSON.stringify([n.nonlinear_identity.operation ?? null, n.nonlinear_identity.factor_ids ?? null, n.nonlinear_identity.addends ?? null])
+      ? JSON.stringify([
+          n.nonlinear_identity.operation ?? null,
+          n.nonlinear_identity.factor_ids ?? null,
+          n.nonlinear_identity.addends ?? null,
+          // The accumulation carrier's horizon and rate basis must bind the key too.
+          ...(n.nonlinear_identity.operation === 'accumulation'
+            ? [n.nonlinear_identity.horizon_months ?? null, n.nonlinear_identity.rate_scale ?? null]
+            : []),
+        ])
       : '';
     const eps = typeof n.epsilon_std === 'number' && n.epsilon_std > 0 ? 'eps' : '';
     return `${String(n.id)}|${String(n.kind)}|${eps}|${nli}`;
