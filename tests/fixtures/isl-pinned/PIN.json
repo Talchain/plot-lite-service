@@ -21,9 +21,9 @@
   "isl": {
     "repo": "Talchain/Inference-Service-Layer",
     "ref": "staging",
-    "sha": "707a81628f30757195acdc24b11618aa51fb5212",
-    "committed_at": "2026-09-29T00:45:37Z",
-    "pinned_by": "R1 S4 (B) deliberate re-pin, 2026-09-29 (R3 SCIENCE for MG's PLoT #406, #72 5881478000): 56c35468 -> 707a8162, the served ISL with #209 (goal_threshold_strict) and #212 (AIQ tie band). It declares RobustnessRequestV2.goal_threshold_strict, which #406's egress sends; the 56c35468 pin predates it. The previous pinned_by note (R1 S3, 2026-09-28) is superseded; its history is in git."
+    "sha": "8efe2457cfc81da3c4741fbe01cf07af699ee804",
+    "committed_at": "2026-10-08T16:49:28+01:00",
+    "pinned_by": "b2 PLoT #446 final DL-approved re-pin, 2026-10-08: ISL #230 merged target 8efe2457; MERGED + SERVED identity supplied by DL. Exact checkout and bytes verified; request replay is model validation, not deployed runtime acceptance. Existing external blobless clone and isolated Poetry interpreter reused per task override."
   },
   "runtime": {
     "python": "^3.11 (pyproject.toml:10)",
@@ -36,18 +36,18 @@
     "isl_openapi_json": {
       "vendored_as": "tests/fixtures/isl-pinned/isl-openapi.json",
       "upstream_path": "openapi.json",
-      "sha256": "1351b74bcbccafd58a378055709998050a1edd77a3a5d98376df8f1863fdaeb2",
+      "sha256": "a14f5f2ddc30d85c8457d38799a99cb3e22e506d37e774a64629fbaa24b6736d",
       "what_it_is": "ISL's committed, MACHINE-GENERATED OpenAPI document (scripts/generate_openapi.py -> FastAPI app.openapi()). It is Pydantic's own description of the mounted request models, not a hand-written copy — which is why the pairing may consume it hermetically. ISL CI (.github/workflows/openapi-validation.yml) runs `generate_openapi.py --check` on every PR touching src/api, src/models, pyproject or the spec, so it cannot drift from the models without ISL going red.",
       "what_it_is_NOT": "It is not evidence about DEPLOYED ISL. It describes the app as built at this sha."
     }
   },
   "source_sha256": {
-    "_note": "The model + router files every claim in the pairing is derived from. The Python replay driver verifies each of these against the clone it is pointed at and REFUSES to run on a mismatch, so a transcript can never be produced from bytes other than these. Review S4: src/api/robustness.py is pinned too — the mounted_request_models handler cite names a LINE in it, and a hand-maintained line number in another repo drifts silently. It drifted again at this re-pin (2.749): analyze_robustness_v2 578 -> 579 -> 582, analyze_counterfactual 255 -> 263. RE-DERIVE every line cite in this file at each re-pin; never carry one forward. src/models/range_fit.py was ADDED to this list at the 2.749 re-pin: robustness_v2.py and response_v2.py now import UserStatedRange / RangeFitDisclosure from it (ROADMAP 2.720), so it is load-bearing for BOTH the request and the response closure — without an entry here it could change without the pin noticing, which is the exact hole this list exists to close. R1 S3 re-pin (2026-09-28): the model import closure (robustness_v2 / requests / response_v2) re-derived at 56c35468 by an AST walk; 5 files ADDED because the closure now reaches them: src/models/identity_evaluation.py, src/models/node_level.py, src/models/structural_influence.py, src/utils/secure_logging.py, src/utils/tracing.py. Line cites re-derived: analyze_robustness_v2 582 -> 587; causal.py 263/164/1211, threshold.py:22 and main.py 771/777-794/792 unchanged.",
-    "src/api/main.py": "bc600d5cca3a888ebe580ad36e225449e15de0f3d0e6f56263cb52e23f2ba800",
-    "src/models/robustness_v2.py": "19e7d7e6c51870e5aeed88d115f1419173f2798ef249025caa88703451a62880",
+    "_note": "Every model/router and local import-side-effect file load-bearing for this request pairing. Every hash refreshed at merged ISL 8efe2457. AST re-walk of robustness_v2/requests/response_v2 adds src/models/goal_chance.py. Handler, mount and extra-policy claims re-derived at this exact target. No new producer added.",
+    "src/api/main.py": "42e564e2a54b2dd8d69578b6ecb7714ce05aad87323bf957adbc76cfc9210a39",
+    "src/models/robustness_v2.py": "ce11ad8c9cca8455ea9fa88c142cc9dd76acae8c5d4a8301c7c9dcabc4517901",
     "src/models/range_fit.py": "a3bf7e6052a9facee579ee4c967b80a1c430244f539a0c48c1f00ea528ce76bd",
     "src/models/requests.py": "e652db133fd5985cc25cb42d4fd6b8d59554f4c291d87a622df30b323cc0c0ba",
-    "src/models/response_v2.py": "7e51256973c228a2984d925fc129558aa16bc49e8ad3c1bdebfe53e0f2c84c31",
+    "src/models/response_v2.py": "0aaaff59d09c29f607508850486f5b910b781cbc301c89cbc06fd79a5ebe1c18",
     "src/models/shared.py": "0e5014895ec203375646dea9db8f035f05a625e86eec340c713195ebf0e7b812",
     "src/models/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "src/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
@@ -57,33 +57,39 @@
     "src/utils/__init__.py": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "src/utils/correlation.py": "e8845552739dd174fbead62d72dccb128ffac0c1e4b1ebcbfbbc95b1cd2927d4",
     "src/utils/security_validators.py": "0cdcb577701bfff50057e4df863d34199613a3595df017d1256b8069f14e1211",
-    "src/api/robustness.py": "40be05e8ea40c5225d0a2fe60fe975562c9ccf5f8fe3cd5b6016a98ea66bf962",
-    "src/models/identity_evaluation.py": "ff67bfbe3ac68d8d35a3f8cdfd96a437605908900f22ed949c721e7f5d8e98cc",
+    "src/api/robustness.py": "f321901b65d59a7d13e6c3ca4cce109c1e78091dd6b5d97741b679930e3c01de",
+    "src/models/identity_evaluation.py": "9addd20065ed6486ab292cc856786d2e7e7ed4f89b8203534bb4a9088d71c377",
     "src/models/node_level.py": "645f9c6b47c555c8706e4825ee0e97a5deb32f6803099f6077e817129d978f96",
-    "src/models/structural_influence.py": "04b47a32090d67a805c596f65785c79fdc36c68276bb5bdcc45195b3fa44182d",
+    "src/models/structural_influence.py": "842b1f80a50b699379a77986dee9d7f7a3ac97a5683031d22d5896cead8eecd1",
     "src/utils/secure_logging.py": "b12d637d0fc0dc8c9beb6610f4997597f614696cf8c06716113702bfca29ed5a",
-    "src/utils/tracing.py": "7f8174efb74a1c9e777f62a849267617a22911c6c410000b9fb19df905d1921a"
+    "src/utils/tracing.py": "7f8174efb74a1c9e777f62a849267617a22911c6c410000b9fb19df905d1921a",
+    "src/models/goal_chance.py": "bf508e51c68bfebe53456388a1fc7c4047799103450d666152be89dfe1cc82c9"
   },
   "mounted_request_models": {
     "_note": "Route -> request model, for the paths PLoT sends to. Derived from src/api/main.py include_router() calls + the router-level path decorators, and corroborated independently by the vendored openapi.json path list.",
     "/api/v1/robustness/analyze/v2": {
       "model": "RobustnessRequestV2",
       "module": "src/models/robustness_v2.py",
-      "handler": "src/api/robustness.py:587 analyze_robustness_v2",
-      "extra_policy": "ignore on 13 of the 16 classes in the RobustnessRequestV2 tree at 56c35468 (explicit); EXCEPT ExecutionFrameV2 and NonlinearIdentityV2, which are extra='forbid' (an unknown key inside either is a 422, not a drop), and RawRange (R1 S2), whose extra is unset (pydantic default ignore: same runtime behaviour, not a declared contract). Derived by walking model_fields at runtime, 2026-09-28."
+      "handler": "src/api/robustness.py:652 analyze_robustness_v2",
+      "extra_policy": "22 request-tree classes at 8efe2457: 15 explicitly ignore extras; EventRiskHorizonV1, EventRiskMitigationV1, EventRiskOccurrenceV1, EventRiskV1, ExecutionFrameV2, NonlinearIdentityV2 explicitly forbid extras; RawRange uses Pydantic default ignore. Re-derived by walking model_fields in the pinned runtime. NonlinearIdentityV2 declares accumulation, horizon_months and rate_scale."
     },
     "/api/v1/causal/counterfactual": {
       "model": "CounterfactualRequest",
       "module": "src/models/requests.py",
       "handler": "src/api/causal.py:263 analyze_counterfactual",
       "extra_policy": "pydantic default (unset) — same runtime behaviour as ignore, but NOT a declared contract"
+    },
+    "/api/v1/robustness/decision-flip/v2": {
+      "model": "DecisionFlipRequestV2",
+      "module": "src/models/robustness_v2.py",
+      "extra_policy": "Pydantic default ignore on DecisionFlipRequestV2 and DecisionFlipLinkRefV2; nested request uses RobustnessRequestV2 policies. Schema comparison only: no standing decision-flip egress producer exists.",
+      "handler": "src/api/robustness.py:422 decision_flip_v2"
     }
   },
   "unmounted_at_this_pin": {
-    "_note": "Paths PLoT still sends to that src/api/main.py does NOT include_router at this sha (the include lines are present but commented out, 'Disabled for pilot', lines 777-794). Absent from the vendored openapi.json path list, independently — re-verified at the 2.749 re-pin: the OLD and NEW openapi path sets are IDENTICAL (10 paths), so this re-pin mounts nothing new and unmounts nothing. Re-verified at the R1 S3 re-pin (56c35468): the old and new openapi path sets are IDENTICAL (10 paths).",
-    "/api/v1/causal/validate": "@router.post at src/api/causal.py:164; `router` is never included (only `causal_counterfactual_router` is, src/api/main.py:771)",
-    "/api/v1/causal/sensitivity/detailed": "@router.post at src/api/causal.py:1211; same unincluded router. WITHDRAWN under ROADMAP 2.704 at this sha — the handler answers 501 and computes nothing.",
-    "/api/v1/analysis/thresholds": "src/api/threshold.py:22; threshold_router include commented at src/api/main.py:792",
-    "/api/v1/robustness/decision-flip/v2": "Absent at this sha altogether (not a commented include): added by ISL #220 (SCIENCE ROBUSTNESS, EXPERIMENT, unmerged). PLoT calls it only for a /v2/run body carrying decision_flip, which no producer sends yet; re-pin when #220 is served."
+    "_note": "Re-derived at merged ISL 8efe2457: robustness router mounted src/api/main.py:740-744, causal_counterfactual_router:761-765; disabled causal include:772, threshold include:782. Previous request pin has 10 paths, this pin 11: decision-flip/v2 added, none removed. Independently verified against the vendored OpenAPI.",
+    "/api/v1/causal/validate": "@router.post at src/api/causal.py:164 (handler:188); router include disabled at src/api/main.py:772; only causal_counterfactual_router is mounted at :761.",
+    "/api/v1/causal/sensitivity/detailed": "@router.post at src/api/causal.py:1211 (handler:1232); same unincluded router. WITHDRAWN handler answers 501.",
+    "/api/v1/analysis/thresholds": "src/api/threshold.py:22; threshold_router include disabled at src/api/main.py:782."
   }
 }

@@ -5722,19 +5722,51 @@ components:
               type: string
         nonlinear_identity:
           type: object
-          description: 'R3 slice 1 (B2): the node IS an accounting identity of the named parents (MRR = price × subscribers; a spend tally = the sum of its parts). CEE-minted at construction (C46 / A4b); PLoT forwards it verbatim to ISL, which evaluates only what is declared. An unknown operation or a malformed declaration is refused (422), never dropped.'
+          description: 'The node IS an accounting identity of the named parents (a product, a sum, or a stock accumulated to a stated horizon). An accumulation is carried on the derived stock-at-horizon node; its goal retains an ordinary product over price and that node. CEE-minted at construction; PLoT forwards it verbatim to ISL, which evaluates only what is declared. An unknown operation or a malformed declaration is refused (422), never dropped.'
           required: [operation, factor_ids, stated_in_brief]
           additionalProperties: false
+          oneOf:
+            - properties:
+                operation:
+                  enum: [product, sum]
+              not:
+                anyOf:
+                  - required: [horizon_months]
+                  - required: [rate_scale]
+            - required: [horizon_months, rate_scale]
+              properties:
+                operation:
+                  enum: [accumulation]
+                factor_ids:
+                  minItems: 3
+                  maxItems: 3
+                  items:
+                    type: string
+                    minLength: 1
+              not:
+                required: [addends]
           properties:
             operation:
               type: string
-              enum: [product, sum]
+              enum: [product, sum, accumulation]
             factor_ids:
               type: array
               minItems: 1
               uniqueItems: true
+              description: 'For accumulation, exactly three distinct direct-parent ids in positional order: stock today, churn rate per month, inflow per month. Never reorder them.'
               items:
                 type: string
+            horizon_months:
+              type: integer
+              minimum: 1
+              maximum: 120
+              description: 'Accumulation only: the stock horizon in months, equal to the goal''s goal_horizon_months (checked by CEE).'
+            rate_scale:
+              type: number
+              minimum: 0
+              exclusiveMinimum: true
+              maximum: 1
+              description: 'Accumulation only: converts the churn factor''s user-unit value into a fraction per month, in (0,1]. Use 0.01 for percent and 1 for a fraction; ISL never parses units.'
             stated_in_brief:
               type: boolean
               description: 'True only when the brief itself states the identity; otherwise it is Olumi''s reading.'
@@ -6817,11 +6849,17 @@ components:
                 type: string
               operation:
                 type: string
-                enum: [product, sum]
+                enum: [product, sum, accumulation]
               factor_ids:
                 type: array
                 items:
                   type: string
+              horizon_months:
+                type: integer
+                nullable: true
+                minimum: 1
+                maximum: 120
+                description: 'The evaluated accumulation''s stock horizon in months, forwarded verbatim from ISL when present.'
               addends:
                 type: array
                 items:

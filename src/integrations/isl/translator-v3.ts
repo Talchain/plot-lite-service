@@ -107,6 +107,11 @@ export function parseGoalThresholdFrame(value: unknown): GoalThresholdFrameType 
 // ISL Wire Format Types
 // -----------------------------------------------------------------------------
 
+/** Preserve each operation's required calculation fields while excluding PLoT-only metadata. */
+type ISLNonlinearIdentity<T = NonlinearIdentity> = T extends NonlinearIdentity
+  ? Omit<T, 'reading_licence'>
+  : never;
+
 /**
  * ISL node format.
  */
@@ -145,7 +150,7 @@ export interface ISLNodeV3 {
    * reach ISL: Science §(e)'s `reading_licence` is PLoT metadata, absent from ISL's strict schema.
    * Every other request's ISL body — and its response_hash — is byte-identical.
    */
-  nonlinear_identity?: Omit<NonlinearIdentity, 'reading_licence'>;
+  nonlinear_identity?: ISLNonlinearIdentity;
   /**
    * R3-8: the node's frame (user units = normalised × frame), resolved by THE node-frame reader
    * (`resolveNodeFrame`: cap → scale_frame → pair). Runtime metadata, attached ONLY to a declared
@@ -197,9 +202,9 @@ export function attachChangeFrameRawRanges(
 }
 
 /**
- * R3-8: attach each declared identity's participants' execution frames (the node, its factor_ids
- * and its addends) to the ISL nodes, in place. Every node that is not an identity participant is
- * untouched, so a request that declares no identity sends a byte-identical ISL body.
+ * R3-8: attach execution frames to each declared identity's quantities (the node, its factor_ids
+ * and its addends). Every node that is not an identity participant is untouched, so a request
+ * that declares no identity sends a byte-identical ISL body.
  */
 export function attachIdentityExecutionFrames(
   islNodes: ISLNodeV3[],
@@ -221,9 +226,19 @@ export function attachIdentityExecutionFrames(
     const identity = node.nonlinear_identity!;
     return [node.id, ...identity.factor_ids, ...(identity.addends ?? [])];
   };
+  const frameParticipantsOf = (node: ISLNodeV3): string[] => {
+    const identity = node.nonlinear_identity!;
+    switch (identity.operation) {
+      case 'accumulation':
+        return participantsOf(node);
+      case 'product':
+      case 'sum':
+        return participantsOf(node);
+    }
+  };
   for (const node of islNodes) {
     if (!node.nonlinear_identity) continue;
-    for (const id of participantsOf(node)) {
+    for (const id of frameParticipantsOf(node)) {
       const participant = islById.get(id);
       if (!participant || participant.execution_frame) continue;
       const engine = engineById.get(id);
@@ -238,20 +253,24 @@ export function attachIdentityExecutionFrames(
   // card (CEE #2292 writes it `stated_in_brief: true`). Without a licence it is NOT forwarded: the goal stays linear and
   // `goalIdentitiesNotEvaluated` withholds every goal figure under its own code — never a chance through an unconfirmed
   // product (served: "reaches above £85k MRR in 99.8%"), never one from the linear walk. Sums, stated identities and
-  // non-goal carriers fall through to the variants below untouched.
+  // non-goal products fall through to the variants below untouched.
   // The card domain decides, not the node kind (AIQ 5891608873; DL 5891633125; PR Review CR 5891899825): a goal carrier
   // (`goalCarrierIds` — units compose to the goal's, the user's three levels, within 5%) is a reading of the goal too,
-  // however many parents the goal has. A carrier outside the domain (DL A15: an Olumi level) is not (d)'s.
+  // however many parents the goal has. A product carrier outside the domain (DL A15: an Olumi level) is not (d)'s.
   // Science §(e), GOAL-REACH build 2: CEE's `olumi_reading` stamp licenses the labelled reading (including addends).
   // Read it from the engine node: `toISLNode` deliberately excludes it from ISL's strict identity schema. It bypasses
   // only (d); canonical frames, (a), (b) and ISL's reconciliation/(c) still apply. CEE owns the licence predicate;
   // the older three-user-level carrier recognition is not an additional veto on a licensed carrier.
+  // Every unconfirmed accumulation is withheld regardless of goal-carrier domain; no reading_licence bypass applies.
   const notForwarded: IdentityNotForwarded[] = [];
   for (const node of islNodes) {
     const identity = node.nonlinear_identity;
-    if (!identity || identity.stated_in_brief !== false || identity.operation !== 'product') continue;
-    if (engineById.get(node.id)?.nonlinear_identity?.reading_licence === 'olumi_reading') continue;
-    if (engineById.get(node.id)?.kind !== 'goal' && !goalCarriers.has(node.id)) continue;
+    if (!identity || identity.stated_in_brief !== false) continue;
+    if (identity.operation !== 'accumulation') {
+      if (identity.operation !== 'product') continue;
+      if (engineById.get(node.id)?.nonlinear_identity?.reading_licence === 'olumi_reading') continue;
+      if (engineById.get(node.id)?.kind !== 'goal' && !goalCarriers.has(node.id)) continue;
+    }
     delete node.nonlinear_identity;
     notForwarded.push({ node_id: node.id, reason: 'inferred_identity_unconfirmed', frameless_node_ids: [] });
   }
@@ -264,6 +283,9 @@ export function attachIdentityExecutionFrames(
   // stated identity, a carrier with a level, and a partly framed identity fall through to today's rules untouched.
   for (const node of islNodes) {
     const identity = node.nonlinear_identity;
+    // Rule (a) derives ONLY product frames. An accumulation frame cannot be the product of
+    // its stock/churn/inflow frames; an absent stock-carrier frame remains missing for (b).
+    if (identity?.operation === 'accumulation') continue;
     if (!identity || identity.stated_in_brief !== false || identity.operation !== 'product') continue;
     if ((identity.addends?.length ?? 0) > 0 || node.execution_frame) continue;
     const engine = engineById.get(node.id);
@@ -280,14 +302,14 @@ export function attachIdentityExecutionFrames(
       factor_frames: factorFrames.map((f) => ({ node_id: f.node_id, frame: f.frame as number })),
     });
   }
-  // ⛔ Variant (b) (DL #72 5863297824): an INFERRED identity (`stated_in_brief: false`) with any participant left
-  // frameless is NOT forwarded — the node stays linear, exactly as served before the re-land — and is said
+  // ⛔ Variant (b) (DL #72 5863297824): an INFERRED identity (`stated_in_brief: false`) with any frame-requiring
+  // participant left frameless is NOT forwarded — the node stays linear, exactly as served before the re-land — and is said
   // (`IdentityNotForwarded`). ISL would refuse the whole Run (`identity_frame_missing`) for a figure the user never
   // stated and cannot answer. A STATED identity is always forwarded: ISL's refusal stands (AIQ's rule).
   for (const node of islNodes) {
     const identity = node.nonlinear_identity;
     if (!identity || identity.stated_in_brief !== false) continue;
-    const missing = participantsOf(node).filter((id) => !islById.get(id)?.execution_frame);
+    const missing = frameParticipantsOf(node).filter((id) => !islById.get(id)?.execution_frame);
     if (missing.length === 0) continue;
     delete node.nonlinear_identity;
     notForwarded.push({ node_id: node.id, reason: 'inferred_identity_frame_unresolved', frameless_node_ids: missing });
@@ -366,6 +388,9 @@ export function goalCarrierIds(
       .filter((id) => byId.get(id)?.kind !== 'option' && byId.get(id)?.kind !== 'decision');
     for (const id of parents) {
       const identity = byId.get(id)?.nonlinear_identity as { operation?: unknown; stated_in_brief?: unknown; factor_ids?: unknown } | undefined;
+      // This predicate recognises binary product readings only. Accumulation's three ordered
+      // factors are never multiplied/reconciled here; ISL owns its horizon-stock calculation.
+      if (identity?.operation === 'accumulation') continue;
       if (identity?.operation !== 'product' || identity.stated_in_brief !== false || !Array.isArray(identity.factor_ids)) continue;
       if (identity.factor_ids.length !== 2 || !identity.factor_ids.every((f) => typeof f === 'string')) continue;
       const [a, b] = (identity.factor_ids as string[]).map((f) => byId.get(f));
@@ -1100,6 +1125,34 @@ export function toISLUserStatedRange(range: unknown): ISLUserStatedRange | undef
   return projected as unknown as ISLUserStatedRange;
 }
 
+/** Project each operation's calculation fields, retaining accumulation's required numbers. */
+function toISLNonlinearIdentity(identity: NonlinearIdentity): ISLNonlinearIdentity {
+  switch (identity.operation) {
+    case 'accumulation':
+      // Keep the positional factors, horizon and rate conversion together. Dropping either
+      // number makes the strict ISL carrier invalid and can withdraw an inferred identity.
+      return {
+        operation: identity.operation,
+        factor_ids: [...identity.factor_ids],
+        horizon_months: identity.horizon_months,
+        rate_scale: identity.rate_scale,
+        stated_in_brief: identity.stated_in_brief,
+      };
+    case 'product':
+    case 'sum':
+      return {
+        operation: identity.operation,
+        factor_ids: [...identity.factor_ids],
+        stated_in_brief: identity.stated_in_brief,
+        ...(identity.addends ? { addends: [...identity.addends] } : {}),
+      };
+    default:
+      // Ingress rejects unknown operations; a direct caller must also fail by field name,
+      // never silently project an unsupported operation with product/sum fields.
+      throw new Error('Unsupported nonlinear_identity.operation');
+  }
+}
+
 /**
  * Translate internal node to ISL format.
  *
@@ -1118,14 +1171,7 @@ export function toISLNode(node: EngineNodeV3): ISLNodeV3 {
     epsilon_std: node.epsilon_std ?? 0.0,
     ...(node.nonlinear_identity
       ? {
-          nonlinear_identity: {
-            operation: node.nonlinear_identity.operation,
-            factor_ids: [...node.nonlinear_identity.factor_ids],
-            stated_in_brief: node.nonlinear_identity.stated_in_brief,
-            ...(node.nonlinear_identity.addends
-              ? { addends: [...node.nonlinear_identity.addends] }
-              : {}),
-          },
+          nonlinear_identity: toISLNonlinearIdentity(node.nonlinear_identity),
         }
       : {}),
     ...(node.quantity_frame !== undefined ? { quantity_frame: node.quantity_frame } : {}),

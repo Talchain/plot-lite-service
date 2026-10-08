@@ -5,9 +5,9 @@
     "parameter_uncertainties entry, plus whether ISL's root-default detector fires.",
     "Consumed hermetically by tests/isl-factor-sampler-centre.contract.test.ts."
   ],
-  "pin_digest": "341a720774c23e2e7c05b8311b4dcb0c3d25ca431f708f3c8305e8d8fa35f20b",
+  "pin_digest": "549029af48a09d98a70f3eec1821e0c3d5f6adb1ba3012ef03f8c477cff485b1",
   "cases_sha256": "70f25cd6ff57e397b69742631347508428a4d470405bde6561e61398f9494193",
-  "isl_sha": "47f20068378958ba4642db91ba1b3b09fdd8e4e5",
+  "isl_sha": "8efe2457cfc81da3c4741fbe01cf07af699ee804",
   "runtime": {
     "python": "3.11.14",
     "pydantic": "2.6.1"
@@ -128,7 +128,10 @@
         }
       ],
       "root_default_warned_node_ids": [],
-      "all_warning_codes": []
+      "all_warning_codes": [
+        "FACTOR_EVPPI_NOT_COMPUTED",
+        "GOAL_DIRECTION_UNATTESTED"
+      ]
     },
     {
       "name": "fixed_wire__silent_where_specified_LOUD_where_defaulted",
@@ -144,7 +147,9 @@
         "ext_unstated_driver"
       ],
       "all_warning_codes": [
+        "FACTOR_EVPPI_NOT_COMPUTED",
         "GOAL_ANCESTOR_DATA_GAP",
+        "GOAL_DIRECTION_UNATTESTED",
         "ROOT_NODE_DEFAULT_VALUE"
       ]
     }

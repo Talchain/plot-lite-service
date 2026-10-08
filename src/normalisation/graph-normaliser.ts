@@ -157,21 +157,26 @@ function isStructuralEdgeType(
 // Node Normalization
 // -----------------------------------------------------------------------------
 
-const NONLINEAR_IDENTITY_OPERATIONS: ReadonlySet<string> = new Set(['product', 'sum']);
+const NONLINEAR_IDENTITY_OPERATIONS: ReadonlySet<string> = new Set(['product', 'sum', 'accumulation']);
 const NONLINEAR_IDENTITY_KEYS: ReadonlySet<string> = new Set([
   'operation',
   'factor_ids',
   'stated_in_brief',
   'addends',
   'reading_licence',
+  'horizon_months',
+  'rate_scale',
 ]);
 
 /**
  * Validate a node's R3 identity declaration (`nonlinear_identity`, CEE NodeV3). Absent → undefined.
- * Present → exactly `{ operation: 'product' | 'sum', factor_ids: non-empty unique strings,
+ * Product/sum → exactly `{ operation: 'product' | 'sum', factor_ids: non-empty unique strings,
  * stated_in_brief: boolean, addends?: non-empty unique strings disjoint from factor_ids,
- * reading_licence?: 'olumi_reading' (inferred products only) }`,
- * returned as a fresh object; anything else throws, naming the field. An UNKNOWN KEY throws too:
+ * reading_licence?: 'olumi_reading' (inferred products only) }`. Accumulation → exactly three
+ * positional distinct factor ids (stock today, churn rate, inflow), integer horizon_months 1..120,
+ * finite rate_scale in (0,1], and boolean stated_in_brief; addends and reading_licence are forbidden.
+ * An accumulation belongs on the derived stock-at-horizon node, never on a goal.
+ * The carrier is returned as a fresh object; anything else throws, naming the field. An UNKNOWN KEY throws too:
  * the object is rebuilt from the known keys, so an unknown one would otherwise be dropped silently.
  */
 // event_risk.v1 (Science 393023 pilot §4): read, refuse a malformed block, forward VERBATIM.
@@ -240,10 +245,10 @@ export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | u
       node.id
     );
   }
-  const { operation, factor_ids, stated_in_brief, addends, reading_licence } = raw as Record<string, unknown>;
+  const { operation, factor_ids, stated_in_brief, addends, reading_licence, horizon_months, rate_scale } = raw as Record<string, unknown>;
   if (typeof operation !== 'string' || !NONLINEAR_IDENTITY_OPERATIONS.has(operation)) {
     throw new NormalisationError(
-      `${field}.operation must be one of product | sum (got ${JSON.stringify(operation)})`,
+      `${field}.operation must be one of product | sum | accumulation (got ${JSON.stringify(operation)})`,
       `${field}.operation`,
       node.id
     );
@@ -262,6 +267,65 @@ export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | u
   }
   if (typeof stated_in_brief !== 'boolean') {
     throw new NormalisationError(`${field}.stated_in_brief must be a boolean`, `${field}.stated_in_brief`, node.id);
+  }
+  // Accumulation is its own calculation contract, never the sum/product rebuild below.
+  // Presence matters for forbidden keys: even an explicit undefined must be refused.
+  if (operation === 'accumulation') {
+    const kind = (node.kind ?? node.type ?? node.data?.kind ?? node.data?.type ?? 'factor').toLowerCase();
+    if (kind === 'goal') {
+      throw new NormalisationError(
+        `${field} with operation:accumulation must be on the derived stock-at-horizon node, never on a goal`,
+        field,
+        node.id,
+      );
+    }
+    if (factor_ids.length !== 3) {
+      throw new NormalisationError(
+        `${field}.factor_ids must contain exactly three distinct positional node ids (stock today, churn rate, inflow)`,
+        `${field}.factor_ids`,
+        node.id,
+      );
+    }
+    if (typeof horizon_months !== 'number' || !Number.isInteger(horizon_months) || horizon_months < 1 || horizon_months > 120) {
+      throw new NormalisationError(
+        `${field}.horizon_months must be an integer from 1 to 120`,
+        `${field}.horizon_months`,
+        node.id,
+      );
+    }
+    if (typeof rate_scale !== 'number' || !Number.isFinite(rate_scale) || rate_scale <= 0 || rate_scale > 1) {
+      throw new NormalisationError(
+        `${field}.rate_scale must be a finite number in (0,1]`,
+        `${field}.rate_scale`,
+        node.id,
+      );
+    }
+    for (const forbidden of ['addends', 'reading_licence'] as const) {
+      if (Object.prototype.hasOwnProperty.call(raw, forbidden)) {
+        throw new NormalisationError(
+          `${field}.${forbidden} is not permitted for operation:accumulation`,
+          `${field}.${forbidden}`,
+          node.id,
+        );
+      }
+    }
+    return {
+      operation,
+      factor_ids: [factor_ids[0], factor_ids[1], factor_ids[2]],
+      horizon_months,
+      rate_scale,
+      stated_in_brief,
+    };
+  }
+  // A widened allowlist must not make product/sum silently drop carrier-only fields.
+  for (const forbidden of ['horizon_months', 'rate_scale'] as const) {
+    if (Object.prototype.hasOwnProperty.call(raw, forbidden)) {
+      throw new NormalisationError(
+        `${field}.${forbidden} is only permitted for operation:accumulation`,
+        `${field}.${forbidden}`,
+        node.id,
+      );
+    }
   }
   // Presence matters: an explicitly malformed licence (including null/undefined) is refused,
   // never silently rebuilt as an unlicensed identity.
@@ -295,7 +359,7 @@ export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | u
     );
   }
   return {
-    operation: operation as NonlinearIdentity['operation'],
+    operation: operation as 'product' | 'sum',
     factor_ids: [...factor_ids],
     stated_in_brief,
     ...(addends !== undefined ? { addends: [...(addends as string[])] } : {}),

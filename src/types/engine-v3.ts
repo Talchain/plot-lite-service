@@ -100,7 +100,7 @@ export type EngineNodeKindV3 = (typeof ENGINE_CAUSAL_NODE_KINDS)[number];
  * from the graph's shape). An unknown `operation` is REJECTED at ingress, never dropped: a dropped
  * identity is the declared-but-not-evaluated case (R3-4).
  */
-export interface NonlinearIdentity {
+export interface ProductOrSumIdentity {
   operation: 'product' | 'sum';
   factor_ids: string[];
   stated_in_brief: boolean;
@@ -114,7 +114,26 @@ export interface NonlinearIdentity {
    * the same rules as `sum`, MG's rung c). Optional; disjoint from `factor_ids`.
    */
   addends?: string[];
+  horizon_months?: never;
+  rate_scale?: never;
 }
+
+/**
+ * Stock at a stated horizon: the ids are POSITIONAL (stock today, churn rate, inflow).
+ * CEE supplies the horizon and rate conversion; ISL owns accumulation evaluation.
+ * Unlike product/sum, no addends or goal-reading licence is permitted on this carrier.
+ */
+export interface AccumulationIdentity {
+  operation: 'accumulation';
+  factor_ids: [string, string, string];
+  horizon_months: number;
+  rate_scale: number;
+  stated_in_brief: boolean;
+  addends?: never;
+  reading_licence?: never;
+}
+
+export type NonlinearIdentity = ProductOrSumIdentity | AccumulationIdentity;
 
 import type { EventRiskV1 } from '../integrations/isl/event-risk.js';
 
@@ -1264,9 +1283,11 @@ export interface IdentityReconciliationV3 {
  */
 export interface IdentityEvaluationV3 {
   node_id: string;
-  operation: 'product' | 'sum';
+  operation: 'product' | 'sum' | 'accumulation';
   factor_ids: string[];
   addends?: string[];
+  /** Accumulation disclosure: the carrier's month horizon, forwarded from ISL. */
+  horizon_months?: number | null;
   stated_in_brief: boolean;
   /** True only when the numbers rest on the identity */
   evaluated: boolean;
