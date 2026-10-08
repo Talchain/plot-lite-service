@@ -203,9 +203,8 @@ export function attachChangeFrameRawRanges(
 
 /**
  * R3-8: attach execution frames to each declared identity's quantities (the node, its factor_ids
- * and its addends), except accumulation's churn rate, which is converted by rate_scale. Every
- * node that is not an identity participant is untouched, so a request that declares no identity
- * sends a byte-identical ISL body.
+ * and its addends). Every node that is not an identity participant is untouched, so a request
+ * that declares no identity sends a byte-identical ISL body.
  */
 export function attachIdentityExecutionFrames(
   islNodes: ISLNodeV3[],
@@ -227,14 +226,11 @@ export function attachIdentityExecutionFrames(
     const identity = node.nonlinear_identity!;
     return [node.id, ...identity.factor_ids, ...(identity.addends ?? [])];
   };
-  // Accumulation keeps all three positional factors as participants. Only its stock and inflow
-  // quantities need execution frames: the churn value is converted directly by rate_scale, so
-  // factor_ids[1] needs NO quantity/execution frame. Do not infer a frame from its unit or cap.
   const frameParticipantsOf = (node: ISLNodeV3): string[] => {
     const identity = node.nonlinear_identity!;
     switch (identity.operation) {
       case 'accumulation':
-        return [node.id, identity.factor_ids[0], identity.factor_ids[2]];
+        return participantsOf(node);
       case 'product':
       case 'sum':
         return participantsOf(node);

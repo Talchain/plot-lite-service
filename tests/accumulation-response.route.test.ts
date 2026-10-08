@@ -55,7 +55,7 @@ function accumulationRunBody() {
       nodes: [
         { id: 'factor-0', kind: 'factor', label: 'Price', observed_state: { value: 0.245, raw_value: 49, cap: 200 } },
         { id: 'stock_today', kind: 'factor', label: 'Stock today', observed_state: { value: 0.3, raw_value: 1500, cap: 5000 } },
-        { id: 'monthly_churn', kind: 'factor', label: 'Churn', observed_state: { value: 2.5 } },
+        { id: 'monthly_churn', kind: 'factor', label: 'Churn', observed_state: { value: 0.03, raw_value: 3, unit: '%' } },
         { id: 'monthly_inflow', kind: 'factor', label: 'Inflow', observed_state: { value: 0.1, raw_value: 100, cap: 1000 } },
         { id: 'subscribers_at_horizon', kind: 'outcome', label: 'Stock at month 12',
           observed_state: { value: 0, cap: 10000 },
@@ -74,8 +74,8 @@ function accumulationRunBody() {
 }
 
 const FRAMED_CHURN_SHAPES = [
-  { name: 'value/raw_value pair on 100', observed_state: { value: 0.03, unit: '%', raw_value: 3 }, scale_frame: 100 },
-  { name: 'value/cap on 20', observed_state: { value: 0.15, unit: '%', cap: 20 }, scale_frame: 20 },
+  { name: 'value/raw_value pair on 100', observed_state: { value: 0.03, unit: '%', raw_value: 3 }, scale_frame: 100, frameCarrier: 'pair' as const },
+  { name: 'value/cap on 20', observed_state: { value: 0.15, unit: '%', cap: 20 }, scale_frame: 20, frameCarrier: 'cap' as const },
 ];
 
 function churnFacts(node: { observed_state?: unknown; quantity_frame?: unknown; scale_frame?: unknown }) {
@@ -134,7 +134,7 @@ describe('accumulation identity wire disclosure and published schemas', () => {
 
   it.each(FRAMED_CHURN_SHAPES.flatMap((shape) => [false, true].map((withFrames) => ({ ...shape, withFrames }))))(
     'Round 2 (b) keeps framed % churn $name byte-identical at normalization, projection and ISL egress; optional frames=$withFrames',
-    async ({ observed_state, scale_frame, withFrames }) => {
+    async ({ observed_state, scale_frame, frameCarrier, withFrames }) => {
       const payload = accumulationRunBody();
       const input = payload.graph.nodes.find((node) => node.id === 'monthly_churn')!;
       Object.assign(input, { observed_state, ...(withFrames ? { scale_frame, quantity_frame: 'level' } : {}) });
@@ -150,9 +150,10 @@ describe('accumulation identity wire disclosure and published schemas', () => {
         expect.soft(JSON.stringify(churnFacts(node)), stage).toBe(JSON.stringify(expected));
         expect.soft(JSON.stringify(node.observed_state), `${stage} observed_state`).toBe(JSON.stringify(observed_state));
       }
-      expect(wire).not.toHaveProperty('execution_frame');
-      // ISL's NodeV2 declares no scale_frame: the level is recovered from observed_state (raw_value / cap), never a
-      // forwarded node frame (b2, 8 Oct; pinned isl-openapi.json NodeV2).
+      expect(wire.execution_frame).toEqual({ frame: scale_frame,
+        carrier: withFrames && frameCarrier === 'pair' ? 'scale_frame' : frameCarrier });
+      // ISL restores the user-unit churn level with execution_frame before applying rate_scale.
+      // Its NodeV2 declares no scale_frame; PLoT resolves that raw metadata into execution_frame.
       expect(wire).not.toHaveProperty('scale_frame');
       expect(isl.graph.nodes.find((node) => node.id === 'subscribers_at_horizon')!.nonlinear_identity)
         .toEqual(payload.graph.nodes.find((node) => node.id === 'subscribers_at_horizon')!.nonlinear_identity);
