@@ -5,7 +5,7 @@
  * They are transformed by adapters before use in PLoT.
  */
 
-import type { IdentityEvaluationV3 } from '../../../types/engine-v3.js';
+import type { ConstraintProbabilityPrecision, IdentityEvaluationV3 } from '../../../types/engine-v3.js';
 
 /**
  * ISL validation response from /api/v1/causal/validate
@@ -870,6 +870,7 @@ export interface ISLConstraintResult {
   threshold: number;
   value?: number;
   prob_satisfied: number;
+  prob_satisfied_precision?: ConstraintProbabilityPrecision;
   /**
    * Median failure margin, NORMALISED, as ISL sends it.
    *
@@ -937,6 +938,7 @@ export interface ISLConstraintAnalysis {
    * Never a joint over the scored subset. Read via prob01().
    */
   joint_probability?: number;
+  joint_probability_precision?: ConstraintProbabilityPrecision;
   conditional_probabilities?: ISLConditionalProbability[];
 }
 

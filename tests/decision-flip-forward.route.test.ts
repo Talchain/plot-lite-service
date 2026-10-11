@@ -138,7 +138,7 @@ describe('decision_flip on /v2/run — forward ISL\'s block verbatim, typed reas
       ...makeValidRunBody().graph, nodes: [...makeValidRunBody().graph.nodes, { id: 'decision', kind: 'decision', label: 'Decision' }],
     } } },
     { id: 'constraint-count', code: 'TOO_MANY_CONSTRAINTS', extra: { goal_constraints: Array.from({ length: MAX_CONSTRAINTS + 1 }, (_, i) => ({ ...constraint, constraint_id: `limit-${i}` })) } },
-    { id: 'constraint-shape', code: 'INVALID_CONSTRAINT_SHAPE', extra: { goal_constraints: [{ ...constraint, operator: '>' }] } },
+    { id: 'constraint-shape', code: 'INVALID_CONSTRAINT_SHAPE', extra: { goal_constraints: [{ ...constraint, operator: '=' }] } },
     { id: 'constraint-validation', code: 'CONSTRAINT_TARGET_NOT_FOUND', extra: { goal_constraints: [{ ...constraint, node_id: 'missing' }] } },
     { id: 'preflight', code: 'NO_PATH_TO_GOAL', extra: { graph: { ...makeValidRunBody().graph, edges: [] } } },
     { id: 'withheld-options', code: 'INTERVENTION_CLAMPED_NO_COMPARISON', extra: {

@@ -49,6 +49,7 @@ import type {
   DownstreamCallsV3,
   GoalConstraint,
   ConstraintResult,
+  ConstraintProbabilityPrecision,
   ConstraintScaleProvenance,
   ConstraintDiagnostic,
   ConstraintMargin,
@@ -243,7 +244,7 @@ import { buildEvidencePriorityCard, toEvidencePriorityFactorInputs, type FactorI
 import type { ProposalCardV1 } from '../../review-pass/types.js';
 import { assembleFactObjects, type ISLResponseInput, type FactorSensitivityInput } from '../../facts/index.js';
 import type { FactObjectV1, FactLineage } from '../../facts/types.js';
-import { finiteNum, prob01, nonNeg, nonNegInt, hasAllRequiredOutcomeStats, buildDownside, buildGoalChancePrecision, buildGoalChanceDrivers } from './numeric-egress-guards.js';
+import { finiteNum, prob01, nonNeg, nonNegInt, hasAllRequiredOutcomeStats, buildDownside, buildGoalChancePrecision, buildGoalChanceDrivers, buildConstraintProbabilityPrecision } from './numeric-egress-guards.js';
 import { resolveConstraintIds } from './constraint-identity.js';
 import { resolveConfidenceBasis } from '../../integrations/isl/confidence-basis.js';
 import {
@@ -1578,7 +1579,7 @@ function withholdUnsampledRangeLimits(
     const kept = (r.constraint_analysis.constraints as ISLConstraintResult[]).filter(
       (_row, i) => !withheldIds.has(ids[i] ?? `${_row.node_id}_${_row.operator}`),
     );
-    const { joint_probability: _joint, conditional_probabilities: _cond, ...analysisRest } = r.constraint_analysis;
+    const { joint_probability: _joint, joint_probability_precision: _precision, conditional_probabilities: _cond, ...analysisRest } = r.constraint_analysis;
     return { ...r, constraint_analysis: { ...analysisRest, constraints: kept }, range_limits_withheld: withheld };
   });
   if (withheldConstraintIds.size === 0) return none;
@@ -2824,12 +2825,15 @@ function buildConstraintFields(
     // Prefer original user-unit value from input constraints
     const originalConstraint = goalConstraints!.find(gc => gc.constraint_id === constraintId);
     const scaleProvenance = scaleProvenanceByConstraintId?.get(constraintId);
+    const precision = prob01(c.prob_satisfied) !== undefined
+      ? buildConstraintProbabilityPrecision(c.prob_satisfied_precision) : undefined;
     return {
       constraint_id: constraintId,
       node_id: c.node_id,
-      operator: c.operator as '>=' | '<=',
+      operator: c.operator as GoalConstraint['operator'],
       value: originalConstraint?.value ?? islValue,
       probability: c.prob_satisfied,
+      ...(precision !== undefined && { probability_precision: precision }),
       // F5 disclosure (D-4): the option this result was derived from.
       ...(derivedFromOptionId !== undefined && { option_id: derivedFromOptionId }),
       // A3 trust marker (additive): disclose how this threshold's scale was
@@ -3639,6 +3643,7 @@ function buildResponse(
       // top-level block is keyed by ratified id while these per-option blocks
       // are keyed by ordinal would be internally inconsistent.
       let constraintProbs: Record<string, number> | undefined;
+      const constraintPrecisions: Record<string, ConstraintProbabilityPrecision> = {};
       // Sub-item 1c: per-option graded breach margins. One entry per constraint
       // ISL evaluated for THIS option; margin fields are OMITTED (never
       // fabricated as 0) when ISL sent none — so a satisfying option carries a
@@ -3656,6 +3661,8 @@ function buildResponse(
           // NaN/±Infinity would serialise to a fabricated `null`; a >1 value is an
           // impossible probability).
           const probSat = prob01(c.prob_satisfied);
+          const precision = buildConstraintProbabilityPrecision(c.prob_satisfied_precision);
+          if (probSat !== undefined && precision !== undefined) constraintPrecisions[constraintId] = precision;
           if (probSat !== undefined) {
             constraintProbs[constraintId] = probSat;
           }
@@ -3805,6 +3812,8 @@ function buildResponse(
         // B5: "all your limits met" only when EVERY limit is scored.
         if (jointProb !== undefined && unscoredConstraintIds.length === 0 && rangeWithheld.length === 0) {
           result.probability_of_joint_goal = jointProb;
+          const precision = buildConstraintProbabilityPrecision(constraintAnalysis.joint_probability_precision);
+          if (precision !== undefined) result.probability_of_joint_goal_precision = precision;
         } else if (jointProb !== undefined) {
           logger?.warn({
             event: 'joint_probability_withheld_limit_unscored',
@@ -3816,6 +3825,10 @@ function buildResponse(
         }
         if (deliveredProbs !== undefined) {
           result.constraint_probabilities = deliveredProbs;
+          const deliveredPrecisions = Object.fromEntries(
+            Object.entries(constraintPrecisions).filter(([id]) => Object.hasOwn(deliveredProbs!, id)),
+          );
+          if (Object.keys(deliveredPrecisions).length > 0) result.constraint_probabilities_precision = deliveredPrecisions;
           logger?.info({ event: 'constraint_probs_mapped', option_id: optionId, count: Object.keys(deliveredProbs).length });
         }
         // A3 trust marker: constraints_decision_grade for this option.
@@ -6469,7 +6482,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         // Codex F4 — the guard is COMPLETE at this boundary:
         //  - constraint_id / node_id must be TRIMMED non-empty strings
         //    (whitespace-only previously passed and corrupted identity);
-        //  - operator must be a CLOSED comparison '>=' | '<=' (rejected here
+        //  - operator must be one of '>=' | '<=' | '>' | '<' (rejected here
         //    with a shape error rather than deep in preflight);
         //  - value must be a FINITE number. The former claim that value is
         //    "downstream-validated" was FALSE: preflight only range-COMPARES
@@ -6490,9 +6503,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             } else if (!isTrimmedNonEmptyString(c?.node_id)) {
               badField = 'node_id';
               requirement = 'must be a non-empty string';
-            } else if (c?.operator !== '>=' && c?.operator !== '<=') {
+            } else if (c?.operator !== '>=' && c?.operator !== '<=' && c?.operator !== '>' && c?.operator !== '<') {
               badField = 'operator';
-              requirement = `must be '>=' or '<='`;
+              requirement = `must be '>=', '<=', '>' or '<'`;
             } else if (typeof c?.value !== 'number' || !Number.isFinite(c.value)) {
               badField = 'value';
               requirement = 'must be a finite number';
@@ -6948,7 +6961,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
                       'worth what it is attached to.',
             });
           } else if (autoThreshold !== undefined && Number.isFinite(autoThreshold)) {
-            // Synthesise a single >= constraint from goal_threshold.
+            // Synthesise a single constraint, preserving the attested goal strictness.
             // The _internal namespace carries PLoT metadata through the pipeline
             // (filter, validation, merge) and is stripped at wire boundaries
             // (ISL translator). For UI consumers, the canonical provenance signal
@@ -6975,7 +6988,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             const autoConstraint: GoalConstraint & { _internal: InternalMetadata } = {
               constraint_id: 'auto_goal_threshold',
               node_id: body.goal_node_id,
-              operator: '>=',
+              operator: body.goal_threshold_strict === true
+                ? (body.goal_direction === 'minimise' ? '<' : '>')
+                : '>=',
               value: autoThreshold,
               value_frame: nodeGoalThresholdFrame,
               label: 'Goal target',

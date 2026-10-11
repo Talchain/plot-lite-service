@@ -357,3 +357,15 @@ export function buildGoalChanceDrivers(
     ...(invalidRowsDropped > 0 ? { invalid_rows_dropped: invalidRowsDropped } : {}),
   };
 }
+
+/** Validate ISL's additive joint/marginal precision without inventing missing measurements. */
+export function buildConstraintProbabilityPrecision(
+  raw: unknown,
+): import('../../types/engine-v3.js').ConstraintProbabilityPrecision | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const p = raw as Record<string, unknown>;
+  const n = nonNegInt(p.n_informative);
+  const se = nonNeg(p.standard_error);
+  if (n === undefined || n < 1 || se === undefined || se > 0.5) return undefined;
+  return { n_informative: n, standard_error: se };
+}

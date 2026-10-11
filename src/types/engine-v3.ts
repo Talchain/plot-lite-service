@@ -571,6 +571,12 @@ export interface OptionV3 {
 // Goal Constraints (Multi-Constraint Analysis)
 // -----------------------------------------------------------------------------
 
+/** Monte Carlo precision over the same informative draws; not model uncertainty. */
+export interface ConstraintProbabilityPrecision {
+  n_informative: number;
+  standard_error: number;
+}
+
 /**
  * A single goal constraint for multi-constraint analysis.
  *
@@ -584,8 +590,8 @@ export interface GoalConstraint {
   constraint_id: string;
   /** Target node ID - must exist in graph.nodes and participate in inference */
   node_id: string;
-  /** Comparison operator - ASCII only (UI renders as ≥/≤) */
-  operator: '>=' | '<=';
+  /** Comparison operator - ASCII only; strictness is preserved */
+  operator: '>=' | '<=' | '>' | '<';
   /** Threshold value in user units (same convention as goal_threshold) */
   value: number;
   /** Human-readable label for UI display */
@@ -803,11 +809,12 @@ export interface ConstraintResult {
   /** Target node ID */
   node_id: string;
   /** Operator used */
-  operator: '>=' | '<=';
+  operator: '>=' | '<=' | '>' | '<';
   /** Threshold value */
   value: number;
   /** Probability of satisfying this constraint [0, 1] */
   probability: number;
+  probability_precision?: ConstraintProbabilityPrecision;
   /**
    * F5 disclosure (ruling D-4): the id of the option this top-level constraint
    * result was DERIVED FROM. The top-level constraint block reuses the FIRST
@@ -1225,7 +1232,7 @@ export const INLINE_CRITIQUE_CODES = [
   'IDENTIFIABILITY_WARNING',
   'UNMEASURED_CONFOUNDING_WARNING',
   'TOO_MANY_CONSTRAINTS',         // goal_constraints.length > MAX_CONSTRAINTS (P.8 DoS guard)
-  'INVALID_CONSTRAINT_SHAPE',     // ingress-shape guard: id/node_id trimmed non-empty, operator >=|<=, value finite (Codex F4)
+  'INVALID_CONSTRAINT_SHAPE',     // ingress-shape guard: id/node_id trimmed non-empty, operator >=|<=|>|<, value finite (Codex F4)
   'ISL_NOT_ENABLED',
   'CONSTRAINT_OUT_OF_DOMAIN',
   'CONSTRAINT_FILTERED_TEMPORAL',
@@ -2506,6 +2513,8 @@ export interface OptionComparisonResultV3 {
    * instead of suppressed — see src/lib/constraint-reliability.ts.
    */
   probability_of_joint_goal?: number;
+  /** Present only beside the delivered joint probability. */
+  probability_of_joint_goal_precision?: ConstraintProbabilityPrecision;
 
   /**
    * Per-constraint probabilities for this option.
@@ -2516,6 +2525,8 @@ export interface OptionComparisonResultV3 {
    * `goal_fit_basis` under doctrine B (see probability_of_joint_goal).
    */
   constraint_probabilities?: Record<string, number>;
+  /** Precision keyed by the same constraint ids, only for delivered probabilities. */
+  constraint_probabilities_precision?: Record<string, ConstraintProbabilityPrecision>;
 
   /**
    * Provenance annotation for delivered goal-fit probabilities (doctrine B,
