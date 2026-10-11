@@ -787,10 +787,12 @@ describe('B4/L2 constraint eligibility gate + graded breach margins', () => {
       expect(s).toContain('goal_constraints[0].value');
     });
 
-    it('F4: rejects a NON-CLOSED operator "<" with 422 INVALID_CONSTRAINT_SHAPE naming .operator', async () => {
+    // Recovery Batch C: strict '<'/'>' are now valid (goal "above 15%"); the adverse check is kept on an operator
+    // that is still invalid.
+    it('F4: rejects an UNSUPPORTED operator "=" with 422 INVALID_CONSTRAINT_SHAPE naming .operator', async () => {
       const { status, body } = await postRun({
         ...BASE_PAYLOAD,
-        goal_constraints: [{ constraint_id: 'c_open_op', node_id: 'fac_cost', operator: '<', value: 50000 }],
+        goal_constraints: [{ constraint_id: 'c_open_op', node_id: 'fac_cost', operator: '=', value: 50000 }],
       });
       expect(status).toBe(422);
       const s = JSON.stringify(body);
