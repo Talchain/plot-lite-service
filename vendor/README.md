@@ -9,7 +9,50 @@ and `DecisionGuideAI` (UI).
 
 ## Current contents
 
-### `talchain-schemas-0.77.0.tgz` ← **THE CURRENT PIN** (5 Oct 2026)
+### `talchain-schemas-0.82.0.tgz` ← **THE CURRENT PIN** (12 Oct 2026, recovery Batch C step 1)
+
+**Purpose:** READER re-vendor, readers before writers (Batch C step 1). PLoT pinned 0.77.0, behind the newest release
+older than 48 h (0.82.0), which turned olumi-schemas #96's `pin-drift` check red. **Meant to be INERT here** apart from
+the enrichment egress guard now typing three keys PLoT already emits (below).
+
+**Bytes (CEE's provenance block, copied verbatim from `olumi-assistants-service` `vendor/README.md`):**
+
+**Provenance: THE PUBLISHED REGISTRY ARTEFACT ITSELF, not a local re-pack.** Downloaded from
+`https://npm.pkg.github.com/download/@talchain/schemas/0.82.0/3c18c6453ba15df76cd309058aff06fef885d12d`; registry gitHead
+`c7461d7ed76133cf0e8310c22026e93935833da2` = tag `v0.82.0` (olumi-schemas `main`, DL publish). **869,122 bytes.** Verified, all exact:
+
+```
+npm shasum (sha1)  3c18c6453ba15df76cd309058aff06fef885d12d   (the registry download id)
+integrity (sha512) sha512-vqEsT6Vi9HfxETGOXT+9zIfCIoRQHUMRATa78ImVuP4W460VFzopwb4U02GbcSwibjwgEVyBt592XU+rdUjbTA==
+sha256             976e9fdf9712a14b9633a28c56e03287c919abc46a590dd7dd15ba1af67ee651   (the .sha256 sidecar)
+```
+
+0.82.0 adds the optional strict `NodeV3.event_risk` (`EventRiskV1Schema`: `{version: 1, occurrence {p_low, p_high, basis},
+horizon, meaning, mitigations?}`) and moves the graph-hash projection to **v6** (`event_risk` appended to the node fields). A graph
+with no `event_risk` hashes byte-identically (`graph-hash-proposed-by` CONTROL row); a node carrying it moves the hash
+(`graph-hash-whose-value` `node.event_risk`). ORDER: 0.81.0's `NodeV3Schema` is `.passthrough()`, so a DGAI still on 0.81.0
+neither refuses nor strips a node carrying `event_risk`; CEE only writes it through the add-risk door (event_risk.v1 slice 2a).
+
+**This copy:** byte-identical to CEE's vendored `vendor/talchain-schemas-0.82.0.tgz` (git blob
+`a947913dd6681a949cfa8c73fd9c763b596e583c`, on CEE `staging` `c87608e40f0a9ee97be016f8fa85e3b01b9e793a`); copied, never
+re-packed. `package-lock.json` integrity = the sha512 above. 0.77.0 and its sidecar are removed (recipe step 5); the older
+tarballs already in `vendor/` are left as they were.
+
+**What changed 0.77.0 → 0.82.0, set against PLoT's runtime imports** (both tarballs extracted and compared, 12 Oct).
+- 8 of PLoT's 9 runtime value imports (enumerated from `src/`, 12 Oct) are unchanged. `limits.js` (`LIMITS`, `DEFAULT_EXISTS_PROBABILITY`), `cee-errors.js`
+  (`CeeTypedErrorSchema`) and `analysis.js` (`DetailLevel`) are byte-identical files. `graph.js` differs by additions only
+  (0 removed lines: the `EventRisk*V1Schema`s and optional `NodeV3.event_risk`), and the `NodeKind`, `QuantityFrame`,
+  `GoalThresholdFrame` and `NODE_ID_PATTERN` export blocks are identical.
+- The ninth, `AnalysisEnrichmentSchema` (`boundary/enrichment.js`, the egress guard), differs by additions only (0 removed lines).
+  0.80.0 TYPES three keys PLoT already emits, which until now passed the guard untyped (`.passthrough()`):
+  `dominant_factor` (`{factor_id, factor_label}` strings), `flip_thresholds_status` (string) and
+  `flip_thresholds_status_reason` (string). PLoT's producer conforms: `detectDominantFactor` falls back
+  `factor_label` to `factor_id` (`src/trust/factor-dominance.ts`), the status is one of five string literals, and the
+  reason is spread only when it is a non-empty string (`src/routes/v2/run.ts`, `classifyFlipThresholdsStatus`).
+- Other runtime `dist/*.js` changes (`boundary/blocks.js`, `boundary/graph-hash-contract.js` projection 5 → 6,
+  `boundary/run-delta.js`, `orchestrator/*`, `fixtures/index.js`, `contracts/generated-constants.js`) are not imported here.
+
+### `talchain-schemas-0.77.0.tgz` (5 Oct 2026; historical — removed from `vendor/` at the 0.82.0 bump, per step 5 of the recipe below)
 
 **Purpose:** PARITY with the UI and CEE (SPINE X8, the order bound by the DL: DGAI first, then PLoT, then CEE emits).
 olumi-schemas #88 → `main` `b0378e7f`. **Meant to be INERT here.**
