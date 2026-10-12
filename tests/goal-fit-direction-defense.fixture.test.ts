@@ -44,6 +44,12 @@ import type { FastifyInstance } from 'fastify';
  */
 let outcomeMode: 'negative' | 'positive' = 'positive';
 
+/** The last ISL request body, so a test can bind the synthesised operator by identity. */
+let captured: any;
+
+/** A minimise goal sits BELOW its target: a negative outcome against a positive target meets it. */
+const isMinimiseOperator = (op: unknown) => op === '<=' || op === '<';
+
 function buildOutcome(idx: number) {
   if (outcomeMode === 'negative') {
     // Every percentile strictly negative — the whole modelled distribution
@@ -71,8 +77,14 @@ const mockISLService = {
   },
   async computeCounterfactual(): Promise<never> { throw new Error('not called'); },
   async callAnalysisEndpoint<T>(_endpoint: string, body: any): Promise<{ data: T | null; error: string | null }> {
+    captured = structuredClone(body);
     const options = body.options || [];
     const goalConstraints = body.goal_constraints || [];
+    // Recovery Batch C (AIE 6115686431): under the negative outcome a '<='/'<' positive
+    // target is met in every sampled scenario, so ISL reports a high chance for it; a
+    // '>='/'>' positive target can never be reached (~0).
+    const negativeProb = (op: unknown) => (isMinimiseOperator(op) ? 0.97 : 0.001);
+    const jointNegativeProb = goalConstraints.every((c: any) => isMinimiseOperator(c.operator)) ? 0.97 : 0.001;
 
     // ISL evaluates the (near-)guaranteed-unsatisfiable case exactly like any
     // other: a real Monte Carlo joint probability that happens to round to
@@ -82,12 +94,12 @@ const mockISLService = {
     const constraintAnalysis = goalConstraints.length > 0
       ? {
           constraint_analysis: {
-            joint_probability: outcomeMode === 'negative' ? 0.001 : 0.72,
+            joint_probability: outcomeMode === 'negative' ? jointNegativeProb : 0.72,
             constraints: goalConstraints.map((c: any) => ({
               node_id: c.node_id,
               operator: c.operator,
               threshold: c.threshold ?? c.value,
-              prob_satisfied: outcomeMode === 'negative' ? 0.001 : 0.72,
+              prob_satisfied: outcomeMode === 'negative' ? negativeProb(c.operator) : 0.72,
             })),
           },
         }
@@ -147,13 +159,19 @@ const OPTIONS = [
   { id: 'opt_b', label: 'Hold steady', interventions: { fac_spend: 0.4 } },
 ];
 
-async function run(app: FastifyInstance, goalThreshold: number, explicitConstraint?: any) {
+async function run(
+  app: FastifyInstance,
+  goalThreshold: number,
+  explicitConstraint?: any,
+  goal?: { goal_direction?: 'maximise' | 'minimise'; goal_threshold_strict?: boolean },
+) {
   const payload: Record<string, unknown> = {
     graph: GRAPH,
     options: OPTIONS,
     goal_node_id: 'goal_cost_reduction',
     seed: 'goal-fit-direction-defense',
     goal_threshold: goalThreshold,
+    ...goal,
   };
   if (explicitConstraint) {
     payload.goal_constraints = [explicitConstraint];
@@ -233,6 +251,68 @@ describe('CONSTRAINT_DIRECTION_SUSPECT (auto-constraint sign defense)', () => {
       (r: any) => r.field === 'goal_constraints' && r.action === 'derived',
     );
     expect(autoRepair).toBeDefined();
+  });
+
+  // ---------------------------------------------------------------------------
+  // Recovery Batch C (AIE 6115686431): the guard's higher-is-better assumption is
+  // bound to the auto constraint's '>='/'>' (RESULT reader, run.ts buildResponse).
+  // A minimise goal synthesises '<='/'<'; a negative outcome against a positive
+  // target then MEETS the goal in every sampled scenario, so the chance is real and
+  // must be delivered, and nothing may tell the user "higher is better".
+  // ---------------------------------------------------------------------------
+
+  it.each([
+    ['non-strict', undefined, '<='],
+    ['strict', true, '<'],
+  ] as const)('RESULT site: a %s minimise goal is not direction-suspect — its chance is delivered, never "higher is better"', async (_label, strict, operator) => {
+    outcomeMode = 'negative';
+    try {
+      const body = await run(app, 0.5, undefined, {
+        goal_direction: 'minimise',
+        ...(strict !== undefined && { goal_threshold_strict: strict }),
+      });
+
+      // Identity: the synthesised constraint ISL received is the minimise comparison.
+      const auto = (captured.goal_constraints ?? []).find((c: any) => c.constraint_id === 'auto_goal_threshold');
+      expect(auto?.operator).toBe(operator);
+
+      const warnings = (body.inference_warnings ?? []).filter(
+        (w: any) => w.code === 'CONSTRAINT_DIRECTION_SUSPECT',
+      );
+      expect(warnings).toHaveLength(0);
+      for (const opt of body.option_comparison) {
+        expect(opt.probability_of_joint_goal, opt.option_id).toBe(0.97);
+        expect(opt.constraint_probabilities, opt.option_id).toEqual({ auto_goal_threshold: 0.97 });
+      }
+      expect(JSON.stringify(body)).not.toMatch(/higher is better/i);
+    } finally {
+      outcomeMode = 'positive';
+    }
+  });
+
+  it.each([
+    ['non-strict', false, '>='],
+    ['strict', true, '>'],
+  ] as const)('RESULT site ADVERSE: a %s maximise goal (goal_threshold_strict %s → %s) with a negative outcome is still flagged and withheld', async (_label, strict, operator) => {
+    outcomeMode = 'negative';
+    try {
+      const body = await run(app, 0.5, undefined, { goal_direction: 'maximise', goal_threshold_strict: strict });
+
+      const auto = (captured.goal_constraints ?? []).find((c: any) => c.constraint_id === 'auto_goal_threshold');
+      expect(auto?.operator).toBe(operator);
+
+      for (const opt of body.option_comparison) {
+        expect(opt, opt.option_id).not.toHaveProperty('probability_of_joint_goal');
+        expect(opt, opt.option_id).not.toHaveProperty('constraint_probabilities');
+      }
+      const warnings = (body.inference_warnings ?? []).filter(
+        (w: any) => w.code === 'CONSTRAINT_DIRECTION_SUSPECT',
+      );
+      expect(warnings).toHaveLength(1);
+      expect(warnings[0].message).toContain('Net cost change');
+    } finally {
+      outcomeMode = 'positive';
+    }
   });
 
   it('does NOT fire for an explicit user-supplied constraint (PLoT only guesses direction for its OWN synthesis)', async () => {

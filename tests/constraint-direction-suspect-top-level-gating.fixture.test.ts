@@ -46,7 +46,10 @@ import type { FastifyInstance } from 'fastify';
  * This is the positive control that proves the direction-suspect skip does not
  * over-suppress honest GOAL_FEASIBILITY_LOW warnings.
  */
-let outcomeMode: 'negative' | 'positive' | 'infeasible_positive' = 'positive';
+let outcomeMode: 'negative' | 'positive' | 'infeasible_positive' | 'negative_low' = 'positive';
+
+/** The last ISL request body, so a test can bind the synthesised operator by identity. */
+let captured: any;
 
 /** The near-0 prob_satisfied the per-option gate withholds and the top-level block leaks. */
 const NEG_PROB = 0.02;
@@ -55,7 +58,7 @@ const POS_PROB = 0.72;
 const LOW_FEASIBLE_PROB = 0.03;
 
 function buildOutcome(idx: number) {
-  if (outcomeMode === 'negative') {
+  if (outcomeMode === 'negative' || outcomeMode === 'negative_low') {
     // Whole modelled distribution below zero — '>= positive' unsatisfiable.
     return { mean: -0.4, std: 0.1, p10: -0.6, p50: -0.4, p90: -0.1, n_samples: 1000, n_valid_samples: 1000, validity_ratio: 1.0 };
   }
@@ -83,11 +86,12 @@ const mockISLService = {
   },
   async computeCounterfactual(): Promise<never> { throw new Error('not called'); },
   async callAnalysisEndpoint<T>(_endpoint: string, body: any): Promise<{ data: T | null; error: string | null }> {
+    captured = structuredClone(body);
     const options = body.options || [];
     const goalConstraints = body.goal_constraints || [];
     const prob = outcomeMode === 'negative'
       ? NEG_PROB
-      : outcomeMode === 'infeasible_positive'
+      : outcomeMode === 'infeasible_positive' || outcomeMode === 'negative_low'
         ? LOW_FEASIBLE_PROB
         : POS_PROB;
 
@@ -161,7 +165,11 @@ const OPTIONS = [
   { id: 'opt_b', label: 'Hold steady', interventions: { fac_spend: 30 } },
 ];
 
-async function run(app: FastifyInstance, goalThreshold: number) {
+async function run(
+  app: FastifyInstance,
+  goalThreshold: number,
+  goal?: { goal_direction?: 'maximise' | 'minimise'; goal_threshold_strict?: boolean },
+) {
   const res = await app.inject({
     method: 'POST',
     url: '/v2/run',
@@ -172,6 +180,7 @@ async function run(app: FastifyInstance, goalThreshold: number) {
       goal_node_id: 'goal_growth',
       seed: 'direction-suspect-top-level-gating',
       goal_threshold: goalThreshold,
+      ...goal,
     }),
   });
   expect(res.statusCode).toBe(200);
@@ -291,6 +300,67 @@ describe('top-level constraint_results gating by direction-suspicion (A3 adjacen
       // into warnings[]. It must not carry the direction-suspect feasibility claim.
       // Hard presence assertion (not a vacuous guard): a 'computed' 2-option run
       // always assembles a brief.
+      expect(body.decision_brief, 'decision_brief must be assembled').toBeTruthy();
+      const briefCodes = (body.decision_brief.warnings ?? []).map((w: any) => w.code);
+      expect(briefCodes).not.toContain('GOAL_FEASIBILITY_LOW');
+    } finally {
+      outcomeMode = 'positive';
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // Recovery Batch C (AIE 6115686431): the COACHING reader binds the guard's
+  // higher-is-better assumption to the auto constraint's '>='/'>' too. A minimise
+  // goal ('<='/'<') is never direction-suspect, so the joint-chance gate is NOT
+  // skipped for it: GOAL_FEASIBILITY_LOW follows the joint chance alone.
+  //
+  // 'negative_low' pairs the negative outcome with a LOW joint chance. That is not
+  // a coherent ISL reading for '<=' a positive target (it would be met); it is the
+  // only way to observe the gate, whose one output is GOAL_FEASIBILITY_LOW — the
+  // same device as 'infeasible_positive' above. It pins the reader's wiring, not
+  // ISL's arithmetic.
+  // ---------------------------------------------------------------------------
+
+  it.each([
+    ['non-strict', undefined, '<='],
+    ['strict', true, '<'],
+  ] as const)('COACHING site: a %s minimise goal is not direction-suspect — the joint-chance gate still runs', async (_label, strict, operator) => {
+    outcomeMode = 'negative_low';
+    try {
+      const body = await run(app, 20, {
+        goal_direction: 'minimise',
+        ...(strict !== undefined && { goal_threshold_strict: strict }),
+      });
+
+      // Identity: the synthesised constraint ISL received is the minimise comparison.
+      const auto = (captured.goal_constraints ?? []).find((c: any) => c.constraint_id === 'auto_goal_threshold');
+      expect(auto?.operator).toBe(operator);
+
+      expect(body.m1_coaching, 'm1_coaching must be generated').toBeTruthy();
+      const coachingTypes = body.m1_coaching.model_critiques.map((c: any) => c.type);
+      expect(coachingTypes).toContain('GOAL_FEASIBILITY_LOW');
+      expect(body.decision_brief, 'decision_brief must be assembled').toBeTruthy();
+      const briefCodes = (body.decision_brief.warnings ?? []).map((w: any) => w.code);
+      expect(briefCodes).toContain('GOAL_FEASIBILITY_LOW');
+    } finally {
+      outcomeMode = 'positive';
+    }
+  });
+
+  it.each([
+    ['non-strict', false, '>='],
+    ['strict', true, '>'],
+  ] as const)('COACHING site ADVERSE: a %s maximise goal (goal_threshold_strict %s → %s) with a negative outcome still skips GOAL_FEASIBILITY_LOW', async (_label, strict, operator) => {
+    outcomeMode = 'negative';
+    try {
+      const body = await run(app, 20, { goal_direction: 'maximise', goal_threshold_strict: strict });
+
+      const auto = (captured.goal_constraints ?? []).find((c: any) => c.constraint_id === 'auto_goal_threshold');
+      expect(auto?.operator).toBe(operator);
+
+      expect(body.m1_coaching, 'm1_coaching must be generated').toBeTruthy();
+      const coachingTypes = body.m1_coaching.model_critiques.map((c: any) => c.type);
+      expect(coachingTypes).not.toContain('GOAL_FEASIBILITY_LOW');
       expect(body.decision_brief, 'decision_brief must be assembled').toBeTruthy();
       const briefCodes = (body.decision_brief.warnings ?? []).map((w: any) => w.code);
       expect(briefCodes).not.toContain('GOAL_FEASIBILITY_LOW');

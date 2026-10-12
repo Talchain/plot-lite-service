@@ -3755,7 +3755,7 @@ function buildResponse(
       // over both (this is a stronger, option-specific defect than either).
       const directionSuspect =
         autoDirectionConstraint !== undefined &&
-        isAutoConstraintDirectionSuspect(autoDirectionConstraint.value, outcome?.p90);
+        isAutoConstraintDirectionSuspect(autoDirectionConstraint.value, outcome?.p90, autoDirectionConstraint.operator);
 
       if (directionSuspect) {
         directionSuspectNodeIds.add(autoDirectionConstraint!.node_id);
@@ -9711,7 +9711,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             return islOptionData.some(
               (r) =>
                 hasAllRequiredOutcomeStats(r?.outcome) &&
-                isAutoConstraintDirectionSuspect(autoConstraint.value, r?.outcome?.p90),
+                isAutoConstraintDirectionSuspect(autoConstraint.value, r?.outcome?.p90, autoConstraint.operator),
             );
           })();
 
