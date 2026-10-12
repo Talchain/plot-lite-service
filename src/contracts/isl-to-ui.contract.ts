@@ -134,6 +134,11 @@ export const ISL_TO_UI_CONTRACT: BoundaryContract = {
     { from: 'robustness.edge_sensitivity[].to_id', to: 'edge_sensitivity[].to' },
     /** Per-option constraint probability: ISL nests as joint_probability. */
     { from: 'constraint_analysis.joint_probability', to: 'probability_of_joint_goal' },
+    /**
+     * Batch I — the TARGET-ONLY joint (rows sent with role 'goal_target'), a separately named
+     * figure: never mapped onto probability_of_joint_goal.
+     */
+    { from: 'constraint_analysis.targets_joint_probability', to: 'probability_of_targets_joint' },
     /** Top-level constraint value: ISL returns both threshold (primary) and value (computed); UI uses value. */
     { from: 'constraint_results[].threshold', to: 'constraint_results[].value' },
     /** Top-level constraint probability: ISL uses prob_satisfied, UI uses probability. */

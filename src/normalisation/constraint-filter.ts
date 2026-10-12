@@ -226,6 +226,9 @@ export function filterTemporalConstraints(
       // REPLACES the list, so a field omitted here can never reach ISL however
       // faithfully CEE stamps it or the translator projects it.
       ...(constraint.value_frame !== undefined && { value_frame: constraint.value_frame }),
+      // Batch I — by presence, for the same reason as `value_frame`: this rebuild REPLACES the
+      // list, so a role dropped here never reaches ISL (and PLoT's target-only gate never sees it).
+      ...(constraint.role === 'goal_target' && { role: constraint.role }),
       ...((constraint as any)._internal !== undefined && { _internal: (constraint as any)._internal }),
     };
     passed.push(clean);

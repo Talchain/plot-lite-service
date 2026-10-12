@@ -939,6 +939,13 @@ export interface ISLConstraintAnalysis {
    */
   joint_probability?: number;
   joint_probability_precision?: ConstraintProbabilityPrecision;
+  /**
+   * Batch I — P(every row sent with role 'goal_target' satisfied), same draws and mask as
+   * `joint_probability`. ABSENT unless ISL saw at least two target rows, every one scored and
+   * none range-scored. Read via prob01().
+   */
+  targets_joint_probability?: number;
+  targets_joint_probability_precision?: ConstraintProbabilityPrecision;
   conditional_probabilities?: ISLConditionalProbability[];
 }
 

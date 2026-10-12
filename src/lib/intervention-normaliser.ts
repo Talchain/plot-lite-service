@@ -2312,6 +2312,9 @@ export function normaliseGoalConstraints(
 
   for (const constraint of constraints) {
     const { constraint_id, node_id, operator, value, label, weight, value_frame } = constraint;
+    // Batch I — the target selector, carried BY PRESENCE through every rebuild below (each one
+    // builds the row field by field, so a role not spread here never reaches ISL).
+    const roleField = constraint.role === 'goal_target' ? { role: constraint.role } : {};
 
     // Find target node
     const targetNode = nodeMap.get(node_id);
@@ -2592,6 +2595,7 @@ export function normaliseGoalConstraints(
         }
         normalisedConstraints.push({
           constraint_id, node_id, operator, value, original_value: value, label, weight, value_frame,
+          ...roleField,
         });
         continue;
       }
@@ -2621,6 +2625,7 @@ export function normaliseGoalConstraints(
       const scaled = value === 0 ? value : value / span;
       normalisedConstraints.push({
         constraint_id, node_id, operator, value: scaled, original_value: value, label, weight, value_frame,
+        ...roleField,
       });
       if (value !== 0) {
         repairs.push({
@@ -2976,6 +2981,7 @@ export function normaliseGoalConstraints(
         original_value: value,
         label,
         weight,
+        ...roleField,
       });
       continue;
     }
@@ -3027,6 +3033,7 @@ export function normaliseGoalConstraints(
       ...(value_frame !== undefined && { value_frame }),
       // Release gate (ii) — see `levelDomainFor`. The ONLY writer of the field.
       ...(levelDomain !== undefined && { level_domain: levelDomain }),
+      ...roleField,
     };
     normalisedConstraints.push(normalisedConstraint);
 

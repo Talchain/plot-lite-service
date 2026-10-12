@@ -1579,7 +1579,12 @@ function withholdUnsampledRangeLimits(
     const kept = (r.constraint_analysis.constraints as ISLConstraintResult[]).filter(
       (_row, i) => !withheldIds.has(ids[i] ?? `${_row.node_id}_${_row.operator}`),
     );
-    const { joint_probability: _joint, joint_probability_precision: _precision, conditional_probabilities: _cond, ...analysisRest } = r.constraint_analysis;
+    const {
+      joint_probability: _joint, joint_probability_precision: _precision, conditional_probabilities: _cond,
+      // Batch I — stripped wherever the existing joint is.
+      targets_joint_probability: _targetsJoint, targets_joint_probability_precision: _targetsPrecision,
+      ...analysisRest
+    } = r.constraint_analysis;
     return { ...r, constraint_analysis: { ...analysisRest, constraints: kept }, range_limits_withheld: withheld };
   });
   if (withheldConstraintIds.size === 0) return none;
@@ -1924,6 +1929,13 @@ interface MetaParams {
   };
   /** Filtered constraint records for _meta.filtered_constraints */
   filteredConstraints?: import('../../types/engine-v3.js').FilteredConstraintRecord[];
+  /**
+   * Batch I — the id of EVERY constraint the route compiled with `role: 'goal_target'`,
+   * captured BEFORE the temporal filter and the normaliser can drop one. Internal only (never
+   * serialised): `probability_of_targets_joint` is withheld while any of these is unscored, so
+   * a dropped target can never leave a "both targets" figure computed over the rest.
+   */
+  goalTargetConstraintIds?: readonly string[];
   /** A3 round 2: options withheld before ISL (a stated level would clamp) — _meta.withheld_options */
   withheldOptions?: import('../../types/engine-v3.js').WithheldOptionRecord[];
   /** Variant (b): inferred identities not forwarded to ISL (frameless) — _meta.identities_not_forwarded */
@@ -3434,6 +3446,20 @@ function buildResponse(
     unscoredConstraintIds.length > 0 && Array.isArray(islOptionData) && islOptionData.length > 0
       ? { reason: 'limit_unscored', constraint_ids: unscoredConstraintIds }
       : undefined;
+  // Batch I (AIE olumi-programme-docs#94 6130197656 item 1; DL 6132232654): the goal TARGET ids —
+  // every row compiled with role 'goal_target' (captured before the temporal filter and the
+  // normaliser could drop one) plus any on the forwarded list. `probability_of_targets_joint`
+  // needs at least two, and is withheld while ANY of them is unscored; an unscored LIMIT does not
+  // withhold it (that is what separates it from `probability_of_joint_goal` above).
+  const goalTargetIds = [
+    ...new Set([
+      ...(meta.goalTargetConstraintIds ?? []),
+      ...(goalConstraints ?? []).filter((gc) => gc.role === 'goal_target').map((gc) => gc.constraint_id),
+    ]),
+  ];
+  const unscoredTargetIds = goalTargetIds.filter(
+    (id) => unscoredConstraintIds.includes(id) || !returnedConstraintIds.has(id),
+  );
   // Loop-invariant: the active constraint ids (the scale-provenance map's keys)
   // do NOT vary per option — materialise once rather than per .map iteration.
   const activeConstraintIds = constraintScaleProvenanceByConstraintId
@@ -3822,6 +3848,29 @@ function buildResponse(
             withheld_reason: 'limit_unscored',
             constraint_ids: unscoredConstraintIds,
           });
+        }
+        // Batch I: the TARGET-ONLY joint, a separately named figure. Gated on the TARGETS only:
+        // at least two, none unscored for the run, none range-withheld for this option.
+        const targetsJointProb = prob01(constraintAnalysis.targets_joint_probability);
+        if (targetsJointProb !== undefined && goalTargetIds.length >= 2) {
+          const rangeWithheldIds = new Set(rangeWithheld.map((w) => w.constraint_id));
+          const withheldTargetIds = [
+            ...unscoredTargetIds,
+            ...goalTargetIds.filter((id) => rangeWithheldIds.has(id)),
+          ];
+          if (withheldTargetIds.length === 0) {
+            result.probability_of_targets_joint = targetsJointProb;
+            const targetsPrecision = buildConstraintProbabilityPrecision(
+              constraintAnalysis.targets_joint_probability_precision,
+            );
+            if (targetsPrecision !== undefined) result.probability_of_targets_joint_precision = targetsPrecision;
+          } else {
+            logger?.warn({
+              event: 'targets_joint_probability_withheld_target_unscored',
+              option_id: optionId,
+              constraint_ids: withheldTargetIds,
+            });
+          }
         }
         if (deliveredProbs !== undefined) {
           result.constraint_probabilities = deliveredProbs;
@@ -6562,6 +6611,10 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           normalizedGraph,  // Use normalizedGraph (before filtering) to access constraint nodes
           body.goal_constraints
         );
+        // Batch I — the run's goal TARGET ids, before anything below can filter or refuse one.
+        const goalTargetConstraintIds = constraintCompilation.constraints
+          .filter((c) => c.role === 'goal_target')
+          .map((c) => c.constraint_id);
 
         // Add compilation repairs to repairs_applied
         repairs = repairs.concat(constraintCompilation.repairs);
@@ -10220,6 +10273,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             ceeBuild: ceeOrchestrationResult.ceeTrace?.source ?? undefined,
             computedAt,
             requestIdChain: chain,
+            goalTargetConstraintIds,  // Batch I — internal; gates probability_of_targets_joint
             // ROADMAP 2.878 — refusals join the temporal filter's records in the
             // ONE place a consumer already looks for "constraints that did not
             // reach the engine". Widened to FilteredConstraintRecord by taking

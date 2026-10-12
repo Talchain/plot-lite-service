@@ -634,6 +634,15 @@ export interface GoalConstraint {
    * `value_frame` above.
    */
   level_domain?: ConstraintLevelDomain;
+  /**
+   * Batch I (AIE olumi-programme-docs#94 6130197656 item 1; DL 6132232654) — marks this row
+   * as one of the goal's own TARGETS; a limit carries no role. A read-only selector,
+   * forwarded BY PRESENCE from the producer (CEE) to ISL, which counts
+   * `targets_joint_probability` over exactly these rows. PLoT never mints, defaults or
+   * infers it. Declared HERE (not only on the translator's wire type) for the same
+   * structural-keys reason as `value_frame` above.
+   */
+  role?: 'goal_target';
 }
 
 /**
@@ -2515,6 +2524,18 @@ export interface OptionComparisonResultV3 {
   probability_of_joint_goal?: number;
   /** Present only beside the delivered joint probability. */
   probability_of_joint_goal_precision?: ConstraintProbabilityPrecision;
+
+  /**
+   * Batch I — probability of meeting EVERY goal target together [0, 1]: ISL's
+   * `targets_joint_probability`, counted on the same draws as the joint above over the rows
+   * sent with `role: 'goal_target'` only (limits excluded). A SEPARATELY NAMED figure: it
+   * never replaces `probability_of_joint_goal`, which is unchanged. Present only with at
+   * least two target rows, none of them unscored (suppressed, unreturned, filtered or
+   * refused) and none range-withheld for this option. An unscored LIMIT does not withhold it.
+   */
+  probability_of_targets_joint?: number;
+  /** Present only beside `probability_of_targets_joint`. */
+  probability_of_targets_joint_precision?: ConstraintProbabilityPrecision;
 
   /**
    * Per-constraint probabilities for this option.

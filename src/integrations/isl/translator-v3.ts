@@ -590,6 +590,11 @@ export interface ISLGoalConstraint {
    * then identical but for the hashes over this request, which now carries it).
    */
   level_domain?: ConstraintLevelDomain;
+  /**
+   * Batch I — ISL's `GoalConstraint.role`, a read-only selector for the target-only joint.
+   * By presence, like `value_frame`; never minted or defaulted here.
+   */
+  role?: 'goal_target';
 }
 
 /**
@@ -1960,6 +1965,8 @@ export function toISLRobustnessRequest(
           ...(c.level_domain.max !== undefined && { max: c.level_domain.max }),
         },
       }),
+      // Batch I — by presence: only the literal 'goal_target' is ever forwarded.
+      ...(c.role === 'goal_target' && { role: c.role }),
     }));
   }
 
