@@ -26,7 +26,7 @@ const INFERENCE_PARTICIPATING_KINDS = ['goal', 'factor', 'outcome', 'risk', 'act
 /**
  * Valid constraint operators.
  */
-type ConstraintOperator = '>=' | '<=';
+type ConstraintOperator = GoalConstraint['operator'];
 
 /**
  * Result of constraint node compilation.
@@ -69,13 +69,13 @@ function isInferenceParticipating(kind: string): boolean {
 function extractOperator(node: EngineNodeV3 | any): ConstraintOperator | undefined {
   // Check observed_state.metadata.operator
   const metadataOperator = node.observed_state?.metadata?.operator;
-  if (metadataOperator === '>=' || metadataOperator === '<=') {
+  if (metadataOperator === '>=' || metadataOperator === '<=' || metadataOperator === '>' || metadataOperator === '<') {
     return metadataOperator;
   }
 
   // Check data.operator (React Flow nesting)
   const dataOperator = node.data?.operator;
-  if (dataOperator === '>=' || dataOperator === '<=') {
+  if (dataOperator === '>=' || dataOperator === '<=' || dataOperator === '>' || dataOperator === '<') {
     return dataOperator;
   }
 
@@ -351,7 +351,7 @@ function mergeConstraints(
  * For <= operator: lower threshold is stricter
  */
 function isStricter(a: GoalConstraint, b: GoalConstraint): boolean {
-  if (a.operator === '>=') {
+  if (a.operator === '>=' || a.operator === '>') {
     return a.value >= b.value;
   } else {
     return a.value <= b.value;

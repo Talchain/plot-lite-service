@@ -501,7 +501,7 @@ const INFERENCE_EXCLUDED_KINDS = ['decision', 'option', 'constraint'] as const;
 /**
  * Valid constraint operators (ASCII only).
  */
-const VALID_OPERATORS = ['>=', '<='] as const;
+const VALID_OPERATORS = ['>=', '<=', '>', '<'] as const;
 
 /**
  * Validation result for goal constraints.
@@ -518,7 +518,7 @@ export interface ConstraintValidationResult {
  * Emits blocker critiques for:
  * - CONSTRAINT_TARGET_NOT_FOUND: node_id not in graph.nodes
  * - CONSTRAINT_TARGET_NOT_IN_INFERENCE: target node kind is decision/option/constraint
- * - CONSTRAINT_INVALID_OPERATOR: operator not >= or <=
+ * - CONSTRAINT_INVALID_OPERATOR: operator not >=, <=, > or <
  * - CONSTRAINT_DUPLICATE_ID: two constraints share the same constraint_id
  *
  * Emits warning critiques for:
@@ -604,7 +604,7 @@ export function validateGoalConstraints(
       blockers.push(
         createBlocker(
           'CONSTRAINT_INVALID_OPERATOR',
-          `Constraint "${constraint_id}" has invalid operator "${operator}". Use ">=" or "<=".`,
+          `Constraint "${constraint_id}" has invalid operator "${operator}". Use ">=", "<=", ">" or "<".`,
           undefined,
           [node_id]
         )
@@ -631,8 +631,8 @@ export function validateGoalConstraints(
     const existingConstraint = seenTargets.get(targetKey);
     if (existingConstraint) {
       // Determine which constraint is kept (strictest threshold)
-      const keepExisting = (operator === '>=' && existingConstraint.value >= value) ||
-                          (operator === '<=' && existingConstraint.value <= value);
+      const keepExisting = ((operator === '>=' || operator === '>') && existingConstraint.value >= value) ||
+                          ((operator === '<=' || operator === '<') && existingConstraint.value <= value);
       const keptId = keepExisting ? existingConstraint.constraint_id : constraint_id;
       const droppedId = keepExisting ? constraint_id : existingConstraint.constraint_id;
 

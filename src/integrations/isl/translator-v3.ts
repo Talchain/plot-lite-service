@@ -566,7 +566,7 @@ export interface ISLInterventionRange {
 export interface ISLGoalConstraint {
   constraint_id: string;
   node_id: string;
-  operator: '>=' | '<=';
+  operator: GoalConstraint['operator'];
   /** Constraint value — ISL's canonical field (F-20: was legacy "threshold") */
   value: number;
   label?: string;

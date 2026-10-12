@@ -226,7 +226,7 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
     'Too many constraints provided. Reduce the number of constraints to stay within the limit.',
 
   INVALID_CONSTRAINT_SHAPE:
-    'A constraint is incomplete or malformed. Each constraint needs an identifier, a target node, a >= or <= comparison, and a numeric limit.',
+    'A constraint is incomplete or malformed. Each constraint needs an identifier, a target node, a >=, <=, > or < comparison, and a numeric limit.',
 
   EMPTY_INTERVENTIONS: (c, g, opts) => {
     const label = resolveOptionLabel(c.affected_option_ids?.[0], opts, g);
@@ -299,7 +299,7 @@ export const TEMPLATE_MAP: Record<string, TemplateEntry> = {
     "A constraint targets a node type that can't be constrained. Only factors, outcomes, and goals can have constraints.",
 
   CONSTRAINT_INVALID_OPERATOR:
-    'A constraint uses an unrecognised comparison. Valid operators are >= and <=.',
+    'A constraint uses an unrecognised comparison. Valid operators are >=, <=, > and <.',
 
   CONSTRAINT_DUPLICATE_ID:
     'Duplicate constraint found. Each constraint must be unique.',

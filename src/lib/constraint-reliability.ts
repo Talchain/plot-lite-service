@@ -1051,11 +1051,22 @@ export function buildConstraintTargetUnreliableMessage(
  * threshold, or an outcome that reaches non-negative territory anywhere in
  * its sampled range all return false — normal (satisfiable-looking) runs are
  * completely untouched.
+ *
+ * Recovery Batch C (AIE 6115686431): the higher-is-better assumption holds
+ * ONLY for the '>='/'>' operators. A minimise goal now synthesises '<='/'<'
+ * (from the attested goal_direction, not a guess), and for it the same
+ * evidence (positive target, p90 < 0) means the target is MET in every sampled
+ * scenario, not unreachable. The guard therefore skips '<='/'<' rather than
+ * mirroring: its only evidence is the upper tail (p90), and a lower-is-better
+ * sign rule would be a new check, not this one. Both readers (result and
+ * coaching, run.ts) must pass the auto constraint's operator.
  */
 export function isAutoConstraintDirectionSuspect(
   autoConstraintValue: number | undefined,
   outcomeP90: number | undefined,
+  operator: GoalConstraint['operator'] | undefined,
 ): boolean {
+  if (operator !== '>=' && operator !== '>') return false;
   if (typeof autoConstraintValue !== 'number' || !Number.isFinite(autoConstraintValue)) return false;
   if (autoConstraintValue <= 0) return false;
   if (typeof outcomeP90 !== 'number' || !Number.isFinite(outcomeP90)) return false;
