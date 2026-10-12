@@ -6988,9 +6988,11 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
             const autoConstraint: GoalConstraint & { _internal: InternalMetadata } = {
               constraint_id: 'auto_goal_threshold',
               node_id: body.goal_node_id,
-              operator: body.goal_threshold_strict === true
-                ? (body.goal_direction === 'minimise' ? '<' : '>')
-                : '>=',
+              // The same comparison ISL's single-goal chance makes from goal_direction +
+              // goal_threshold_strict (forwarded beside it): minimise reads below the target.
+              operator: body.goal_direction === 'minimise'
+                ? (body.goal_threshold_strict === true ? '<' : '<=')
+                : (body.goal_threshold_strict === true ? '>' : '>='),
               value: autoThreshold,
               value_frame: nodeGoalThresholdFrame,
               label: 'Goal target',

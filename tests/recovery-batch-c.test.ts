@@ -85,17 +85,28 @@ describe('Recovery Batch C: strict wire and precision', () => {
     expect(captured.options.find((o: any) => o.id === 'status_quo').interventions).toEqual({ spend: 0.5 });
     expect(captured.graph.nodes.find((n: any) => n.id === 'conversion').observed_state.baseline).toBe(0.1);
   });
-  it.each(['maximise', 'minimise'])('keeps a strict scalar %s goal strict in the synthesized joint constraint', async direction => {
+  // The synthesized constraint states the SAME comparison ISL's single-goal chance makes from
+  // goal_direction + goal_threshold_strict: minimise reads below the target, maximise above it.
+  it.each([
+    ['maximise', undefined, '>='],
+    ['maximise', false, '>='],
+    ['maximise', true, '>'],
+    ['minimise', undefined, '<='],
+    ['minimise', false, '<='],
+    ['minimise', true, '<'],
+  ] as const)('synthesizes a scalar %s goal (strict: %s) as %s', async (direction, strict, operator) => {
     const request = payload() as any;
     delete request.goal_constraints;
     request.goal_threshold = 0.15;
-    request.goal_threshold_strict = true;
+    if (strict !== undefined) request.goal_threshold_strict = strict;
     request.goal_direction = direction;
     request.graph.nodes[0].goal_threshold_frame = 'delta';
     const response = await app.inject({ method: 'POST', url: '/v2/run', payload: request });
     expect(response.statusCode, response.body).toBe(200);
-    expect(captured.goal_constraints.find((c: any) => c.constraint_id === 'auto_goal_threshold').operator).toBe(direction === 'minimise' ? '<' : '>');
-    expect(captured.goal_threshold_strict).toBe(true);
+    const auto = captured.goal_constraints.find((c: any) => c.constraint_id === 'auto_goal_threshold');
+    expect(auto).toMatchObject({ operator, value: 0.15, value_frame: 'delta' });
+    expect(captured.goal_direction).toBe(direction);
+    expect(captured.goal_threshold_strict === true).toBe(strict === true);
   });
   it('keeps legacy serialized ISL request bytes frozen before the fix', async () => {
     includePrecision = false;
