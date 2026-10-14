@@ -12,6 +12,7 @@ import type {
   EngineNodeV3,
   EngineEdgeV3,
   OptionV3,
+  TargetForecastV3,
   InterventionValueV3,
   GoalConstraint,
   ConstraintLevelDomain,
@@ -549,6 +550,8 @@ export interface ISLOptionV3 {
    * `sampled_intervention_ranges`.
    */
   intervention_ranges?: Record<string, ISLInterventionRange>;
+  /** ISL `InterventionOption.target_forecast` (same-cohort law), forwarded verbatim when present. */
+  target_forecast?: TargetForecastV3;
 }
 
 export interface ISLInterventionRange {
@@ -1245,6 +1248,14 @@ export function toISLOption(option: OptionV3): ISLOptionV3 {
         return [nodeId, forwarded];
       }),
     );
+  }
+  // AIE laws ruling (same cohort): carried only when present, so every other request is byte-identical.
+  if (option.target_forecast !== undefined) {
+    const tf = option.target_forecast;
+    islOption.target_forecast = {
+      law: tf.law, exposure: tf.exposure, rate_quartiles: [tf.rate_quartiles[0], tf.rate_quartiles[1]],
+      conditions: tf.conditions.map((c) => ({ constraint_id: c.constraint_id, quantity: c.quantity, threshold: c.threshold })),
+    };
   }
   return islOption;
 }

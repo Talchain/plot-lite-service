@@ -91,7 +91,7 @@ import { compileConstraintNodes } from '../../normalisation/constraint-compiler.
 import { filterTemporalConstraints } from '../../normalisation/constraint-filter.js';
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
-import type { RawGoalConstraint, InternalMetadata, RangeLimitWithheld } from '../../types/engine-v3.js';
+import type { RawGoalConstraint, InternalMetadata, RangeLimitWithheld, TargetForecastV3, TargetForecastResultV3 } from '../../types/engine-v3.js';
 import { withdrawInferredUnevaluatedIdentities, attachIdentityExecutionFrames, goalCarrierIds, attachChangeFrameRawRanges, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, correlatedFactorIdsOf, zeroFactorsHeldExact, zeroFactorHeldWarnings, exactInputOptionIds, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
@@ -1478,7 +1478,8 @@ export function normalizeInterventions(
  * Normalize all options' interventions.
  */
 function normalizeOptions(
-  options: Array<{ id: string; label: string; interventions: Record<string, any>; intervention_ranges?: unknown }>
+  options: Array<{ id: string; label: string; interventions: Record<string, any>; intervention_ranges?: unknown; target_forecast?: unknown }>,
+  constraintIds: ReadonlySet<string> = new Set(),
 ): OptionV3[] {
   return options.map(opt => {
     const normalised: OptionV3 = {
@@ -1490,6 +1491,12 @@ function normalizeOptions(
     // byte-identical. The ingress guard above has already refused any malformed entry.
     const ranges = readInterventionRanges(opt.intervention_ranges);
     if (ranges !== undefined) normalised.intervention_ranges = ranges;
+    // AIE laws ruling (same cohort): carried only when present; the ingress guard refused a malformed one.
+    const forecast = readTargetForecast(opt.target_forecast, constraintIds);
+    if (forecast === null) {
+      throw new Error('normalizeOptions: malformed target_forecast — the ingress guard must refuse it before normalisation.');
+    }
+    if (forecast !== undefined) normalised.target_forecast = forecast;
     return normalised;
   });
 }
@@ -1584,6 +1591,60 @@ function withholdUnsampledRangeLimits(
   });
   if (withheldConstraintIds.size === 0) return none;
   return { result: { ...islResult, [key]: rows }, withheldConstraintIds };
+}
+
+/**
+ * AIE laws ruling (same cohort): an option's `target_forecast`, validated, or `null` when it is
+ * malformed (refused at ingress, never forwarded half-formed). `undefined` when absent. Each
+ * condition must name a sent `goal_constraints` row; ISL compares that row's operator.
+ */
+export function readTargetForecast(raw: unknown, constraintIds: ReadonlySet<string>): TargetForecastV3 | null | undefined {
+  if (raw === undefined) return undefined;
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const tf = raw as Record<string, unknown>;
+  const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+  const q = tf.rate_quartiles;
+  if (tf.law !== 'same_cohort_beta_binomial' || !Number.isInteger(tf.exposure) || (tf.exposure as number) < 1
+    || (tf.exposure as number) > 10_000_000 || !Array.isArray(q) || q.length !== 2 || !finite(q[0]) || !finite(q[1])
+    || !(0 < q[0] && q[0] < q[1] && q[1] < 1) || !Array.isArray(tf.conditions) || tf.conditions.length < 1 || tf.conditions.length > 10) return null;
+  const conditions: TargetForecastV3['conditions'] = [];
+  for (const c of tf.conditions as unknown[]) {
+    if (!c || typeof c !== 'object' || Array.isArray(c)) return null;
+    const row = c as Record<string, unknown>;
+    if (typeof row.constraint_id !== 'string' || !constraintIds.has(row.constraint_id)
+      || conditions.some((x: TargetForecastV3['conditions'][number]) => x.constraint_id === row.constraint_id)
+      || (row.quantity !== 'rate' && row.quantity !== 'count') || !finite(row.threshold) || row.threshold < 0
+      || (row.quantity === 'rate' && row.threshold > 1)) return null;
+    conditions.push({ constraint_id: row.constraint_id, quantity: row.quantity, threshold: row.threshold });
+  }
+  return { law: 'same_cohort_beta_binomial', exposure: tf.exposure as number, rate_quartiles: [q[0], q[1]], conditions };
+}
+
+/** ISL's scored same-cohort forecast, carried only when every figure is a valid probability with its precision. */
+export function readTargetForecastResult(raw: unknown): TargetForecastResultV3 | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const a = raw as Record<string, unknown>;
+  const joint = prob01(a.joint_probability);
+  const jointPrecision = buildConstraintProbabilityPrecision(a.joint_probability_precision);
+  if (joint === undefined || jointPrecision === undefined || !Array.isArray(a.conditions) || a.conditions.length === 0
+    || !a.law || typeof a.law !== 'object' || Array.isArray(a.law)) return undefined;
+  const conditions: TargetForecastResultV3['conditions'] = [];
+  for (const c of a.conditions as unknown[]) {
+    const row = (c && typeof c === 'object' ? c : {}) as Record<string, unknown>;
+    const p = prob01(row.prob_satisfied);
+    const precision = buildConstraintProbabilityPrecision(row.prob_satisfied_precision);
+    if (typeof row.constraint_id !== 'string' || (row.quantity !== 'rate' && row.quantity !== 'count') || typeof row.operator !== 'string'
+      || typeof row.threshold !== 'number' || !Number.isFinite(row.threshold) || p === undefined || precision === undefined) return undefined;
+    conditions.push({ constraint_id: row.constraint_id, quantity: row.quantity, operator: row.operator, threshold: row.threshold,
+      probability: p, precision });
+  }
+  return { conditions, joint_probability: joint, joint_probability_precision: jointPrecision, law: { ...(a.law as Record<string, unknown>) } };
+}
+
+/** The constraint ids a request sends (each row's own `constraint_id`). */
+function sentConstraintIdsOf(raw: unknown): Set<string> {
+  return new Set((Array.isArray(raw) ? raw : []).flatMap((c) => c && typeof c === 'object'
+    && typeof (c as { constraint_id?: unknown }).constraint_id === 'string' ? [(c as { constraint_id: string }).constraint_id] : []));
 }
 
 /** The validated per-node ranges, or undefined when none were stated. */
@@ -3885,6 +3946,9 @@ function buildResponse(
       }
     }
 
+    // AIE laws ruling (same cohort): ISL's scored forecast for this option, carried only when valid.
+    const targetForecast = readTargetForecastResult(r.target_forecast_analysis);
+    if (targetForecast !== undefined) result.target_forecast = targetForecast;
     return result;
   });
 
@@ -6298,6 +6362,35 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           }
         }
 
+        // AIE laws ruling (same cohort): a malformed target_forecast, or one naming a constraint the
+        // request does not send, is refused here: never forwarded half-formed, never dropped silently.
+        {
+          const constraintIds = sentConstraintIdsOf((body as { goal_constraints?: unknown }).goal_constraints);
+          for (const option of body.options) {
+            const raw = (option as { target_forecast?: unknown })?.target_forecast;
+            if (raw === undefined || readTargetForecast(raw, constraintIds) !== null) continue;
+            const optionId = String((option as { id?: unknown })?.id ?? '');
+            return sendBlockedResponse(422,
+              `Invalid target forecast: options[id=${optionId}].target_forecast`,
+              [{
+                id: randomUUID(),
+                code: 'INVALID_TARGET_FORECAST',
+                severity: 'blocker',
+                message: `Option '${optionId}' has an invalid target forecast. It needs law 'same_cohort_beta_binomial', a whole exposure of at least 1, `
+                  + 'quartiles 0 < q25 < q75 < 1, and conditions naming sent goal_constraints rows (a rate threshold as a fraction).',
+                source: 'validation',
+                affected_option_ids: [optionId],
+                affected_node_ids: [],
+                blocks_analysis: true,
+              }],
+              body.graph,
+              body.options,
+              requestId,
+              requestComputedAt,
+            );
+          }
+        }
+
         // =================================================================
         // Phase 1: Normalization
         // =================================================================
@@ -6310,7 +6403,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         let repairs: RepairRecord[] = [];
 
         // Normalize options (support both simple numbers and rich objects)
-        let normalizedOptions = normalizeOptions(body.options);
+        let normalizedOptions = normalizeOptions(body.options, sentConstraintIdsOf((body as { goal_constraints?: unknown }).goal_constraints));
 
         try {
           const normResult = normaliseGraphWithRepairs(body.graph);
