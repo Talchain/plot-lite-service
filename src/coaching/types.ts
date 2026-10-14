@@ -44,6 +44,8 @@ export interface NormalisedFragileEdge {
 export interface NormalisedOption {
   id: string;
   label: string;
+  /** The caller's own status-quo mark on this option (`OptionV3.is_baseline`), present only when true. */
+  isBaseline?: true;
   winProbability: number;
   /**
    * OPTIONAL: absent when ISL did not measure a finite mean for this option.

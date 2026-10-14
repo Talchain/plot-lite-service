@@ -290,6 +290,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "interventions",
   "invalid_rows_dropped",
   "investigation_suggestions",
+  "is_baseline",
   "is_provisional",
   "is_robust",
   "is_tie",

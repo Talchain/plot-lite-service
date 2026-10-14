@@ -141,10 +141,12 @@ export function normaliseCoachingInputs(
   // Sort by win probability descending (highest first) for reliable [0] access
   const normalisedOptions: NormalisedOption[] = (islResult.options ?? [])
     .map((islOpt: any) => {
+      // ISL's `OptionResultV2.id` (response_v2.py) binds the caller's own option: its label and its baseline mark.
       const matchingOption = options.find((o) => o.id === islOpt.id);
       return {
         id: islOpt.id,
         label: matchingOption?.label ?? islOpt.label ?? islOpt.id,
+        ...(matchingOption?.is_baseline === true ? { isBaseline: true as const } : {}),
         winProbability: islOpt.win_probability ?? 0,
         // ROADMAP 2.480(a) — outcomeMean obeys the same never-coalesce rule this
         // file states above for switch_probability, and for the same reason.

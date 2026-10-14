@@ -1478,7 +1478,7 @@ export function normalizeInterventions(
  * Normalize all options' interventions.
  */
 function normalizeOptions(
-  options: Array<{ id: string; label: string; interventions: Record<string, any>; intervention_ranges?: unknown; target_forecast?: unknown }>,
+  options: Array<{ id: string; label: string; interventions: Record<string, any>; intervention_ranges?: unknown; target_forecast?: unknown; is_baseline?: unknown }>,
   constraintIds: ReadonlySet<string> = new Set(),
 ): OptionV3[] {
   return options.map(opt => {
@@ -1497,6 +1497,8 @@ function normalizeOptions(
       throw new Error('normalizeOptions: malformed target_forecast — the ingress guard must refuse it before normalisation.');
     }
     if (forecast !== undefined) normalised.target_forecast = forecast;
+    // The caller's status-quo mark, for coaching only: carried only when exactly true (any other value is absence).
+    if (opt.is_baseline === true) normalised.is_baseline = true;
     return normalised;
   });
 }
