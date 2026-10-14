@@ -1041,6 +1041,20 @@ export interface ISLOptionComparisonResult {
     low: number;
     high: number;
   }>;
+  /** ISL `target_forecast_analysis` (same-cohort law): every condition and their joint, one draw population. */
+  target_forecast_analysis?: {
+    conditions: Array<{
+      constraint_id: string;
+      quantity: 'rate' | 'count';
+      operator: string;
+      threshold: number;
+      prob_satisfied: number;
+      prob_satisfied_precision: { n_informative: number; standard_error: number };
+    }>;
+    joint_probability: number;
+    joint_probability_precision: { n_informative: number; standard_error: number };
+    law: Record<string, unknown>;
+  };
   /**
    * Per-option downside / tail-risk block (ISL `DownsideV2`, B2 — #91/#92,
    * hardened by #124/#125). ABSENT (key omitted, never `null`) when ISL could

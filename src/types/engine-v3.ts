@@ -565,6 +565,49 @@ export interface OptionV3 {
    * and echoes `sampled_intervention_ranges`; without the echo the limit is withheld.
    */
   intervention_ranges?: Record<string, InterventionRangeV3>;
+  /**
+   * AIE laws ruling (13 Oct, same cohort): the option's forecast for targets that count ONE cohort
+   * over the same window (a conversion rate and the customers it yields). Forwarded verbatim to ISL
+   * (`options[].target_forecast`), which scores every condition and their joint on one draw
+   * population. Optional and absent by default; a request without it is byte-identical.
+   */
+  target_forecast?: TargetForecastV3;
+}
+
+/** One target the same-cohort forecast is scored against: a `goal_constraints` row by id, in natural units. */
+export interface TargetForecastConditionV3 {
+  constraint_id: string;
+  /** 'rate': the realised share of the cohort that converts; 'count': the people who convert. */
+  quantity: 'rate' | 'count';
+  /** A rate as a fraction in [0, 1]; a count in people. */
+  threshold: number;
+}
+
+/** ISL `SameCohortTargetForecast`: p ~ Beta (quartiles), N ~ Binomial(exposure, p), rate = N / exposure on one draw. */
+export interface TargetForecastV3 {
+  law: 'same_cohort_beta_binomial';
+  /** People in the cohort over the window: a point (its own uncertainty is excluded, and the caller says so). */
+  exposure: number;
+  /** [q25, q75] of the cohort's conversion propensity, from an adopted card; 0 < q25 < q75 < 1. */
+  rate_quartiles: [number, number];
+  conditions: TargetForecastConditionV3[];
+}
+
+/** ISL's scored same-cohort forecast for one option, carried to the caller unchanged in meaning. */
+export interface TargetForecastResultV3 {
+  conditions: Array<{
+    constraint_id: string;
+    quantity: 'rate' | 'count';
+    operator: string;
+    threshold: number;
+    probability: number;
+    precision: ConstraintProbabilityPrecision;
+  }>;
+  /** The share of draws on which EVERY condition holds; never a product of the marginals. */
+  joint_probability: number;
+  joint_probability_precision: ConstraintProbabilityPrecision;
+  /** ISL's law echo: family, alpha, beta, rate_quartiles, exposure, trials. */
+  law: Record<string, unknown>;
 }
 
 // -----------------------------------------------------------------------------
@@ -2515,6 +2558,11 @@ export interface OptionComparisonResultV3 {
   probability_of_joint_goal?: number;
   /** Present only beside the delivered joint probability. */
   probability_of_joint_goal_precision?: ConstraintProbabilityPrecision;
+  /**
+   * AIE laws ruling (same cohort): the option's `target_forecast`, scored by ISL on one draw
+   * population. Present only when the option sent one and ISL returned it; never derived here.
+   */
+  target_forecast?: TargetForecastResultV3;
 
   /**
    * Per-constraint probabilities for this option.
