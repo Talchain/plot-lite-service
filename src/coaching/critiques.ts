@@ -165,8 +165,11 @@ function checkInfluentialExternals(inputs: CoachingInputs, thresholds: ReturnTyp
 
 function checkNarrowFraming(inputs: CoachingInputs, thresholds: ReturnType<typeof getThresholds>): Critique | null {
   const { options } = inputs;
+  // The caller's own baseline mark decides first (Paul pricing r2: "Only 2 options without a baseline" beside its own
+  // "Keep Pro price at £49", marked is_baseline); the label words remain only for a caller that sends no mark.
   const hasStatusQuo = options.some(
     (o) =>
+      o.isBaseline === true ||
       o.label?.toLowerCase().includes('status quo') ||
       o.label?.toLowerCase().includes('do nothing') ||
       o.label?.toLowerCase().includes('current')

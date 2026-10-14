@@ -553,6 +553,11 @@ export interface OptionV3 {
   /** Human-readable label */
   label: string;
   /**
+   * The caller's own status-quo mark (CEE `is_baseline`): this option IS the baseline. Read by coaching only (the
+   * narrow-framing critique), never sent to ISL. Carried only when true.
+   */
+  is_baseline?: true;
+  /**
    * What this option does causally.
    * Keys are node IDs, values are intervention specs.
    * REQUIRED and must be non-empty.
