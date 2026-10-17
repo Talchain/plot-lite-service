@@ -193,8 +193,23 @@ export interface BriefDefaultedAssumption {
   /**
    * 'value_defaulted'     — factor_sensitivity[*].value_defaulted === true
    * 'default_disclosure'  — inference warning whose code names a default
+   * 'value_not_stated'    — factor_sensitivity[*].value_source is a MODEL-OWNED
+   *                         provenance literal: the number reached the engine as
+   *                         an ordinary observed value, but the model, not the
+   *                         user and not the user's brief, is the one who put it
+   *                         there.
+   *
+   * WHY THE THIRD MEMBER IS NOT A WIDENING OF THE FIRST. They answer different
+   * questions and neither subsumes the other (CLAUDE.md trap 21):
+   * `value_defaulted` is ISL attesting that IT substituted a default because no
+   * value arrived; `value_not_stated` is CEE's provenance stamp saying the value
+   * that DID arrive is the model's own. A value invented upstream of ISL is a
+   * perfectly ordinary `observed_state.value` by the time ISL sees it, so ISL
+   * never marks it and the first predicate is structurally blind to it. A
+   * consumer that wants "everything Olumi supplied" takes the union; one that
+   * wants ISL's own attestation takes the first member alone.
    */
-  source: 'value_defaulted' | 'default_disclosure';
+  source: 'value_defaulted' | 'default_disclosure' | 'value_not_stated';
   /** Inference-warning code for 'default_disclosure' entries */
   code?: string;
   doctrine: 'provisional_doctrine_v0';
