@@ -565,3 +565,10 @@ removed on each bump.
 back to a registry version once `olumi-schemas` is published to a
 registry all consumers can reach. Until then, every consuming repo
 carries its own `vendor/` copy.
+
+## `talchain-schemas-0.84.0.tgz`: PRE-PUBLISH RE-PACK — REPLACE BEFORE MERGE (DL-3, 20 Oct 2026)
+
+A local `npm pack` of olumi-schemas branch `dl/l3s-outcome-law` at 38219a68 (schemas #97, unmerged), NOT the registry artefact.
+The PR stays unarmed until Paul merges and publishes #97; the DL then swaps in the published 0.84.0 download. 880,306 bytes;
+sha256 a30a5c627fd898af48e3c8a672903d7eaa7bcb48da865b0e08587b03c4a11bb9. Adds the optional InterventionRange `law` (ISL #235);
+a range with no `law` is unchanged. Skips 0.83.0 (strict goal comparators, joint goal precision), which 0.84.0 includes.
