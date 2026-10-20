@@ -29,6 +29,7 @@ import {
 } from './parameter-uncertainty-bounds.js';
 import { sha8 } from '../../util/pii-redact.js';
 import type { EventRiskV1 } from './event-risk.js';
+import type { InterventionRangeV3 } from '../../lib/intervention-range.js';
 import { resolveNodeFrame, type NodeFrameCarrier } from '../../lib/intervention-normaliser.js';
 import { buildAdjacencyList, checkPathToGoal } from '../../validation/path-to-goal.js';
 // ROADMAP 2.258. DERIVED from the shared contract, never hand-mirrored.
@@ -554,12 +555,7 @@ export interface ISLOptionV3 {
   target_forecast?: TargetForecastV3;
 }
 
-export interface ISLInterventionRange {
-  low: number;
-  high: number;
-  meaning: string;
-  normalisation?: { raw_at_zero: number; raw_at_one: number };
-}
+export type ISLInterventionRange = InterventionRangeV3;
 
 /**
  * ISL constraint format.
@@ -1245,6 +1241,10 @@ export function toISLOption(option: OptionV3): ISLOptionV3 {
         const r = option.intervention_ranges![nodeId];
         const forwarded: ISLInterventionRange = { low: r.low, high: r.high, meaning: r.meaning };
         if (r.normalisation !== undefined) forwarded.normalisation = { ...r.normalisation };
+        if (r.law !== undefined) {
+          forwarded.law = r.law;
+          forwarded.source = r.source;
+        }
         return [nodeId, forwarded];
       }),
     );
