@@ -287,6 +287,24 @@ describe('pinnedLeverIds — the amended rule\'s membership, by id', () => {
     expect(pinnedLeverIds(nodes, [option('a', { spend: 0.2, price: 0.3 })]).size).toBe(0);
     expect(pinnedLeverIds(nodes, []).size).toBe(0);
   });
+
+  it('thin core: a zero-today lever that is a part of a declared SUM is pinned whatever the options; a product or no identity is not', () => {
+    // R2 P07/P08 shape: goal = today (40) + change; options set the change to +30 and +19.9; nobody restates 0.
+    const goal = (operation: 'sum' | 'product' | undefined): EngineNodeV3 => ({
+      id: 'w', kind: 'goal', label: 'w',
+      ...(operation !== undefined ? { nonlinear_identity: { operation, factor_ids: ['w_today', 'w__change'], stated_in_brief: false } } : {}),
+    } as EngineNodeV3);
+    const parts = [{ ...factor('w_today', 0.4, { source: 'brief_extraction' }), category: 'observable' } as EngineNodeV3, lever('w__change', 0, 'cee_inference')];
+    const options = [option('a', { w__change: 0.3 }), option('b', { w__change: 0.199 })];
+    expect([...pinnedLeverIds([goal('sum'), ...parts], options)]).toStrictEqual(['w__change']);
+    const sent = buildParameterUncertaintiesV3([goal('sum'), ...parts], options)!.find((u) => u.node_id === 'w__change');
+    expect(sent).toStrictEqual({ node_id: 'w__change', distribution: 'point_mass' });
+    // CONTROLS: the same lever outside a sum keeps the option-derived spread rule.
+    expect(pinnedLeverIds([goal('product'), ...parts], options).size).toBe(0);
+    expect(pinnedLeverIds([goal(undefined), ...parts], options).size).toBe(0);
+    // A non-zero part of a sum is never pinned by membership alone.
+    expect(pinnedLeverIds([goal('sum'), parts[0]!, lever('w__change', 0.1, 'cee_inference')], options).size).toBe(0);
+  });
 });
 
 /**
