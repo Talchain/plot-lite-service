@@ -1,0 +1,195 @@
+{
+ "request_id": "req-pw",
+ "graph": {
+  "nodes": [
+   {
+    "id": "weekly_bookings",
+    "kind": "goal",
+    "label": "Weekly bookings",
+    "observed_state": {
+     "value": 0.18000000000000002,
+     "baseline": 0.18000000000000002,
+     "unit": "bookings a week",
+     "source": "brief_extraction",
+     "raw_value": 180,
+     "cap": 1000
+    },
+    "intercept": 0,
+    "epsilon_std": 0,
+    "nonlinear_identity": {
+     "operation": "sum",
+     "factor_ids": [
+      "current_weekly_bookings",
+      "extra_bookings_from_evening_slots",
+      "extra_bookings_from_referrals"
+     ],
+     "stated_in_brief": false
+    },
+    "execution_frame": {
+     "frame": 1000,
+     "carrier": "cap"
+    }
+   },
+   {
+    "id": "current_weekly_bookings",
+    "kind": "factor",
+    "label": "Current weekly bookings",
+    "observed_state": {
+     "value": 0.18,
+     "unit": "bookings a week",
+     "source": "brief_extraction",
+     "std": 0.0001,
+     "raw_value": 180,
+     "cap": 1000
+    },
+    "intercept": 0,
+    "epsilon_std": 0,
+    "execution_frame": {
+     "frame": 1000,
+     "carrier": "cap"
+    }
+   },
+   {
+    "id": "extra_bookings_from_evening_slots",
+    "kind": "factor",
+    "label": "Extra bookings from evening slots",
+    "observed_state": {
+     "value": 0,
+     "unit": "bookings a week",
+     "source": "cee_inference",
+     "raw_value": 0,
+     "cap": 120,
+     "extractionType": "inferred"
+    },
+    "intercept": 0,
+    "epsilon_std": 0,
+    "execution_frame": {
+     "frame": 120,
+     "carrier": "cap"
+    }
+   },
+   {
+    "id": "extra_bookings_from_referrals",
+    "kind": "factor",
+    "label": "Extra bookings from referrals",
+    "observed_state": {
+     "value": 0,
+     "unit": "bookings a week",
+     "source": "cee_inference",
+     "raw_value": 0,
+     "cap": 120,
+     "extractionType": "inferred"
+    },
+    "intercept": 0,
+    "epsilon_std": 0,
+    "execution_frame": {
+     "frame": 120,
+     "carrier": "cap"
+    }
+   }
+  ],
+  "edges": [
+   {
+    "from": "current_weekly_bookings",
+    "to": "weekly_bookings",
+    "exists_probability": 1,
+    "strength": {
+     "mean": 1,
+     "std": 0.05
+    }
+   },
+   {
+    "from": "extra_bookings_from_evening_slots",
+    "to": "weekly_bookings",
+    "exists_probability": 1,
+    "strength": {
+     "mean": 0.12,
+     "std": 0.05
+    }
+   },
+   {
+    "from": "extra_bookings_from_referrals",
+    "to": "weekly_bookings",
+    "exists_probability": 1,
+    "strength": {
+     "mean": 0.12,
+     "std": 0.05
+    }
+   }
+  ]
+ },
+ "options": [
+  {
+   "id": "carry_on_as_now",
+   "label": "Carry on as now",
+   "interventions": {
+    "extra_bookings_from_evening_slots": 0,
+    "extra_bookings_from_referrals": 0
+   }
+  },
+  {
+   "id": "add_evening_slots",
+   "label": "Add evening slots",
+   "interventions": {
+    "extra_bookings_from_evening_slots": 0.3333333333333333
+   },
+   "intervention_ranges": {
+    "extra_bookings_from_evening_slots": {
+     "low": 25,
+     "high": 60,
+     "meaning": "likely_range",
+     "normalisation": {
+      "raw_at_zero": 0,
+      "raw_at_one": 120
+     }
+    }
+   }
+  },
+  {
+   "id": "run_a_referral_offer",
+   "label": "Run a referral offer",
+   "interventions": {
+    "extra_bookings_from_referrals": 0.125
+   },
+   "intervention_ranges": {
+    "extra_bookings_from_referrals": {
+     "low": 5,
+     "high": 30,
+     "meaning": "likely_range",
+     "normalisation": {
+      "raw_at_zero": 0,
+      "raw_at_one": 120
+     }
+    }
+   }
+  }
+ ],
+ "goal_node_id": "weekly_bookings",
+ "n_samples": 10000,
+ "analysis_types": [
+  "comparison",
+  "sensitivity",
+  "robustness"
+ ],
+ "parameter_uncertainties": [
+  {
+   "node_id": "current_weekly_bookings",
+   "distribution": "normal",
+   "std": 0.0001
+  },
+  {
+   "node_id": "extra_bookings_from_evening_slots",
+   "distribution": "point_mass"
+  },
+  {
+   "node_id": "extra_bookings_from_referrals",
+   "distribution": "point_mass"
+  }
+ ],
+ "include_e_values": true,
+ "include_voi": true,
+ "include_factor_flips": true,
+ "goal_threshold": 0.21000000000000002,
+ "goal_threshold_frame": "level",
+ "seed": "2004870353"
+}

@@ -1,0 +1,487 @@
+{
+ "err": "",
+ "payload": {
+  "graph": {
+   "nodes": [
+    {
+     "id": "decision_weekly_bookings",
+     "kind": "decision",
+     "label": "Decision: Weekly bookings",
+     "ref": "D1",
+     "provenance": "ai_inferred"
+    },
+    {
+     "id": "weekly_bookings",
+     "kind": "goal",
+     "label": "Weekly bookings",
+     "ref": "G1",
+     "observed_state": {
+      "value": 0.18000000000000002,
+      "baseline": 0.18000000000000002,
+      "unit": "bookings a week",
+      "source": "brief_extraction",
+      "raw_value": 180,
+      "cap": 1000
+     },
+     "goal_threshold": 0.21000000000000002,
+     "goal_threshold_raw": 210,
+     "goal_threshold_unit": "bookings a week",
+     "goal_threshold_cap": 1000,
+     "goal_threshold_cap_provenance": "stated_effect_fit",
+     "goal_threshold_frame": "level",
+     "goal_direction": ">=",
+     "goal_horizon_months": 12,
+     "provenance": "from_brief",
+     "source_quote": "We take about 180 bookings a week today and want at least 210 a week within 12 months.",
+     "nonlinear_identity": {
+      "operation": "sum",
+      "factor_ids": [
+       "current_weekly_bookings",
+       "extra_bookings_from_evening_slots",
+       "extra_bookings_from_referrals"
+      ],
+      "stated_in_brief": false
+     },
+     "user_statements": [
+      {
+       "field": "target",
+       "attest": {
+        "recorded_by": "construction"
+       },
+       "statements": [
+        {
+         "low": 210,
+         "form": "lower_bound",
+         "unit": "bookings a week",
+         "quote": "We take about 180 bookings a week today and want at least 210 a week within 12 months.",
+         "source": "We take about 180 bookings a week today and want at least 210 a week within 12 months. Adding evening slots would bring in roughly 40 extra bookings a week, somewhere between 25 and 60. A referral offer would bring in roughly 15 extra bookings a week, somewhere between 5 and 30.",
+         "reading": "olumi",
+         "speaker": "user",
+         "subject": {
+          "node_id": "weekly_bookings",
+          "quantity": "goal|weekly_bookings|||target"
+         }
+        }
+       ],
+       "recorded_at": "2026-10-20T00:20:50.942Z",
+       "subject_key": "goal|weekly_bookings|||target"
+      }
+     ]
+    },
+    {
+     "id": "carry_on_as_now",
+     "kind": "option",
+     "label": "Carry on as now",
+     "ref": "O1",
+     "is_baseline": true,
+     "provenance": "ai_inferred"
+    },
+    {
+     "id": "add_evening_slots",
+     "kind": "option",
+     "label": "Add evening slots",
+     "ref": "O2",
+     "interventions": {
+      "extra_bookings_from_evening_slots": {
+       "unit": "bookings a week",
+       "range": {
+        "low": 25,
+        "high": 60,
+        "source": "brief_extraction",
+        "meaning": "likely_range",
+        "source_quote": "Adding evening slots would bring in roughly 40 extra bookings a week, somewhere between 25 and 60."
+       },
+       "value": 0.3333333333333333,
+       "source": "brief_extraction",
+       "raw_value": 40,
+       "target_match": {
+        "node_id": "extra_bookings_from_evening_slots",
+        "confidence": "high",
+        "match_type": "exact_id"
+       }
+      }
+     },
+     "provenance": "from_brief"
+    },
+    {
+     "id": "run_a_referral_offer",
+     "kind": "option",
+     "label": "Run a referral offer",
+     "ref": "O3",
+     "interventions": {
+      "extra_bookings_from_referrals": {
+       "unit": "bookings a week",
+       "range": {
+        "low": 5,
+        "high": 30,
+        "source": "brief_extraction",
+        "meaning": "likely_range",
+        "source_quote": "A referral offer would bring in roughly 15 extra bookings a week, somewhere between 5 and 30."
+       },
+       "value": 0.125,
+       "source": "brief_extraction",
+       "raw_value": 15,
+       "target_match": {
+        "node_id": "extra_bookings_from_referrals",
+        "confidence": "high",
+        "match_type": "exact_id"
+       }
+      }
+     },
+     "provenance": "from_brief"
+    },
+    {
+     "id": "current_weekly_bookings",
+     "kind": "factor",
+     "label": "Current weekly bookings",
+     "ref": "F1",
+     "observed_state": {
+      "value": 0.18,
+      "unit": "bookings a week",
+      "source": "brief_extraction",
+      "raw_value": 180,
+      "cap": 1000,
+      "declared_scale": "unit_interval",
+      "std": 0.0001
+     },
+     "category": "observable",
+     "provenance": "from_brief",
+     "user_statements": [
+      {
+       "field": "level",
+       "attest": {
+        "recorded_by": "construction"
+       },
+       "statements": [
+        {
+         "low": 180,
+         "form": "point",
+         "high": 180,
+         "unit": "bookings a week",
+         "quote": "We take about 180 bookings a week today and want at least 210 a week within 12 months.",
+         "source": "We take about 180 bookings a week today and want at least 210 a week within 12 months. Adding evening slots would bring in roughly 40 extra bookings a week, somewhere between 25 and 60. A referral offer would bring in roughly 15 extra bookings a week, somewhere between 5 and 30.",
+         "reading": "olumi",
+         "speaker": "user",
+         "subject": {
+          "node_id": "current_weekly_bookings",
+          "quantity": "factor|current_weekly_bookings|||level"
+         }
+        }
+       ],
+       "recorded_at": "2026-10-20T00:20:50.942Z",
+       "subject_key": "factor|current_weekly_bookings|||level"
+      }
+     ]
+    },
+    {
+     "id": "extra_bookings_from_evening_slots",
+     "kind": "factor",
+     "label": "Extra bookings from evening slots",
+     "ref": "F2",
+     "observed_state": {
+      "value": 0,
+      "unit": "bookings a week",
+      "source": "cee_inference",
+      "raw_value": 0,
+      "cap": 120,
+      "extractionType": "inferred",
+      "declared_scale": "unit_interval"
+     },
+     "category": "controllable",
+     "provenance": "ai_inferred",
+     "user_statements": [
+      {
+       "field": "level",
+       "attest": {
+        "recorded_by": "construction"
+       },
+       "statements": [
+        {
+         "low": 25,
+         "form": "range",
+         "high": 60,
+         "unit": "bookings a week",
+         "quote": "Adding evening slots would bring in roughly 40 extra bookings a week, somewhere between 25 and 60.",
+         "value": 40,
+         "source": "We take about 180 bookings a week today and want at least 210 a week within 12 months. Adding evening slots would bring in roughly 40 extra bookings a week, somewhere between 25 and 60. A referral offer would bring in roughly 15 extra bookings a week, somewhere between 5 and 30.",
+         "reading": "olumi",
+         "speaker": "user",
+         "subject": {
+          "node_id": "extra_bookings_from_evening_slots",
+          "quantity": "factor|extra_bookings_from_evening_slots||add_evening_slots|level",
+          "option_id": "add_evening_slots"
+         }
+        }
+       ],
+       "recorded_at": "2026-10-20T00:20:50.942Z",
+       "subject_key": "factor|extra_bookings_from_evening_slots||add_evening_slots|level"
+      }
+     ]
+    },
+    {
+     "id": "extra_bookings_from_referrals",
+     "kind": "factor",
+     "label": "Extra bookings from referrals",
+     "ref": "F3",
+     "observed_state": {
+      "value": 0,
+      "unit": "bookings a week",
+      "source": "cee_inference",
+      "raw_value": 0,
+      "cap": 120,
+      "extractionType": "inferred",
+      "declared_scale": "unit_interval"
+     },
+     "category": "controllable",
+     "provenance": "ai_inferred",
+     "user_statements": [
+      {
+       "field": "level",
+       "attest": {
+        "recorded_by": "construction"
+       },
+       "statements": [
+        {
+         "low": 5,
+         "form": "range",
+         "high": 30,
+         "unit": "bookings a week",
+         "quote": "A referral offer would bring in roughly 15 extra bookings a week, somewhere between 5 and 30.",
+         "value": 15,
+         "source": "We take about 180 bookings a week today and want at least 210 a week within 12 months. Adding evening slots would bring in roughly 40 extra bookings a week, somewhere between 25 and 60. A referral offer would bring in roughly 15 extra bookings a week, somewhere between 5 and 30.",
+         "reading": "olumi",
+         "speaker": "user",
+         "subject": {
+          "node_id": "extra_bookings_from_referrals",
+          "quantity": "factor|extra_bookings_from_referrals||run_a_referral_offer|level",
+          "option_id": "run_a_referral_offer"
+         }
+        }
+       ],
+       "recorded_at": "2026-10-20T00:20:50.942Z",
+       "subject_key": "factor|extra_bookings_from_referrals||run_a_referral_offer|level"
+      }
+     ]
+    }
+   ],
+   "edges": [
+    {
+     "from": "decision_weekly_bookings",
+     "to": "carry_on_as_now",
+     "strength": {
+      "mean": 1,
+      "std": 0.01
+     },
+     "exists_probability": 1,
+     "effect_direction": "positive",
+     "provenance": {
+      "source": "cee_hypothesis"
+     }
+    },
+    {
+     "from": "decision_weekly_bookings",
+     "to": "add_evening_slots",
+     "strength": {
+      "mean": 1,
+      "std": 0.01
+     },
+     "exists_probability": 1,
+     "effect_direction": "positive",
+     "provenance": {
+      "source": "cee_hypothesis"
+     }
+    },
+    {
+     "from": "decision_weekly_bookings",
+     "to": "run_a_referral_offer",
+     "strength": {
+      "mean": 1,
+      "std": 0.01
+     },
+     "exists_probability": 1,
+     "effect_direction": "positive",
+     "provenance": {
+      "source": "cee_hypothesis"
+     }
+    },
+    {
+     "from": "add_evening_slots",
+     "to": "extra_bookings_from_evening_slots",
+     "strength": {
+      "mean": 1,
+      "std": 0.01
+     },
+     "exists_probability": 1,
+     "effect_direction": "positive",
+     "provenance": {
+      "source": "cee_hypothesis"
+     }
+    },
+    {
+     "from": "run_a_referral_offer",
+     "to": "extra_bookings_from_referrals",
+     "strength": {
+      "mean": 1,
+      "std": 0.01
+     },
+     "exists_probability": 1,
+     "effect_direction": "positive",
+     "provenance": {
+      "source": "cee_hypothesis"
+     }
+    },
+    {
+     "from": "carry_on_as_now",
+     "to": "extra_bookings_from_evening_slots",
+     "strength": {
+      "mean": 1,
+      "std": 0.01
+     },
+     "exists_probability": 1,
+     "effect_direction": "positive",
+     "provenance": {
+      "source": "cee_hypothesis",
+      "reasoning": "Connectivity repair wired this option to a factor another option targets; no effect value is implied"
+     },
+     "origin": "repair"
+    },
+    {
+     "from": "carry_on_as_now",
+     "to": "extra_bookings_from_referrals",
+     "strength": {
+      "mean": 1,
+      "std": 0.01
+     },
+     "exists_probability": 1,
+     "effect_direction": "positive",
+     "provenance": {
+      "source": "cee_hypothesis",
+      "reasoning": "Connectivity repair wired this option to a factor another option targets; no effect value is implied"
+     },
+     "origin": "repair"
+    },
+    {
+     "from": "current_weekly_bookings",
+     "to": "weekly_bookings",
+     "strength": {
+      "mean": 1,
+      "std": 0.01
+     },
+     "exists_probability": 1,
+     "effect_direction": "positive",
+     "provenance": {
+      "source": "cee_hypothesis",
+      "magnitude": "olumi_estimate",
+      "natural_effect": {
+       "amount": 1,
+       "amount_unit": "bookings a week",
+       "per_source_change": 1,
+       "per_source_change_unit": "bookings a week",
+       "strength_mean": 1,
+       "strength_mean_frame": "edge_strength"
+      },
+      "definitional": true
+     }
+    },
+    {
+     "from": "extra_bookings_from_evening_slots",
+     "to": "weekly_bookings",
+     "strength": {
+      "mean": 0.12,
+      "std": 0.00026250000000000004
+     },
+     "exists_probability": 1,
+     "effect_direction": "positive",
+     "provenance": {
+      "source": "cee_hypothesis",
+      "magnitude": "olumi_estimate",
+      "natural_effect": {
+       "amount": 1,
+       "amount_unit": "bookings a week",
+       "per_source_change": 1,
+       "per_source_change_unit": "bookings a week",
+       "strength_mean": 0.12,
+       "strength_mean_frame": "edge_strength"
+      },
+      "definitional": true
+     }
+    },
+    {
+     "from": "extra_bookings_from_referrals",
+     "to": "weekly_bookings",
+     "strength": {
+      "mean": 0.12,
+      "std": 0.00026250000000000004
+     },
+     "exists_probability": 1,
+     "effect_direction": "positive",
+     "provenance": {
+      "source": "cee_hypothesis",
+      "magnitude": "olumi_estimate",
+      "natural_effect": {
+       "amount": 1,
+       "amount_unit": "bookings a week",
+       "per_source_change": 1,
+       "per_source_change_unit": "bookings a week",
+       "strength_mean": 0.12,
+       "strength_mean_frame": "edge_strength"
+      },
+      "definitional": true
+     }
+    }
+   ],
+   "ref_high_water": {
+    "D": 1,
+    "F": 3,
+    "G": 1,
+    "O": 3
+   }
+  },
+  "options": [
+   {
+    "id": "carry_on_as_now",
+    "option_id": "carry_on_as_now",
+    "label": "Carry on as now",
+    "interventions": {
+     "extra_bookings_from_evening_slots": 0,
+     "extra_bookings_from_referrals": 0
+    },
+    "is_baseline": true
+   },
+   {
+    "id": "add_evening_slots",
+    "option_id": "add_evening_slots",
+    "label": "Add evening slots",
+    "interventions": {
+     "extra_bookings_from_evening_slots": 40
+    },
+    "is_baseline": false,
+    "intervention_ranges": {
+     "extra_bookings_from_evening_slots": {
+      "low": 25,
+      "high": 60,
+      "meaning": "likely_range"
+     }
+    }
+   },
+   {
+    "id": "run_a_referral_offer",
+    "option_id": "run_a_referral_offer",
+    "label": "Run a referral offer",
+    "interventions": {
+     "extra_bookings_from_referrals": 15
+    },
+    "is_baseline": false,
+    "intervention_ranges": {
+     "extra_bookings_from_referrals": {
+      "low": 5,
+      "high": 30,
+      "meaning": "likely_range"
+     }
+    }
+   }
+  ],
+  "goal_node_id": "weekly_bookings",
+  "request_id": "req-pw"
+ }
+}
