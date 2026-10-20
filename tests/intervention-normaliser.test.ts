@@ -14,6 +14,7 @@ import {
   normaliseOptions,
   denormaliseISLResult,
   normaliseOptionsForISL,
+  normaliseGoalConstraints,
   needsNormalisation,
   type NormalisationRange,
   type FactorNormalisationContext,
@@ -294,6 +295,73 @@ describe('deriveRange', () => {
 // =============================================================================
 // Normalisation Tests
 // =============================================================================
+
+describe('declared zero-referenced change frames', () => {
+  const change = (): EngineNodeV3 => ({
+    ...createFactorNode('change', 0, 0), category: 'controllable', quantity_frame: 'change',
+    observed_state: { value: 0, baseline: 0, raw_value: 0, cap: 225 },
+  });
+
+  it('carries negative, zero and positive changes without moving zero or clipping to the frame', () => {
+    const node = change();
+    const raw = [-140, -30, 0, 315];
+    const options = raw.map((value, i) => createOption(`option_${i}`, { change: value }));
+    const { options: normalised, context, diagnostics, repairs } = normaliseOptionsForISL(options, [node], 'goal');
+    const range = context.factors.get('change')!.range;
+    expect(range).toEqual({ min: 0, max: 225, source: 'explicit_cap', transform: 'scale_only' });
+    for (let i = 0; i < raw.length; i++) {
+      const value = normalised[i].interventions.change.value;
+      expect(value).toBeCloseTo(raw[i] / 225);
+      expect(denormaliseValue(value, range)).toBeCloseTo(raw[i]);
+    }
+    expect(normalised[2].interventions.change.value).toBe(0);
+    expect(diagnostics.every((d) => !d.clamped)).toBe(true);
+    expect(repairs.some((r) => r.action === 'clamped')).toBe(false);
+  });
+
+  it('keeps a threshold on the intervention frame and reads it back without an offset', () => {
+    const node = change();
+    const result = normaliseOptionsForISL([createOption('cut', { change: -140 })], [node], 'goal');
+    const range = result.context.factors.get('change')!.range;
+    const limits = normaliseGoalConstraints([
+      { constraint_id: 'reduction', node_id: 'change', operator: '<=', value: -60, value_frame: 'level' },
+    ], [node], { interventionScaleByNodeId: new Map([['change', range]]) });
+    expect(limits.constraints).toHaveLength(1);
+    expect(limits.constraints[0].value).toBeCloseTo(-60 / 225);
+    expect(limits.diagnostics[0].clamped).toBe(false);
+    expect(denormaliseValue(limits.constraints[0].value, range)).toBeCloseTo(-60);
+  });
+
+  it('keeps level, undeclared, non-controllable and conflicting references on the protected path', () => {
+    const base = change();
+    const controls: EngineNodeV3[] = [
+      { ...base, quantity_frame: 'level' },
+      { ...base, quantity_frame: undefined },
+      { ...base, category: 'observable' },
+      { ...base, observed_state: { ...base.observed_state!, value: 0.2 } },
+      { ...base, observed_state: { ...base.observed_state!, baseline: 0.2 } },
+      { ...base, observed_state: { ...base.observed_state!, raw_value: 45 } },
+      { ...base, state_space: { range: { min: 0, max: 225 } } },
+    ];
+    for (const node of controls) {
+      const range = deriveRange(node);
+      expect(range.transform).toBeUndefined();
+      expect(normaliseValue(-140, range)).toEqual({ normalised: 0, clamped: true });
+    }
+    expect(deriveRange(base, { extracted_range: [-225, 225] }).transform).toBeUndefined();
+  });
+
+  it('does not grant a signed frame from an invalid cap or manufacture a finite intervention', () => {
+    for (const cap of [0, -225, NaN, Infinity]) {
+      const node = change();
+      node.observed_state!.cap = cap;
+      expect(deriveRange(node).transform).toBeUndefined();
+    }
+    const range = deriveRange(change());
+    for (const value of [null, undefined, NaN, Infinity, -Infinity]) expect(normaliseValue(value, range)).toBeUndefined();
+    expect(normaliseValue(Number.MAX_VALUE, { ...range, max: Number.MIN_VALUE })).toBeUndefined();
+  });
+});
 
 describe('normaliseValue', () => {
   it('normalises value within range to [0,1]', () => {

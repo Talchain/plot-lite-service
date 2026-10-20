@@ -1,8 +1,8 @@
 /**
  * Intervention Normaliser
  *
- * Normalises intervention values to [0,1] before ISL calls and denormalises
- * outcome values back to user units after ISL responses.
+ * Normalises level interventions to [0,1] before ISL calls and denormalises
+ * outcomes back to user units. Declared zero-referenced changes use signed, scale-only frames.
  *
  * Problem: ISL expects normalised [0,1] inputs but receives raw values (e.g., $180,000)
  * causing catastrophic outcome predictions.
@@ -68,6 +68,8 @@ export interface NormalisationRange {
   min: number;
   max: number;
   source: RangeSource;
+  /** A declared change from zero: cap is a unit frame, not a physical bound or an offset. */
+  transform?: 'scale_only';
 }
 
 /**
@@ -329,7 +331,17 @@ export function deriveRange(
   // (`resolveNodeFrame`'s cap rung is this exact predicate: a finite cap > 0
   // with a finite positive width — `isPositiveFrame`.)
   if (nodeFrame?.carrier === 'cap') {
-    return { min: 0, max: nodeFrame.frame, source: 'explicit_cap' };
+    // The identity engine reads a change as normalised × cap. An affine offset or a [0,1]
+    // clamp would change its meaning (e.g. −140 becomes zero). Only a declared controllable
+    // change whose recorded reference is zero takes this path. Declared ranges and conflicting
+    // references retain the existing protection; this does not invent or relax a domain bound.
+    const zeroReferencedChange = node.kind === 'factor' && node.category === 'controllable'
+      && node.quantity_frame === 'change' && observedState?.value === 0
+      && (observedState.baseline === undefined || observedState.baseline === 0)
+      && (observedState.raw_value === undefined || observedState.raw_value === 0)
+      && stateSpace?.range === undefined && hints?.extracted_range === undefined;
+    return { min: 0, max: nodeFrame.frame, source: 'explicit_cap',
+      ...(zeroReferencedChange ? { transform: 'scale_only' as const } : {}) };
   }
 
   // Priority 1: Explicit state_space.range
@@ -524,9 +536,15 @@ export function normaliseValue(
   return normaliseFiniteValue(v, range);
 }
 
-function normaliseFiniteValue(value: number, range: NormalisationRange): { normalised: number; clamped: boolean } {
+function normaliseFiniteValue(value: number, range: NormalisationRange): { normalised: number; clamped: boolean } | undefined {
   const { min, max } = range;
   const rangeWidth = max - min;
+
+  if (range.transform === 'scale_only') {
+    if (min !== 0 || !isFiniteRange(min, max)) return undefined;
+    const normalised = value / max;
+    return Number.isFinite(normalised) ? { normalised, clamped: false } : undefined;
+  }
 
   // Edge case: zero-width range
   if (rangeWidth <= 0) {
