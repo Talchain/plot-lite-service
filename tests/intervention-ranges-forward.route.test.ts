@@ -24,7 +24,9 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
+import { createHash } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
+import { readInterventionRange } from '../src/lib/intervention-range.js';
 
 let capturedISLRequestBody: any = null;
 /** When false, the mock behaves like an ISL that silently drops the field (no echo). */
@@ -114,6 +116,12 @@ const p99 = (low: number, high: number) => {
 
 const iv = (value: number) => ({ value, source: 'user_specified' });
 const LIKELY = (low: number, high: number) => ({ low, high, meaning: 'likely_range' });
+const OUTCOME_LAW = {
+  family: 'uniform', role: 'uncertain_outcome', origin: 'declared',
+  basis: 'Approved bounded-outcome assumption, not a quote from the brief',
+  quantity: 'migration downtime', reference: 'current service', period: 'migration window',
+  conditions: ['migration proceeds'], independent_of_model: true,
+};
 
 function graph() {
   return {
@@ -190,6 +198,56 @@ describe('TEMPORAL step 2 — PLoT forwards per-option duration ranges and fails
     const res = await app.inject({ method: 'POST', url: '/v2/run', payload });
     return { status: res.statusCode, json: res.json() };
   }
+
+  it.each([
+    ['migration downtime', 5, 20, 10, 'user'],
+    ['supplier delivery delay', 2, 9, 5, 'olumi'],
+  ])('L3P: declared law and separate raw source reach ISL unchanged: %s', async (quantity, low, high, point, source) => {
+    const law = { ...OUTCOME_LAW, quantity };
+    const range = { ...LIKELY(low, high), source, law };
+    const opts = options(false, { opt_liftshift: {
+      interventions: { fac_downtime: iv(point), fac_cost: iv(0.4) },
+      intervention_ranges: { fac_downtime: range },
+    } });
+    const payload = body(opts);
+    payload.graph.nodes[1].label = quantity;
+    const { status } = await run(payload);
+    expect(status).toBe(200);
+    const forwarded = islOption('opt_liftshift').intervention_ranges.fac_downtime;
+    expect(forwarded).toEqual({ ...range, normalisation: forwarded.normalisation });
+    expect(forwarded.normalisation.raw_at_one).toBeGreaterThan(high);
+    // An adjacent option's point/source never inherits this range's author or law.
+    expect(islOption('opt_phased').intervention_ranges).toBeUndefined();
+    expect(islOption('opt_booked').intervention_ranges).toBeUndefined();
+  });
+
+  it('L3P: no law keeps the reader and entire ISL request byte-equal to the lane base', async () => {
+    const range = { ...LIKELY(5, 20), source: 'olumi', family: 'uniform' };
+    expect(JSON.stringify(readInterventionRange(range))).toBe(JSON.stringify(LIKELY(5, 20)));
+    const { status } = await run(body(options(true, {
+      opt_liftshift: { intervention_ranges: { fac_downtime: range } },
+    })));
+    expect(status).toBe(200);
+    // SHA256 of the complete JSON bytes captured on 7dfde25, before source edits.
+    expect(createHash('sha256').update(JSON.stringify(capturedISLRequestBody)).digest('hex')).toBe('0a79cd633f36e1117d5f7f745ace6d6c1055ecacc2fd89ad3110fb28d90a59c0');
+  });
+
+  it.each([
+    ...Object.keys(OUTCOME_LAW).map((key) => [key, { ...OUTCOME_LAW, [key]: null }, 'user']),
+    ['unknown law member', { ...OUTCOME_LAW, invented: true }, 'user'],
+    ['null law', null, 'user'],
+    ['missing raw source', OUTCOME_LAW, undefined],
+    ['non-string raw source', OUTCOME_LAW, 42],
+  ])('L3P: malformed declaration (%s) is refused with a typed reason, never dropped', async (_name, law, source) => {
+    const { status, json } = await run(body(options(true, {
+      opt_liftshift: { intervention_ranges: { fac_downtime: { ...LIKELY(5, 20), law, source } } },
+    })));
+    expect(status).toBe(422);
+    expect(json.critiques).toEqual(expect.arrayContaining([
+      expect.objectContaining({ code: 'INVALID_INTERVENTION_RANGE', affected_option_ids: ['opt_liftshift'], affected_node_ids: ['fac_downtime'] }),
+    ]));
+    expect(capturedISLRequestBody).toBeNull();
+  });
 
   it('F1: no range → no intervention_ranges key reaches ISL', async () => {
     islEchoesRanges = true;

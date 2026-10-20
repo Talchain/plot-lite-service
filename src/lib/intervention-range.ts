@@ -14,6 +14,8 @@
  * boundary accepts" and "what reaches ISL" cannot drift apart.
  */
 
+import { InterventionOutcomeLawSchema, type InterventionOutcomeLaw } from '@talchain/schemas';
+
 /** The raw → [0,1] map PLoT's normaliser used for the node (computational only, never a bound). */
 export interface InterventionRangeNormalisation {
   raw_at_zero: number;
@@ -27,6 +29,10 @@ export interface InterventionRangeV3 {
   high: number;
   /** What the user's words say the range is. ISL samples only 'likely_range'; others refuse. */
   meaning: string;
+  /** Explicit downstream outcome law; never inferred from the range's meaning or bounds. */
+  law?: InterventionOutcomeLaw;
+  /** Raw range source, separate from the law's origin/basis. Carried only with a declared law. */
+  source?: string;
   /** Set by Phase 4a: the node's affine map. Absent when Phase 4a did not run (values already in frame). */
   normalisation?: InterventionRangeNormalisation;
 }
@@ -36,12 +42,15 @@ const MAX_MEANING_LENGTH = 64;
 /** The stated range as a validated value, or undefined for any malformed shape (→ 422 at ingress). */
 export function readInterventionRange(raw: unknown): InterventionRangeV3 | undefined {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const { low, high, meaning } = raw as Record<string, unknown>;
+  const { low, high, meaning, law, source } = raw as Record<string, unknown>;
   if (typeof low !== 'number' || typeof high !== 'number') return undefined;
   if (!Number.isFinite(low) || !Number.isFinite(high)) return undefined;
   if (!(low > 0) || !(high > low)) return undefined;
   if (typeof meaning !== 'string' || meaning.length === 0 || meaning.length > MAX_MEANING_LENGTH) return undefined;
-  return { low, high, meaning };
+  if (law === undefined) return { low, high, meaning };
+  const declared = InterventionOutcomeLawSchema.safeParse(law);
+  if (!declared.success || typeof source !== 'string' || source.length === 0) return undefined;
+  return { low, high, meaning, law: declared.data, source };
 }
 
 /**
