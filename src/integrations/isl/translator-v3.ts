@@ -1329,12 +1329,13 @@ export const PIN_RELATIVE_TOLERANCE = 1e-9;
  * `cee_inference` £10,000 with "keep marketing as is" at £10,000) — that number
  * is ours, not the user's, and keeps its spread.
  *
- * ALSO pinned, whatever the options (thin core, 20 Oct): a controllable lever at
- * today exactly 0 that is a part of a declared `sum` identity. Its today level is
- * the sum's zero change reference — definitionally exact — so a spread on it leaks
- * into every exact plan total just as above, and it must not depend on some option
- * happening to restate 0 (R2 P07/P08: options +30 and +19.9 on a ≥60 goal from 40,
- * no status quo, read ~50 % each).
+ * ALSO pinned, whatever the options (thin core, 20 Oct): a controllable lever CEE
+ * declares `quantity_frame: 'change'` at today exactly 0. The contract makes that 0
+ * by definition (`change-quantity-limits.ts`), so it is exact and a spread on it would
+ * leak into every exact plan total just as above, whether or not some option happens
+ * to restate 0 (R2 P07/P08: options +30 and +19.9 on a ≥60 goal from 40, no status
+ * quo, read ~50 % each). An undeclared zero (Olumi's £0 spend estimate, AIQ CONTROL 2)
+ * is a level, and keeps the option-derived spread.
  */
 export function pinnedLeverIds(
   nodes: readonly EngineNodeV3[],
@@ -1352,11 +1353,7 @@ export function pinnedLeverIds(
   }
   const pinned = new Set<string>();
   if (todayById.size === 0) return pinned;
-  for (const node of nodes) {
-    const identity = node.nonlinear_identity;
-    if (identity?.operation !== 'sum') continue;
-    for (const id of [...identity.factor_ids, ...(identity.addends ?? [])]) if (todayById.get(id) === 0) pinned.add(id);
-  }
+  for (const node of nodes) if (node.quantity_frame === 'change' && todayById.get(node.id) === 0) pinned.add(node.id);
   for (const option of options) {
     for (const [factorId, intervention] of Object.entries(option.interventions ?? {})) {
       const today = todayById.get(factorId);
