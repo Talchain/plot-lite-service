@@ -287,6 +287,24 @@ describe('pinnedLeverIds — the amended rule\'s membership, by id', () => {
     expect(pinnedLeverIds(nodes, [option('a', { spend: 0.2, price: 0.3 })]).size).toBe(0);
     expect(pinnedLeverIds(nodes, []).size).toBe(0);
   });
+
+  it('thin core: a lever CEE declares a CHANGE (0 today by definition) is pinned whatever the options; an undeclared zero is not', () => {
+    // R2 P07/P08 shape: goal = today (40) + change; options set the change to +30 and +19.9; nobody restates 0.
+    const goal = { id: 'w', kind: 'goal', label: 'w',
+      nonlinear_identity: { operation: 'sum', factor_ids: ['w_today', 'w__change'], stated_in_brief: false } } as EngineNodeV3;
+    const today = { ...factor('w_today', 0.4, { source: 'brief_extraction' }), category: 'observable' } as EngineNodeV3;
+    const change = (value: number, frame?: 'change' | 'level') =>
+      ({ ...lever('w__change', value, 'cee_inference'), ...(frame !== undefined ? { quantity_frame: frame } : {}) }) as EngineNodeV3;
+    const options = [option('a', { w__change: 0.3 }), option('b', { w__change: 0.199 })];
+    expect([...pinnedLeverIds([goal, today, change(0, 'change')], options)]).toStrictEqual(['w__change']);
+    const sent = buildParameterUncertaintiesV3([goal, today, change(0, 'change')], options)!.find((u) => u.node_id === 'w__change');
+    expect(sent).toStrictEqual({ node_id: 'w__change', distribution: 'point_mass' });
+    // CONTROLS: the same zero part of the sum undeclared, or declared a level, keeps the option-derived spread (AIQ CONTROL 2);
+    // a declared change that holds a non-zero level contradicts "0 by definition" and is not pinned by the marker.
+    expect(pinnedLeverIds([goal, today, change(0)], options).size).toBe(0);
+    expect(pinnedLeverIds([goal, today, change(0, 'level')], options).size).toBe(0);
+    expect(pinnedLeverIds([goal, today, change(0.1, 'change')], options).size).toBe(0);
+  });
 });
 
 /**
