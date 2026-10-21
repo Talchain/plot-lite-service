@@ -54,8 +54,26 @@ describe('Track 2 F2: an event risk through PLoT and ISL gives the analytic chan
     }
   });
 
+  /**
+   * No chance for either option, checked on options that EXIST and were computed, with PLoT's own reason (codex integration
+   * review 7: the old loop passed on `{ option_comparison: [] }`, where every option is missing).
+   */
+  function expectNoChance(body: any): void {
+    const ids = (body.option_comparison ?? []).map((o: any) => o.option_id).sort();
+    expect(ids, 'each named option is in the response').toEqual(['dual_source', 'status_quo']);
+    for (const id of ids) {
+      expect(typeof option(body, id).outcome?.mean, `${id} was computed`).toBe('number');
+      expect(option(body, id).probability_of_goal, id).toBeUndefined();
+    }
+    expect((body.inference_warnings ?? []).map((w: any) => w.code)).toContain('GOAL_THRESHOLD_NOT_CONVERTIBLE');
+  }
+
   it('NEGATIVE: a floor Olumi still has to ask about (no keep/at-least cue, CEE #3540) gives no chance of meeting it', async () => {
-    const body = await run('no-cue');
-    for (const id of ['status_quo', 'dual_source']) expect(option(body, id)?.probability_of_goal, id).toBeUndefined();
+    expectNoChance(await run('no-cue'));
+  });
+
+  it('the no-chance check is never vacuous: an empty or uncomputed response fails it', () => {
+    expect(() => expectNoChance({ option_comparison: [] })).toThrow(/each named option/);
+    expect(() => expectNoChance({ option_comparison: [{ option_id: 'status_quo' }, { option_id: 'dual_source' }] })).toThrow(/was computed/);
   });
 });
