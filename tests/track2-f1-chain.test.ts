@@ -11,17 +11,21 @@ import type { FastifyInstance } from 'fastify';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+/** A manual cross-service witness: it runs only when `run-chain.sh` / `run-f1.sh` names the CEE half's output and a local ISL. */
+const LIVE = Boolean(process.env.F1_OUT && process.env.F1_ISL_URL);
 const OUT = process.env.F1_OUT ?? '';
-process.env.ISL_ENABLE = '1';
-process.env.ISL_BASE_URL = process.env.F1_ISL_URL ?? '';
-process.env.ISL_API_KEY = 'local-track2';
+if (LIVE) {
+  process.env.ISL_ENABLE = '1';
+  process.env.ISL_BASE_URL = process.env.F1_ISL_URL;
+  process.env.ISL_API_KEY = 'local-track2';
+}
 
 const { createServer } = await import('../src/createServer.js');
 
 /** A pass-through spy: the exact body PLoT sends ISL for the current run (written beside its request). Nothing is altered. */
 let islBody: string | undefined;
 const realFetch = globalThis.fetch;
-globalThis.fetch = (async (input: any, init?: any) => {
+if (LIVE) globalThis.fetch = (async (input: any, init?: any) => {
   if (String(input).includes('/robustness/analyze/v2') && typeof init?.body === 'string') islBody = init.body;
   return realFetch(input, init);
 }) as typeof fetch;
@@ -34,7 +38,7 @@ const ANALYTIC: Record<string, { revenue: number; meets: 0 | 1 }> = { hold: { re
  */
 const FLOOR_GBP = 1e-6;
 
-describe('Track 2 F1: a stated breakdown through PLoT and ISL gives the analytic answer, with no spread', () => {
+describe.runIf(LIVE)('Track 2 F1: a stated breakdown through PLoT and ISL gives the analytic answer, with no spread', () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     expect(OUT, 'F1_OUT must name the CEE half\'s output folder').not.toBe('');

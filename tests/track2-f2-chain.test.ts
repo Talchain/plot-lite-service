@@ -9,15 +9,19 @@ import type { FastifyInstance } from 'fastify';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
+/** A manual cross-service witness: it runs only when `run-chain.sh` / `run-f1.sh` names the CEE half's output and a local ISL. */
+const LIVE = Boolean(process.env.F1_OUT && process.env.F1_ISL_URL);
 const OUT = process.env.F1_OUT ?? '';
-process.env.ISL_ENABLE = '1';
-process.env.ISL_BASE_URL = process.env.F1_ISL_URL ?? '';
-process.env.ISL_API_KEY = 'local-track2';
+if (LIVE) {
+  process.env.ISL_ENABLE = '1';
+  process.env.ISL_BASE_URL = process.env.F1_ISL_URL;
+  process.env.ISL_API_KEY = 'local-track2';
+}
 const { createServer } = await import('../src/createServer.js');
 
 const se = (p: number) => Math.sqrt(p * (1 - p) / 10_000);
 
-describe('Track 2 F2: an event risk through PLoT and ISL gives the analytic chance of meeting £12,000', () => {
+describe.runIf(LIVE)('Track 2 F2: an event risk through PLoT and ISL gives the analytic chance of meeting £12,000', () => {
   let app: FastifyInstance;
   beforeAll(async () => {
     expect(process.env.ISL_BASE_URL, 'F1_ISL_URL must name a local ISL').toMatch(/^http:\/\/127\.0\.0\.1:\d+$/);
