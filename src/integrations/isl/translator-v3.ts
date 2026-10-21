@@ -1622,8 +1622,12 @@ export function buildParameterUncertaintiesV3(
   const uncertainties: NonNullable<ISLRobustnessRequestV3['parameter_uncertainties']> = [];
   const maxOptionLevel = maxAbsOptionLevelByFactor(options);
   const pinned = pinnedLeverIds(nodes, options);
+  // Track 2 (21 Oct 2026): an event risk's preventer is a switch the options set (0 / 1), and ISL refuses ANY parameter
+  // uncertainty on it (EVENT_RISK_ROLE_REFUSED). Its level is each option's setting, never a drawn one, so none is sent.
+  const preventers = new Set(nodes.flatMap((n) => (n.event_risk?.mitigations ?? []).map((m) => m.factor_id)));
 
   for (const node of nodes) {
+    if (preventers.has(node.id)) continue;
     if (node.kind === 'factor' && node.observed_state?.value !== undefined && Number.isFinite(node.observed_state.value)) {
       const value = node.observed_state.value;
 
@@ -1694,6 +1698,7 @@ export function buildParameterUncertaintiesV3(
 
   // Second pass: factors with a prior distribution and no stated value.
   for (const node of nodes) {
+    if (preventers.has(node.id)) continue;
     // Skip if already processed via observed_state (observed_state takes precedence)
     if (node.kind === 'factor' && node.observed_state?.value !== undefined) continue;
 
