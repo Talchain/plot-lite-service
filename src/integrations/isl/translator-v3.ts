@@ -1645,6 +1645,32 @@ export function spreadSourceOf(stdSource: unknown): 'user' | 'template' | undefi
   return undefined;
 }
 
+/**
+ * Track 2 (21 Oct 2026, codex integration review 6): `identityPartsHeldExact` reads the identities on the ENGINE nodes,
+ * before `attachIdentityExecutionFrames` withdraws one ISL cannot frame. A part pinned only for a withdrawn identity
+ * would keep a stale point mass, so it gets back the entry it has without that identity (a lever pin stays a pin).
+ */
+export function releaseWithdrawnIdentityParts(
+  pus: ISLRobustnessRequestV3['parameter_uncertainties'],
+  nodes: readonly EngineNodeV3[],
+  withdrawn: ReadonlySet<string>,
+  options: readonly OptionV3[],
+  correlatedFactorIds: ReadonlySet<string> = new Set(),
+): ISLRobustnessRequestV3['parameter_uncertainties'] {
+  if (pus === undefined || withdrawn.size === 0) return pus;
+  const kept = nodes.map((n) => {
+    if (!withdrawn.has(n.id) || n.nonlinear_identity === undefined) return n;
+    const { nonlinear_identity: _withdrawn, ...rest } = n;
+    return rest as EngineNodeV3;
+  });
+  const after = identityPartsHeldExact(kept);
+  const levers = pinnedLeverIds(nodes, options);
+  const released = new Set([...identityPartsHeldExact(nodes)].filter((id) => !after.has(id) && !levers.has(id)));
+  if (released.size === 0) return pus;
+  const rebuilt = new Map((buildParameterUncertaintiesV3(kept, options, correlatedFactorIds) ?? []).map((p) => [p.node_id, p]));
+  return pus.flatMap((p) => (!released.has(p.node_id) ? [p] : rebuilt.has(p.node_id) ? [rebuilt.get(p.node_id)!] : []));
+}
+
 export function buildParameterUncertaintiesV3(
   nodes: EngineNodeV3[],
   options: readonly OptionV3[] = [],

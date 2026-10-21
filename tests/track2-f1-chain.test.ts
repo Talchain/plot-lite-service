@@ -99,4 +99,19 @@ describe('Track 2 F1: a stated breakdown through PLoT and ISL gives the analytic
     expect(spend.probability_of_goal).toBeCloseTo(0.773, 1);
     expect(spend.outcome.p90 - spend.outcome.p10).toBeGreaterThan(100);
   });
+  // Codex integration review 6 (21 Oct): a part is pinned exact only for an identity ISL works out. Olumi's reading of the
+  // goal as total × price is withdrawn (variant (d): an inferred goal product waits for the person), so total and price get
+  // their own spread back; uk and eu stay held for the stated sum total = UK + EU, which IS forwarded.
+  it('a withdrawn identity leaves no stale point mass on its parts; a forwarded one keeps its parts held', async () => {
+    const body = await run('olumi-reading');
+    expect((body.option_comparison ?? []).map((o: any) => o.option_id).sort()).toEqual(['grow_uk', 'hold']);
+    expect(islBody, 'the request PLoT sent ISL').toBeDefined();
+    const sent = JSON.parse(islBody!);
+    const node = (id: string) => sent.graph.nodes.find((n: any) => n.id === id);
+    expect(node('rev').nonlinear_identity, 'Olumi\'s goal product is withdrawn').toBeUndefined();
+    expect(node('total').nonlinear_identity).toMatchObject({ operation: 'sum', factor_ids: ['uk', 'eu'] });
+    const pu = new Map((sent.parameter_uncertainties ?? []).map((p: any) => [p.node_id, p.distribution]));
+    expect({ uk: pu.get('uk'), eu: pu.get('eu'), total: pu.get('total'), price: pu.get('price') })
+      .toEqual({ uk: 'point_mass', eu: 'point_mass', total: 'normal', price: 'normal' });
+  });
 });
