@@ -48,6 +48,23 @@ describe('Track 3 finding 1: a stated spread is not lifted by the epistemic floo
     expect(run({ mean: 0.1, std: 0.0002 }, { magnitude: 'user_stated' }).std).toBe(0.0011);
   });
 
+  // Every edge kind the core mapper emits (mapper.ts:296-352), pinned (buddy F1): only a stated spread under the floor moves.
+  it('MAPPER point (Olumi\'s illustrative half-spread, user_stated) is unchanged: {0.3, 0.15} keeps 0.15', () => {
+    expect(run({ mean: 0.3, std: 0.15 }, { source: 'brief_extraction', magnitude: 'user_stated' }).std).toBe(0.15);
+  });
+
+  it('MAPPER placeholder (olumi_placeholder) is unchanged: {0.5, 0.125} keeps 0.125', () => {
+    expect(run({ mean: 0.5, std: 0.125 }, { source: 'cee_hypothesis', magnitude: 'olumi_placeholder' }).std).toBe(0.125);
+  });
+
+  it('MAPPER exact-sum part (definitional, olumi_estimate) still floors to 0.05', () => {
+    expect(run({ mean: 1, std: 0.001 }, { source: 'cee_hypothesis', magnitude: 'olumi_estimate', definitional: true }).std).toBe(0.05);
+  });
+
+  it('MAPPER exact on a drawn link (user_stated, chance withheld upstream as exact_not_drawable) now reaches ISL at 0.0011', () => {
+    expect(run({ mean: 0.2, std: 0.001 }, { source: 'brief_extraction', magnitude: 'user_stated' }).std).toBe(0.0011);
+  });
+
   it('a stated spread above the floor is untouched either way: {0.4, 0.08} keeps 0.08', () => {
     expect(run({ mean: 0.4, std: 0.08 }, { magnitude: 'user_stated' }).std).toBe(0.08);
   });
