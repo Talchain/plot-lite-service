@@ -832,6 +832,33 @@ describe('(c) an INFERRED identity ISL finds inconsistent is withdrawn and the R
     ]);
   });
 
+  // Track 2 (21 Oct 2026, delta check on codex integration review 6): a part held exact only for identities that are all
+  // withdrawn, in two stages, must not stay pinned. G (the goal's own inferred product, x × y) is withdrawn at admission,
+  // then ISL rejects C (pro_plan_mrr = price × x) on the first call. x is the user's stated subscriber count (CEE's
+  // unowned minimum spread), shared by G and C. The price is a lever the options set, so its pin stays (control).
+  it('Track 2: two-stage withdrawal (G at admission, C on the 422 retry) leaves no stale point mass on their shared part', async () => {
+    const req = a15();
+    const x = req.graph.nodes.find((n: any) => n.id === 'pro_paying_subscribers');
+    x.observed_state = { ...x.observed_state, source: 'brief_extraction', std: 0.0001 };
+    req.graph.nodes.find((n: any) => n.id === 'mrr').nonlinear_identity =
+      { operation: 'product', factor_ids: ['pro_paying_subscribers', 'other_plan_mrr'], stated_in_brief: false };
+    islSeq = [reject(a15Inconsistent)];
+    const res = await post(req);
+    expect(res.status).toBe(200);
+    const body = await res.json();
+    expect(islBodies).toHaveLength(2);
+    expect(body._meta?.identities_not_forwarded?.map((w: any) => [w.node_id, w.reason]))
+      .toEqual([['mrr', 'inferred_identity_unconfirmed'], ['pro_plan_mrr', 'inferred_identity_inconsistent']]);
+    const pu = (b: any, id: string) => (b.parameter_uncertainties ?? []).find((p: any) => p.node_id === id)?.distribution;
+    // First call: C is forwarded, so x is still held exact for it.
+    expect(islBodies[0].graph.nodes.find((n: any) => n.id === 'pro_plan_mrr').nonlinear_identity).toBeDefined();
+    expect(pu(islBodies[0], 'pro_paying_subscribers')).toBe('point_mass');
+    // Retry: neither identity survives, so x is drawn as stated; the lever's pin stays.
+    expect(occurrences(islBodies[1])).toBe(0);
+    expect(pu(islBodies[1], 'pro_paying_subscribers')).toBe('normal');
+    expect([pu(islBodies[0], 'pro_plan_monthly_price'), pu(islBodies[1], 'pro_plan_monthly_price')]).toEqual(['point_mass', 'point_mass']);
+  });
+
   it('⭐ (d) RED: Paul\'s request with the GOAL\'s product INFERRED — never sent to ISL, one call, every goal chance withheld as unconfirmed', async () => {
     const res = await post(paulRequest(INFERRED));
     expect(res.status).toBe(200);

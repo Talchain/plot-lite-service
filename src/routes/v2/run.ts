@@ -92,7 +92,7 @@ import { filterTemporalConstraints } from '../../normalisation/constraint-filter
 import { REPAIR_CODES } from '../../normalisation/repair-codes.js';
 import { MAX_CONSTRAINTS } from '../../constants/limits.js';
 import type { RawGoalConstraint, InternalMetadata, RangeLimitWithheld, TargetForecastV3, TargetForecastResultV3 } from '../../types/engine-v3.js';
-import { withdrawInferredUnevaluatedIdentities, attachIdentityExecutionFrames, goalCarrierIds, attachChangeFrameRawRanges, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, correlatedFactorIdsOf, zeroFactorsHeldExact, zeroFactorHeldWarnings, exactInputOptionIds, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
+import { withdrawInferredUnevaluatedIdentities, attachIdentityExecutionFrames, releaseWithdrawnIdentityParts, goalCarrierIds, attachChangeFrameRawRanges, toISLRobustnessRequest, validateISLRequest, buildParameterUncertaintiesV3, correlatedFactorIdsOf, zeroFactorsHeldExact, zeroFactorHeldWarnings, exactInputOptionIds, parseGoalThresholdFrame, parseGoalDirection } from '../../integrations/isl/translator-v3.js';
 import { injectConstraintParameterUncertainties, selectConstraintInjectedPuNodeIds } from '../../integrations/isl/constraint-pu-injection.js';
 import {
   createPreflightLog,
@@ -8551,6 +8551,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           if (meta.goal_threshold_cap !== undefined) goalCapByNodeId.set(nodeId, meta.goal_threshold_cap);
         }
         identitiesNotForwarded.push(...attachIdentityExecutionFrames(islRequest.graph.nodes, filteredGraph.nodes, scaleFrameByNodeId, goalCapByNodeId, identityDerivedFrames, goalCarrierIds(filteredGraph.nodes, filteredGraph.edges ?? [])));
+        // Track 2: a part held exact only for an identity not forwarded gets back its own spread (no stale point mass).
+        islRequest.parameter_uncertainties = releaseWithdrawnIdentityParts(islRequest.parameter_uncertainties, filteredGraph.nodes,
+          islRequest.graph.nodes, optionsAsSentToISL, correlatedFactorIdsOf(body.factor_correlations));
 
         // R1 S3 (wire R3 #72 5872798858) — a RELATIVE change needs its target's raw bounds (its base
         // owner rides `observed_state.source`, already on the wire). Targets: every change_rel limit on the wire, plus the goal when its threshold is a
@@ -8813,6 +8816,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
               // Verifier FIX_FIRST: a withdrawn variant-(a) carrier's Olumi-derived frame left the retried request with
               // it, so `_meta.identity_derived_frames` must not still claim it (spliced in place: the array is `_meta`'s).
               const withdrawnIds = new Set(withdrawn.map((w) => w.node_id));
+              // Track 2: on the retry too, read from the outgoing nodes, so the admission withdrawals still count.
+              islRequest.parameter_uncertainties = releaseWithdrawnIdentityParts(islRequest.parameter_uncertainties, filteredGraph.nodes,
+                islRequest.graph.nodes, optionsAsSentToISL, correlatedFactorIdsOf(body.factor_correlations));
               for (let i = identityDerivedFrames.length - 1; i >= 0; i -= 1) {
                 if (withdrawnIds.has(identityDerivedFrames[i]!.node_id)) identityDerivedFrames.splice(i, 1);
               }

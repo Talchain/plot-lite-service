@@ -1369,6 +1369,37 @@ export function pinnedLeverIds(
 }
 
 /**
+ * Track 2 (21 Oct 2026): a USER-stated today level that is a PART of a declared sum or product identity is held EXACT
+ * too, for the T7b reason above: the identity works out its quantity from its parts' levels, so any spread on a stated
+ * part leaks into the exact total (F1: "total = UK + EU; revenue = total × £40", Grow the UK against a £6,800 limit read
+ * 0.4955 where it meets it, from £40 at MIN_USER_STD). An accumulation keeps its own rate law; an Olumi level, and a
+ * level with a spread someone declared, keep their spread. A correlated part stays at MIN_USER_STD (ISL rejects a
+ * correlated point_mass), as a pinned lever does.
+ */
+export function identityPartsHeldExact(nodes: readonly EngineNodeV3[]): Set<string> {
+  const parts = new Set<string>();
+  for (const node of nodes) {
+    const identity = node.nonlinear_identity;
+    if (identity === undefined || (identity.operation !== 'sum' && identity.operation !== 'product')) continue;
+    for (const id of [...identity.factor_ids, ...(identity.addends ?? [])]) parts.add(id);
+  }
+  const held = new Set<string>();
+  for (const node of nodes) {
+    const today = node.observed_state?.value;
+    const source = node.observed_state?.source;
+    // Only a level stated EXACTLY. A spread with an owner (`std_source`, whatever its size: codex integration review 4)
+    // is that owner's uncertainty and is never erased; nor is an unowned spread above the minimum CEE sends for a bare
+    // stated level (buddy r2). Only that bare minimum, owned by no one, is CEE's stand-in for "exact".
+    const std = node.observed_state?.std;
+    const declaredSpread = node.observed_state?.std_source !== undefined
+      || (typeof std === 'number' && Number.isFinite(std) && std > MIN_USER_STD);
+    if (node.kind === 'factor' && parts.has(node.id) && typeof today === 'number' && Number.isFinite(today) && !declaredSpread
+      && typeof source === 'string' && USER_OWN_TODAY_SOURCES.has(source)) held.add(node.id);
+  }
+  return held;
+}
+
+/**
  * Every factor id named on either side of a `factor_correlations` pair — the
  * set a pinned lever must NOT be sent as point_mass for (ISL rejects it there).
  * Tolerates the unvalidated request shape: non-string ids are skipped.
@@ -1614,6 +1645,36 @@ export function spreadSourceOf(stdSource: unknown): 'user' | 'template' | undefi
   return undefined;
 }
 
+/**
+ * Track 2 (21 Oct 2026, codex integration review 6): `identityPartsHeldExact` reads the identities on the ENGINE nodes,
+ * before `attachIdentityExecutionFrames` (or the 422 retry) withdraws one. A part pinned only for an identity that is not
+ * forwarded would keep a stale point mass, so it gets back the entry it has without it (a lever pin stays a pin). What
+ * is withdrawn is read from the OUTGOING nodes, never from the latest withdrawal alone, so every earlier withdrawal
+ * counts (delta check: G withdrawn at admission, then C on the retry, left their shared part pinned).
+ */
+export function releaseWithdrawnIdentityParts(
+  pus: ISLRobustnessRequestV3['parameter_uncertainties'],
+  nodes: readonly EngineNodeV3[],
+  outgoing: readonly { id: string; nonlinear_identity?: unknown }[],
+  options: readonly OptionV3[],
+  correlatedFactorIds: ReadonlySet<string> = new Set(),
+): ISLRobustnessRequestV3['parameter_uncertainties'] {
+  const forwarded = new Set(outgoing.filter((n) => n.nonlinear_identity !== undefined).map((n) => n.id));
+  const withdrawn = new Set(nodes.filter((n) => n.nonlinear_identity !== undefined && !forwarded.has(n.id)).map((n) => n.id));
+  if (pus === undefined || withdrawn.size === 0) return pus;
+  const kept = nodes.map((n) => {
+    if (!withdrawn.has(n.id) || n.nonlinear_identity === undefined) return n;
+    const { nonlinear_identity: _withdrawn, ...rest } = n;
+    return rest as EngineNodeV3;
+  });
+  const after = identityPartsHeldExact(kept);
+  const levers = pinnedLeverIds(nodes, options);
+  const released = new Set([...identityPartsHeldExact(nodes)].filter((id) => !after.has(id) && !levers.has(id)));
+  if (released.size === 0) return pus;
+  const rebuilt = new Map((buildParameterUncertaintiesV3(kept, options, correlatedFactorIds) ?? []).map((p) => [p.node_id, p]));
+  return pus.flatMap((p) => (!released.has(p.node_id) ? [p] : rebuilt.has(p.node_id) ? [rebuilt.get(p.node_id)!] : []));
+}
+
 export function buildParameterUncertaintiesV3(
   nodes: EngineNodeV3[],
   options: readonly OptionV3[] = [],
@@ -1621,9 +1682,13 @@ export function buildParameterUncertaintiesV3(
 ): ISLRobustnessRequestV3['parameter_uncertainties'] {
   const uncertainties: NonNullable<ISLRobustnessRequestV3['parameter_uncertainties']> = [];
   const maxOptionLevel = maxAbsOptionLevelByFactor(options);
-  const pinned = pinnedLeverIds(nodes, options);
+  const pinned = new Set([...pinnedLeverIds(nodes, options), ...identityPartsHeldExact(nodes)]);
+  // Track 2 (21 Oct 2026): an event risk's preventer is a switch the options set (0 / 1), and ISL refuses ANY parameter
+  // uncertainty on it (EVENT_RISK_ROLE_REFUSED). Its level is each option's setting, never a drawn one, so none is sent.
+  const preventers = new Set(nodes.flatMap((n) => (n.event_risk?.mitigations ?? []).map((m) => m.factor_id)));
 
   for (const node of nodes) {
+    if (preventers.has(node.id)) continue;
     if (node.kind === 'factor' && node.observed_state?.value !== undefined && Number.isFinite(node.observed_state.value)) {
       const value = node.observed_state.value;
 
@@ -1694,6 +1759,7 @@ export function buildParameterUncertaintiesV3(
 
   // Second pass: factors with a prior distribution and no stated value.
   for (const node of nodes) {
+    if (preventers.has(node.id)) continue;
     // Skip if already processed via observed_state (observed_state takes precedence)
     if (node.kind === 'factor' && node.observed_state?.value !== undefined) continue;
 

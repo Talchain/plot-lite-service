@@ -39,7 +39,7 @@ export interface InjectedPU {
 /** A constrained node that was skipped (not injected). */
 export interface SkippedPU {
   node_id: string;
-  reason: 'goal_node' | 'missing_node' | 'missing_observed_state';
+  reason: 'goal_node' | 'missing_node' | 'missing_observed_state' | 'event_risk_preventer';
 }
 
 /**
@@ -67,6 +67,11 @@ export function classifyConstraintPu(
   if (existingPuNodeIds.has(constraint.node_id)) return { kind: 'existing' };
   const node = nodeMap.get(constraint.node_id);
   if (!node) return { kind: 'skip', reason: 'missing_node' };
+  // Track 2 (21 Oct 2026, codex integration review 5): an event risk's preventer is a switch the options set (0 / 1), and
+  // ISL refuses ANY parameter uncertainty on it (EVENT_RISK_ROLE_REFUSED), so a constraint on it never adds one either.
+  if ([...nodeMap.values()].some((n) => n.event_risk?.mitigations?.some((m) => m.factor_id === constraint.node_id))) {
+    return { kind: 'skip', reason: 'event_risk_preventer' };
+  }
   if (node.observed_state?.value === undefined) return { kind: 'skip', reason: 'missing_observed_state' };
   return { kind: 'inject', mean: node.observed_state.value };
 }
