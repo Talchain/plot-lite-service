@@ -1078,9 +1078,15 @@ export function normaliseEdge(
     // min(0.05, max(0.001, |mean| / 2)). A correctly sized small effect (CEE's T3 AI -> churn, -0.01 / 0.005) keeps its
     // own spread instead of being lifted to 5x its mean; every edge with |mean| >= 0.1 floors exactly as before.
     const isStructural = isStructuralEdgeType({ from, to }, nodeKindMap);
+    // Track 3 finding 1: the epistemic floor is for Olumi's estimates. A magnitude the person stated (core mapper,
+    // `provenance.magnitude: 'user_stated'`) keeps its own spread down to ISL's technical minimum, so a declared
+    // Normal law reaches ISL as declared (`stated-spread-no-epistemic-floor.test.ts`).
+    const statedMagnitude = (edge.provenance as { magnitude?: unknown } | undefined)?.magnitude === 'user_stated';
     const effectiveMinStd = isStructural
       ? STRUCTURAL_STD_MIN
-      : Math.min(STD_RANGE_MIN, Math.max(MIN_STD, Math.abs(mean) / 2));
+      : statedMagnitude
+        ? MIN_STD
+        : Math.min(STD_RANGE_MIN, Math.max(MIN_STD, Math.abs(mean) / 2));
     // Floor only: a stated spread above the floor reaches ISL as stated (no ceiling, AIQ 5869431686 §2).
     const clampedStd = Math.max(std, effectiveMinStd);
     if (clampedStd !== std) {
