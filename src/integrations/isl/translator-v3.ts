@@ -1387,10 +1387,12 @@ export function identityPartsHeldExact(nodes: readonly EngineNodeV3[]): Set<stri
   for (const node of nodes) {
     const today = node.observed_state?.value;
     const source = node.observed_state?.source;
-    // Only a level stated EXACTLY: a spread someone declared on it (above the minimum CEE sends for a bare stated
-    // level) is their uncertainty, and is never erased (buddy r2).
+    // Only a level stated EXACTLY. A spread with an owner (`std_source`, whatever its size: codex integration review 4)
+    // is that owner's uncertainty and is never erased; nor is an unowned spread above the minimum CEE sends for a bare
+    // stated level (buddy r2). Only that bare minimum, owned by no one, is CEE's stand-in for "exact".
     const std = node.observed_state?.std;
-    const declaredSpread = typeof std === 'number' && Number.isFinite(std) && std > MIN_USER_STD;
+    const declaredSpread = node.observed_state?.std_source !== undefined
+      || (typeof std === 'number' && Number.isFinite(std) && std > MIN_USER_STD);
     if (node.kind === 'factor' && parts.has(node.id) && typeof today === 'number' && Number.isFinite(today) && !declaredSpread
       && typeof source === 'string' && USER_OWN_TODAY_SOURCES.has(source)) held.add(node.id);
   }

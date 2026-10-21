@@ -30,4 +30,14 @@ describe('Track 2: a stated part of a definition is held exact, and nothing else
     const pus = buildParameterUncertaintiesV3([factor('uk', { value: 0.6, source: 'brief_extraction', std: 1e-4 })], []) ?? [];
     expect(pus.find((u) => u.node_id === 'uk')).toMatchObject({ distribution: 'normal' });
   });
+  // Codex integration review 4 (21 Oct): a spread with an owner is that owner's, whatever its size. A user's own σ 0.0001
+  // (the same size as CEE's bare minimum) is kept, not turned into a point mass; only the unowned minimum is held exact.
+  it('a part\'s spread is kept by its OWNER (std_source), never judged by its size', () => {
+    const owned = factor('uk', { value: 0.6, source: 'brief_extraction', std: 1e-4, std_source: 'user' });
+    const bare = factor('eu', { value: 0.8, source: 'brief_extraction', std: 1e-4 });
+    expect([...identityPartsHeldExact([carrier('sum', ['uk', 'eu']), owned, bare])]).toEqual(['eu']);
+    const pus = buildParameterUncertaintiesV3([carrier('sum', ['uk', 'eu']), owned, bare], []) ?? [];
+    expect(pus.find((u) => u.node_id === 'uk')).toEqual({ node_id: 'uk', distribution: 'normal', std: 1e-4, spread_source: 'user' });
+    expect(pus.find((u) => u.node_id === 'eu')).toEqual({ node_id: 'eu', distribution: 'point_mass' });
+  });
 });
