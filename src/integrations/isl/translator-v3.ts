@@ -1369,6 +1369,35 @@ export function pinnedLeverIds(
 }
 
 /**
+ * Track 2 (21 Oct 2026): a USER-stated today level that is a PART of a declared sum or product identity is held EXACT
+ * too, for the T7b reason above: the identity works out its quantity from its parts' levels, so any spread on a stated
+ * part leaks into the exact total (F1: "total = UK + EU; revenue = total × £40", Grow the UK against a £6,800 limit read
+ * 0.4955 where it meets it, from £40 at MIN_USER_STD). An accumulation keeps its own rate law; an Olumi level, and a
+ * level with a spread someone declared, keep their spread. A correlated part stays at MIN_USER_STD (ISL rejects a
+ * correlated point_mass), as a pinned lever does.
+ */
+export function identityPartsHeldExact(nodes: readonly EngineNodeV3[]): Set<string> {
+  const parts = new Set<string>();
+  for (const node of nodes) {
+    const identity = node.nonlinear_identity;
+    if (identity === undefined || (identity.operation !== 'sum' && identity.operation !== 'product')) continue;
+    for (const id of [...identity.factor_ids, ...(identity.addends ?? [])]) parts.add(id);
+  }
+  const held = new Set<string>();
+  for (const node of nodes) {
+    const today = node.observed_state?.value;
+    const source = node.observed_state?.source;
+    // Only a level stated EXACTLY: a spread someone declared on it (above the minimum CEE sends for a bare stated
+    // level) is their uncertainty, and is never erased (buddy r2).
+    const std = node.observed_state?.std;
+    const declaredSpread = typeof std === 'number' && Number.isFinite(std) && std > MIN_USER_STD;
+    if (node.kind === 'factor' && parts.has(node.id) && typeof today === 'number' && Number.isFinite(today) && !declaredSpread
+      && typeof source === 'string' && USER_OWN_TODAY_SOURCES.has(source)) held.add(node.id);
+  }
+  return held;
+}
+
+/**
  * Every factor id named on either side of a `factor_correlations` pair — the
  * set a pinned lever must NOT be sent as point_mass for (ISL rejects it there).
  * Tolerates the unvalidated request shape: non-string ids are skipped.
@@ -1621,7 +1650,7 @@ export function buildParameterUncertaintiesV3(
 ): ISLRobustnessRequestV3['parameter_uncertainties'] {
   const uncertainties: NonNullable<ISLRobustnessRequestV3['parameter_uncertainties']> = [];
   const maxOptionLevel = maxAbsOptionLevelByFactor(options);
-  const pinned = pinnedLeverIds(nodes, options);
+  const pinned = new Set([...pinnedLeverIds(nodes, options), ...identityPartsHeldExact(nodes)]);
 
   for (const node of nodes) {
     if (node.kind === 'factor' && node.observed_state?.value !== undefined && Number.isFinite(node.observed_state.value)) {
