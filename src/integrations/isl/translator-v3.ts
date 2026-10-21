@@ -1647,16 +1647,20 @@ export function spreadSourceOf(stdSource: unknown): 'user' | 'template' | undefi
 
 /**
  * Track 2 (21 Oct 2026, codex integration review 6): `identityPartsHeldExact` reads the identities on the ENGINE nodes,
- * before `attachIdentityExecutionFrames` withdraws one ISL cannot frame. A part pinned only for a withdrawn identity
- * would keep a stale point mass, so it gets back the entry it has without that identity (a lever pin stays a pin).
+ * before `attachIdentityExecutionFrames` (or the 422 retry) withdraws one. A part pinned only for an identity that is not
+ * forwarded would keep a stale point mass, so it gets back the entry it has without it (a lever pin stays a pin). What
+ * is withdrawn is read from the OUTGOING nodes, never from the latest withdrawal alone, so every earlier withdrawal
+ * counts (delta check: G withdrawn at admission, then C on the retry, left their shared part pinned).
  */
 export function releaseWithdrawnIdentityParts(
   pus: ISLRobustnessRequestV3['parameter_uncertainties'],
   nodes: readonly EngineNodeV3[],
-  withdrawn: ReadonlySet<string>,
+  outgoing: readonly { id: string; nonlinear_identity?: unknown }[],
   options: readonly OptionV3[],
   correlatedFactorIds: ReadonlySet<string> = new Set(),
 ): ISLRobustnessRequestV3['parameter_uncertainties'] {
+  const forwarded = new Set(outgoing.filter((n) => n.nonlinear_identity !== undefined).map((n) => n.id));
+  const withdrawn = new Set(nodes.filter((n) => n.nonlinear_identity !== undefined && !forwarded.has(n.id)).map((n) => n.id));
   if (pus === undefined || withdrawn.size === 0) return pus;
   const kept = nodes.map((n) => {
     if (!withdrawn.has(n.id) || n.nonlinear_identity === undefined) return n;
