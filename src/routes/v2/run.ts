@@ -82,7 +82,7 @@ import { normaliseGraphWithRepairs } from '../../normalisation/normalise-and-rep
 import { filterOptionNodes } from '../../normalisation/option-filter.js';
 import { hashRequest, HASH_VERSION } from '../../normalisation/canonicalise.js';
 import { hashGraph, deriveSeedFromHash } from '../../sampling/graph-hash.js';
-import { runPreflightValidation, validateGoalConstraints, filterInvalidBidirectedEdges, validateInboundStrengthSum } from '../../validation/preflight-v2.js';
+import { runPreflightValidation, validateGoalConstraints, filterInvalidBidirectedEdges } from '../../validation/preflight-v2.js';
 import {
   detectCategoricalIssues,
   type CategoricalDetectionResult,
@@ -4520,7 +4520,8 @@ function buildResponse(
     analysisStatus === 'computed' &&
     !optionFiguresInvalid &&
     islResult?.robustness &&
-    getIslEdgeEValues(islResult) === undefined
+    getIslEdgeEValues(islResult) === undefined &&
+    assessIslWireGeneration(islResult).missing_markers.includes('robustness.edge_e_values')
   ) {
     inferenceWarnings.push({
       code: INFERENCE_WARNING_CODES.EDGE_E_VALUES_UNAVAILABLE_V2_WIRE,
@@ -8341,9 +8342,7 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
           });
         }
 
-        // Range discipline: warn when inbound |strength.mean| sum > 1.0
-        // Runs on normalized graph so edge strengths are in canonical form.
-        preflight.warnings.push(...validateInboundStrengthSum(filteredGraph));
+        // Coefficient sums depend on each source frame; >1 is not a range violation.
 
         // =================================================================
         // Duplicate-edge preflight (ISL now 422s duplicate (from,to,type) edges)
@@ -9711,9 +9710,9 @@ export async function registerRunV2Route(app: FastifyInstance): Promise<void> {
         const goalIdentityWithheld = goalIdentitiesNotEvaluated(
           filteredGraph, getIslIdentityEvaluations(processedIslResult), identitiesNotForwarded.map((w) => w.node_id),
         );
-        // AI Quality #72 5893355501: a user-stated link size on the goal's path that the normaliser cut — read from the
-        // graph AS SENT (the normalised graph holds the cut ±1), decided once here with the identity predicate.
-        const clampedEffectsFound = clampedEffects(body.graph);
+        // Historical producer cuts and an actual ISL parse cut share the same withholding predicate.
+        // Read before any coaching consumer, even if the older engine's warning has no message.
+        const clampedEffectsFound = clampedEffects(body.graph, processedIslResult?.inference_warnings ?? []);
         const goalFiguresWithheld = goalIdentityWithheld.length > 0 || clampedEffectsFound.withhold.length > 0;
         const legacyCeeGoalFiguresWithheld: CeeOrchestrationResult = {
           ...legacyCeeSkipped,

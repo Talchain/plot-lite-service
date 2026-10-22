@@ -147,6 +147,7 @@ describe('route — a user-stated link size cut to the model\'s scale withholds 
     expect(codes(body)).not.toContain(CUT);
     expect(codes(body)).not.toContain(DISCLOSED);
     expect(clampRepair(body)).toBeUndefined();
+    expect(codes(body)).not.toContain('INBOUND_STRENGTH_SUM_EXCEEDED');
   });
 
   it("a historically cut Olumi estimate is still disclosed", async () => {
@@ -154,6 +155,18 @@ describe('route — a user-stated link size cut to the model\'s scale withholds 
     for (const o of body.option_comparison) for (const k of GOAL_FIGURES) expect(typeof o[k]).toBe('number');
     expect(codes(body)).not.toContain(CUT);
     expect(codes(body)).toContain(DISCLOSED);
+  });
+
+  it('an older ISL parse clamp with no message never ships a chance based on the cut size', async () => {
+    islOverride = { inference_warnings: [{ code: 'STRENGTH_MEAN_CLAMPED', field: 'edges[pro_paying_subscribers→mrr].strength.mean',
+      detail: { original: 4.61, clamped: 1 } }] };
+    const body = await run(withUserLink(4.61));
+    expect(body.option_comparison.length).toBeGreaterThan(0);
+    for (const o of body.option_comparison) {
+      expect(o.probability_of_goal).toBeUndefined();
+      expect(o.outcome?.mean).toBeUndefined();
+    }
+    expect(codes(body)).toContain(CUT);
   });
 
   it("the producer's marker alone (a stored ±1 that remembers the user's 4.61) withholds the same way", async () => {

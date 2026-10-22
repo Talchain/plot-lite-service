@@ -80,3 +80,28 @@ it('still bounds a legacy weight rating and reports that repair', () => {
   expect(edge.strength.mean).toBe(1);
   expect(warnings.some((w) => w.code === 'CLAMP_STRENGTH_MEAN')).toBe(true);
 });
+
+
+it('an actual ISL clamp with no message withholds either author on the goal path', () => {
+  for (const provenance of [user, { magnitude: 'olumi_estimate' }, undefined]) {
+    const r = clampedEffects(graph([{ from: 'subs', to: 'mrr', strength: { mean: 4.61 }, provenance }]), [
+      { code: 'STRENGTH_MEAN_CLAMPED', field: 'edges[subs→mrr].strength.mean', detail: { original: 4.61, clamped: 1 } },
+    ]);
+    expect(r.withhold).toHaveLength(1);
+    expect(r.withhold[0].engine_cut).toBe(true);
+    expect(r.withhold[0].user_stated).toBe(provenance === user);
+    expect(r.disclose).toEqual([]);
+    if (provenance !== user) expect(clampedEffectWithheldMessage(r.withhold)).not.toContain('Your size');
+  }
+});
+
+it('an off-path ISL cut is disclosed, and a malformed or unrelated signal does not invent a cut', () => {
+  const g = graph([{ from: 'subs', to: 'tickets', strength: { mean: -4.61 } }]);
+  const warning = { code: 'STRENGTH_MEAN_CLAMPED', field: 'edges[subs→tickets].strength.mean', detail: { original: -4.61, clamped: -1 } };
+  const r = clampedEffects(g, [warning]);
+  expect(r.withhold).toEqual([]);
+  expect(r.disclose).toHaveLength(1);
+  expect(clampedEffectDisclosedMessage(r.disclose)).not.toContain('Olumi');
+  for (const w of [{ ...warning, field: 'edges[other→tickets].strength.mean' }, { ...warning, detail: { original: -1, clamped: -1 } },
+    { ...warning, detail: { original: NaN, clamped: -1 } }]) expect(clampedEffects(g, [w])).toEqual({ withhold: [], disclose: [] });
+});
