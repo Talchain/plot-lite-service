@@ -1151,6 +1151,7 @@ function toISLNonlinearIdentity(identity: NonlinearIdentity): ISLNonlinearIdenti
         factor_ids: [...identity.factor_ids],
         stated_in_brief: identity.stated_in_brief,
         ...(identity.addends ? { addends: [...identity.addends] } : {}),
+        ...(identity.subtract ? { subtract: [...identity.subtract] } : {}),
       };
     default:
       // Ingress rejects unknown operations; a direct caller must also fail by field name,

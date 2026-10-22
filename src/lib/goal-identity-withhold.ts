@@ -23,6 +23,7 @@ export interface GoalIdentityNotEvaluated {
   /** The labels of the figures it is worked out from, and how ('product' reads "×", 'sum' reads "+"). */
   readonly parts: readonly string[];
   readonly operation: 'product' | 'sum' | null;
+  readonly part_signs?: readonly (1 | -1)[];
 }
 
 interface NodeLike { readonly id?: unknown; readonly kind?: unknown; readonly label?: unknown; readonly nonlinear_identity?: unknown }
@@ -102,8 +103,9 @@ export function unevaluatedIdentities(
     .filter((n) => (n.nonlinear_identity !== undefined && n.nonlinear_identity !== null) || withdrawn.has(n.id))
     .filter((n) => !evaluated.has(n.id))
     .map((n) => {
-      const identity = (n.nonlinear_identity ?? null) as { operation?: unknown; factor_ids?: unknown } | null;
+      const identity = (n.nonlinear_identity ?? null) as { operation?: unknown; factor_ids?: unknown; subtract?: unknown } | null;
       const ids = Array.isArray(identity?.factor_ids) ? identity!.factor_ids.filter((x): x is string => typeof x === 'string') : [];
+      const subtract = Array.isArray(identity?.subtract) ? identity.subtract : undefined;
       let operation: GoalIdentityNotEvaluated['operation'] = null;
       switch (identity?.operation) {
         case 'product':
@@ -121,6 +123,7 @@ export function unevaluatedIdentities(
         label: labelOf(n),
         parts: operation === null ? [] : ids.map((id) => labelOf(byId.get(id) ?? { id })),
         operation,
+        ...(operation === 'sum' && subtract ? { part_signs: ids.map((id): 1 | -1 => subtract.includes(id) ? -1 : 1) } : {}),
       };
     });
 }
@@ -133,6 +136,15 @@ function labelOf(n: NodeLike): string {
  * The words, exactly as AI Quality set them (#72 5885033487 (2)): no user action is implied (the fix is Olumi's), labels
  * come from the graph, and several identities name the first and add "(and N more)".
  */
+function identityParts(identity: GoalIdentityNotEvaluated, quoted = false): string {
+  if (identity.operation === null || identity.parts.length === 0) return 'other figures in the model';
+  return identity.parts.map((part, i) => {
+    const prefix = identity.operation === 'product' ? (i === 0 ? '' : ' × ')
+      : identity.part_signs?.[i] === -1 ? (i === 0 ? '− ' : ' − ') : (i === 0 ? '' : ' + ');
+    return `${prefix}${quoted ? `'${part}'` : part}`;
+  }).join('');
+}
+
 export function goalIdentityWithheldMessage(
   nodes: readonly GoalIdentityNotEvaluated[],
   /**
@@ -145,12 +157,11 @@ export function goalIdentityWithheldMessage(
 ): string {
   const first = nodes[0]!;
   // A null reading (including accumulation) uses only the existing generic sentence.
-  const joiner = first.operation === 'sum' ? ' + ' : first.operation === 'product' ? ' × ' : null;
-  const parts = joiner !== null && first.parts.length > 0 ? first.parts.join(joiner) : 'other figures in the model';
+  const parts = identityParts(first);
   const more = nodes.length > 1 ? ` (and ${nodes.length - 1} more)` : '';
   if (unconfirmedNodeIds.has(first.node_id)) {
     // AI Quality #72 5891608873, the words WITHOUT the card: no ask the user cannot answer here, labels from the graph.
-    const quoted = joiner !== null && first.parts.length > 0 ? first.parts.map((p) => `'${p}'`).join(joiner) : 'other figures in the model';
+    const quoted = identityParts(first, true);
     return `Not shown. Olumi reads '${first.label}' as ${quoted}${more}, but that hasn't been confirmed, `
       + `so this run gives no chance of reaching the target for '${goalLabel ?? first.label}'.`;
   }
@@ -161,8 +172,7 @@ export function goalIdentityWithheldMessage(
 /** The words for a withheld LIMIT, in the register AI Quality set for the goal (#72 5885033487): no action asked. */
 export function limitIdentityWithheldMessage(targetLabel: string, identities: readonly GoalIdentityNotEvaluated[]): string {
   const first = identities[0]!;
-  const joiner = first.operation === 'sum' ? ' + ' : first.operation === 'product' ? ' × ' : null;
-  const parts = joiner !== null && first.parts.length > 0 ? first.parts.join(joiner) : 'other figures in the model';
+  const parts = identityParts(first);
   const more = identities.length > 1 ? ` (and ${identities.length - 1} more)` : '';
   return `Not shown for the limit on '${targetLabel}'. '${first.label}' depends on ${parts}${more}, but this run couldn't `
     + 'calculate it that way, so the figures for that limit would be wrong.';
