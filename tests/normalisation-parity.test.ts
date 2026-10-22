@@ -125,14 +125,14 @@ describe('Repair code coverage', () => {
     expect(edge?.exists_probability).toBe(1);
   });
 
-  it('CLAMP_STRENGTH_MEAN: mean > 1', () => {
+  it('CLAMP_STRENGTH_MEAN: legacy weight > 1', () => {
     const graph = {
       nodes: [
         { id: 'a', kind: 'factor', label: 'A' },
         { id: 'goal', kind: 'goal', label: 'Goal' },
       ],
       edges: [
-        { from: 'a', to: 'goal', exists_probability: 0.8, strength: { mean: 2.5, std: 0.1 } },
+        { from: 'a', to: 'goal', exists_probability: 0.8, weight: 2.5, strength_std: 0.1 },
       ],
     };
 

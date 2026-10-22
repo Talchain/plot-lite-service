@@ -117,9 +117,9 @@ describe('route — a user-stated link size cut to the model\'s scale withholds 
     expect(clampRepair(body)).toBeUndefined();
   });
 
-  it('⭐ RED — the user-stated link at 4.61 (cut to 1): no goal figure on any option, the cut said once in the user\'s terms, the typed code on the repair', async () => {
+  it('⭐ RED — the historical user-stated link cut from 4.61 to 1: no goal figure on any option, the cut said once in the user\'s terms, the typed code on the repair', async () => {
     const control = await run(withBrief(withUserLink(0.15)));
-    const body = await run(withBrief(withUserLink(4.61)));
+    const body = await run(withBrief(withUserLink(1, { clamped_from: 4.61 })));
     for (const o of body.option_comparison) {
       for (const k of GOAL_FIGURES) expect(k in o, `${o.option_id}.${k}`).toBe(false);
       expect(o.outcome?.mean, `${o.option_id}.outcome.mean`).toBeUndefined();
@@ -130,8 +130,8 @@ describe('route — a user-stated link size cut to the model\'s scale withholds 
     expect(said[0]).toMatchObject({ severity: 'warning', node_ids: ['pro_paying_subscribers', 'mrr'] });
     expect(said[0].message).toBe("Not shown. Your size for how ‘Pro paying subscribers’ moves ‘MRR’ is bigger than this model's scale can hold, so the run couldn't use it at full size, and the figures that depend on it would be wrong.");
     expect(codes(body)).not.toContain(IDENTITY_WITHHELD);
-    // The typed code reaches `_meta` (it was LEGACY_REPAIR): the cut is named, with its before / after.
-    expect(clampRepair(body)).toMatchObject({ code: 'CLAMP_STRENGTH_MEAN', before: 4.61, after: 1, severity: 'warn' });
+    // A stored cut remains visible even though this Run does not cut it again.
+    expect(clampRepair(body)).toBeUndefined(); // The cut happened before this Run.
     // The rest of #419's class follows the ONE carrier: flips, robustness, the coaching lead, the M2 review.
     expect(control.flip_thresholds.length).toBeGreaterThan(0);
     expect(body.flip_thresholds).toEqual([]);
@@ -141,15 +141,19 @@ describe('route — a user-stated link size cut to the model\'s scale withholds 
     expect(body.review_skip_reason).toBe('GOAL_FIGURES_WITHHELD');
   });
 
-  it("an OLUMI estimate at 4.61 (cut to 1): figures kept, the cut said as Olumi's — disclosure only", async () => {
-    const body = await run(withUserLink(4.61, {}, 'olumi_estimate'));
-    for (const o of body.option_comparison) for (const k of GOAL_FIGURES) expect(typeof o[k], `${o.option_id}.${k}`).toBe('number');
+  it.each([4.61, -4.61])('an uncut coefficient %s keeps goal figures and produces no false clamp warning', async (mean) => {
+    const body = await run(withUserLink(mean));
+    for (const o of body.option_comparison) for (const k of GOAL_FIGURES) expect(typeof o[k]).toBe('number');
     expect(codes(body)).not.toContain(CUT);
-    const said = (body.inference_warnings ?? []).filter((w: any) => w.code === DISCLOSED);
-    expect(said).toHaveLength(1);
-    expect(said[0]).toMatchObject({ severity: 'info', node_ids: ['pro_paying_subscribers', 'mrr'] });
-    expect(said[0].message).toBe("Olumi's estimate for ‘Pro paying subscribers’ → ‘MRR’ was capped at the model's limit.");
-    expect(clampRepair(body)).toMatchObject({ code: 'CLAMP_STRENGTH_MEAN', before: 4.61, after: 1 });
+    expect(codes(body)).not.toContain(DISCLOSED);
+    expect(clampRepair(body)).toBeUndefined();
+  });
+
+  it("a historically cut Olumi estimate is still disclosed", async () => {
+    const body = await run(withUserLink(1, { clamped_from: 4.61 }, 'olumi_estimate'));
+    for (const o of body.option_comparison) for (const k of GOAL_FIGURES) expect(typeof o[k]).toBe('number');
+    expect(codes(body)).not.toContain(CUT);
+    expect(codes(body)).toContain(DISCLOSED);
   });
 
   it("the producer's marker alone (a stored ±1 that remembers the user's 4.61) withholds the same way", async () => {

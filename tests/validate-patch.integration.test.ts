@@ -161,10 +161,10 @@ describe('validate-patch integration', () => {
   });
 
   // -------------------------------------------------------------------------
-  // 3. Semantic repair: strength.mean > 1.0 is clamped
+  // 3. Semantic repair: finite explicit strength.mean is preserved
   // -------------------------------------------------------------------------
 
-  it('edge with strength.mean > 1.0 triggers CLAMP_STRENGTH_MEAN repair', async () => {
+  it('edge with strength.mean > 1.0 stays intact without a clamp repair', async () => {
     const body = {
       graph: {
         nodes: [
@@ -193,21 +193,19 @@ describe('validate-patch integration', () => {
     const d = res.json();
     expect(d.status).toBe('applied');
     expect(Array.isArray(d.repairs_applied)).toBe(true);
-    expect(d.repairs_applied.length).toBeGreaterThan(0);
 
-    // Should contain a CLAMP_STRENGTH_MEAN repair entry
+    // No magnitude repair was needed.
     const clampRepair = d.repairs_applied.find(
       (r: any) => r.code === 'CLAMP_STRENGTH_MEAN',
     );
-    expect(clampRepair).toBeDefined();
+    expect(clampRepair).toBeUndefined();
 
-    // The normalised graph should have the mean clamped to [-1, 1]
+    // The finite explicit coefficient remains as supplied.
     const edge = d.normalised_graph.edges.find(
       (e: any) => e.from === 'a' && e.to === 'goal',
     );
     expect(edge).toBeDefined();
-    expect(edge.strength.mean).toBeLessThanOrEqual(1.0);
-    expect(edge.strength.mean).toBeGreaterThanOrEqual(-1.0);
+    expect(edge.strength.mean).toBe(1.5);
   });
 
   // -------------------------------------------------------------------------

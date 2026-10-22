@@ -266,8 +266,8 @@ export function coachingWithoutWalk<T extends object>(
  *  - a USER-STATED size (`provenance.source: 'user_specified'` or `provenance.magnitude: 'user_stated'`) that was cut,
  *    on the goal's own path (its target IS the goal or reaches it) → the goal figures are WITHHELD (#419's one carrier);
  *  - an Olumi estimate or placeholder that was cut, or a user-stated one off the goal's path → DISCLOSED only.
- * "Cut" means the analysed size is not the stated one: `|strength.mean| > 1` on the graph as sent, or the producer's
- * own marker `strength.clamped_from` (MG's (a): a stored ±1 that remembers the user's number). Pure.
+ * A finite explicit coefficient is now preserved through PLoT and ISL, including magnitudes above one.
+ * Only the producer's own `strength.clamped_from` marker records a historical cut; its figures remain withheld.
  */
 export interface ClampedEffect {
   readonly from: string;
@@ -294,10 +294,7 @@ export function clampedEffects(graph: GraphLike): { withhold: ClampedEffect[]; d
   for (const e of (Array.isArray(graph?.edges) ? graph!.edges : []) as ClampEdgeLike[]) {
     if (e === null || typeof e !== 'object' || typeof e.from !== 'string' || typeof e.to !== 'string') continue;
     const marker = e.strength?.clamped_from;
-    const mean = e.strength?.mean;
-    const stated = typeof marker === 'number' && Number.isFinite(marker) && Math.abs(marker) > 1 ? marker
-      : typeof mean === 'number' && Number.isFinite(mean) && Math.abs(mean) > 1 ? mean
-      : undefined;
+    const stated = typeof marker === 'number' && Number.isFinite(marker) && Math.abs(marker) > 1 ? marker : undefined;
     if (stated === undefined) continue;
     const userStated = e.provenance?.source === 'user_specified' || e.provenance?.magnitude === 'user_stated';
     const to: string = e.to;

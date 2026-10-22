@@ -70,27 +70,27 @@ describe('INV-NORM-01: exists_probability bounded [0, 1]', () => {
 });
 
 // -----------------------------------------------------------------------------
-// INV-NORM-02: strength.mean bounded [-1, 1]
+// INV-NORM-02: finite explicit coefficients are preserved
 // -----------------------------------------------------------------------------
-describe('INV-NORM-02: strength.mean bounded [-1, 1]', () => {
-  it('clamps strength.mean above 1 to 1', () => {
+describe('INV-NORM-02: finite explicit coefficients are preserved', () => {
+  it('preserves an explicit strength.mean above 1', () => {
     const edge = normaliseEdge(
       { from: 'A', to: 'B', strength: { mean: 1.5, std: 0.1 } },
       0,
       new Map(),
       []
     );
-    expect(edge.strength.mean).toBe(1);
+    expect(edge.strength.mean).toBe(1.5);
   });
 
-  it('clamps strength.mean below -1 to -1', () => {
+  it('preserves an explicit strength.mean below -1', () => {
     const edge = normaliseEdge(
       { from: 'A', to: 'B', strength: { mean: -1.5, std: 0.1 } },
       0,
       new Map(),
       []
     );
-    expect(edge.strength.mean).toBe(-1);
+    expect(edge.strength.mean).toBe(-1.5);
   });
 
   it('preserves valid negative strength.mean', () => {
@@ -432,10 +432,10 @@ describe('INV-NORM-08: Repair records contain correct structure', () => {
     });
   });
 
-  it('clamped strength.mean has correct from/to values', () => {
+  it('legacy weight clamp has correct from/to values', () => {
     const warnings: any[] = [];
     normaliseEdge(
-      { from: 'A', to: 'B', strength: { mean: 1.5, std: 0.1 } },
+      { from: 'A', to: 'B', weight: 1.5 },
       0,
       new Map(),
       warnings
