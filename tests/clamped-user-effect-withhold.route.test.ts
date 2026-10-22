@@ -117,7 +117,7 @@ describe('route — a user-stated link size cut to the model\'s scale withholds 
     expect(clampRepair(body)).toBeUndefined();
   });
 
-  it('⭐ RED — the historical user-stated link cut from 4.61 to 1: no goal figure on any option, the cut said once in the user\'s terms, the typed code on the repair', async () => {
+  it('⭐ RED — the historical user-stated link cut from 4.61 to 1: no goal figure on any option, the cut said once in the user\'s terms', async () => {
     const control = await run(withBrief(withUserLink(0.15)));
     const body = await run(withBrief(withUserLink(1, { clamped_from: 4.61 })));
     for (const o of body.option_comparison) {

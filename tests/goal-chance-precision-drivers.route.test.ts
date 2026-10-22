@@ -132,11 +132,11 @@ function islOptionsWith(byId: Record<string, Record<string, unknown>>): unknown[
 const BOTH_OPTIONS = { [CONVERSION.id]: CONVERSION_BLOCKS, [RETENTION.id]: RETENTION_BLOCKS };
 
 const GOAL_LINK = (e: any) => e.from === 'pro_paying_subscribers' && e.to === 'mrr';
-/** W214 with the goal-path link sized as the user's own, at `mean`: 0.15 is in range, 4.61 is cut. */
-function withUserLink(mean: number): any {
+/** W214 with the goal-path link sized as the user's own; `clamped_from` records an actual historical cut. */
+function withUserLink(mean: number, extra: Record<string, unknown> = {}): any {
   const d = structuredClone(REQUEST);
   const e = d.graph.edges.find(GOAL_LINK);
-  e.strength = { ...e.strength, mean };
+  e.strength = { ...e.strength, mean, ...extra };
   e.provenance = { ...(e.provenance ?? {}), source: 'brief_extraction', magnitude: 'user_stated' };
   return d;
 }
@@ -278,7 +278,7 @@ describe('route — goal-chance precision and drivers reach option_comparison (G
       for (const key of NEW_KEYS) expect(sent[key], `mock ${id}.${key}`).toBeDefined();
     }
     const control = await run(withUserLink(0.15));
-    const body = await run(withUserLink(4.61));
+    const body = await run(withUserLink(1, { clamped_from: 4.61 }));
 
     for (const key of NEW_KEYS) expect(optionByIdentity(control, CONVERSION)[key], `control ${key}`).toBeDefined();
     expect(body.option_comparison.length).toBeGreaterThan(0);
