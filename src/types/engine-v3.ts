@@ -114,6 +114,8 @@ export interface ProductOrSumIdentity {
    * the same rules as `sum`, MG's rung c). Optional; disjoint from `factor_ids`.
    */
   addends?: string[];
+  /** Sum only: factor_ids subtracted instead of added. */
+  subtract?: string[];
   horizon_months?: never;
   rate_scale?: never;
   rate_sigma_log?: never;
@@ -133,6 +135,7 @@ export interface AccumulationIdentity {
   /** Positional log-rate spreads: churn, inflow. Absent means zero; never default on the wire. */
   readonly rate_sigma_log?: readonly [number, number];
   addends?: never;
+  subtract?: never;
   reading_licence?: never;
 }
 
@@ -1344,6 +1347,7 @@ export interface IdentityEvaluationV3 {
   operation: 'product' | 'sum' | 'accumulation';
   factor_ids: string[];
   addends?: string[];
+  subtract?: string[];
   /** Accumulation disclosure: the carrier's month horizon, forwarded from ISL. */
   horizon_months?: number | null;
   stated_in_brief: boolean;

@@ -163,6 +163,7 @@ const NONLINEAR_IDENTITY_KEYS: ReadonlySet<string> = new Set([
   'factor_ids',
   'stated_in_brief',
   'addends',
+  'subtract',
   'reading_licence',
   'horizon_months',
   'rate_scale',
@@ -247,7 +248,7 @@ export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | u
       node.id
     );
   }
-  const { operation, factor_ids, stated_in_brief, addends, reading_licence, horizon_months, rate_scale, rate_sigma_log } = raw as Record<string, unknown>;
+  const { operation, factor_ids, stated_in_brief, addends, subtract, reading_licence, horizon_months, rate_scale, rate_sigma_log } = raw as Record<string, unknown>;
   if (typeof operation !== 'string' || !NONLINEAR_IDENTITY_OPERATIONS.has(operation)) {
     throw new NormalisationError(
       `${field}.operation must be one of product | sum | accumulation (got ${JSON.stringify(operation)})`,
@@ -317,7 +318,7 @@ export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | u
       // Indexed validation also refuses sparse arrays; absence never becomes a wire default.
       rateSigmaLog = [rate_sigma_log[0], rate_sigma_log[1]];
     }
-    for (const forbidden of ['addends', 'reading_licence'] as const) {
+    for (const forbidden of ['addends', 'reading_licence', 'subtract'] as const) {
       if (Object.prototype.hasOwnProperty.call(raw, forbidden)) {
         throw new NormalisationError(
           `${field}.${forbidden} is not permitted for operation:accumulation`,
@@ -377,9 +378,16 @@ export function readNonlinearIdentity(node: UpstreamNode): NonlinearIdentity | u
       node.id
     );
   }
+  const hasSubtract = Object.prototype.hasOwnProperty.call(raw, 'subtract');
+  if (hasSubtract && (operation !== 'sum' || !Array.isArray(subtract) || subtract.length === 0
+    || !subtract.every((id) => typeof id === 'string' && factor_ids.includes(id))
+    || new Set(subtract).size !== subtract.length)) {
+    throw new NormalisationError(`${field}.subtract must name distinct factor_ids of a sum`, `${field}.subtract`, node.id);
+  }
   return {
     operation: operation as 'product' | 'sum',
     factor_ids: [...factor_ids],
+    ...(hasSubtract ? { subtract: [...(subtract as string[])] } : {}),
     stated_in_brief,
     ...(addends !== undefined ? { addends: [...(addends as string[])] } : {}),
     ...(hasReadingLicence ? { reading_licence: reading_licence as NonlinearIdentity['reading_licence'] } : {}),
