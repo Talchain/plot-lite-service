@@ -580,6 +580,7 @@ export const STRUCTURAL_KEYS: ReadonlySet<string> = new Set([
   "structural_influence",
   "subsample_cap",
   "subsample_divisor",
+  "subtract",
   "suggested_action",
   "suggestion",
   "suggestions",
