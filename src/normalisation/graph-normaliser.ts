@@ -980,7 +980,9 @@ export function normaliseEdge(
     }
   }
 
-  const clampedMean = clamp(mean, -1, 1);
+  // Explicit coefficients are frame-dependent slopes, not probabilities.
+  // Keep legacy weight-derived ratings bounded as before.
+  const clampedMean = hasExplicitMean ? mean : clamp(mean, -1, 1);
   if (clampedMean !== mean) {
     pushRepairWarning(
       REPAIR_CODES.CLAMP_STRENGTH_MEAN,

@@ -7,7 +7,7 @@
  * believes. ISL needs only std > 0.001 (`Field(gt=0.001)`), so there is no engine reason for a ceiling.
  *
  * SPEC: no ceiling · the floor stays (MG D12 proportional causal floor, structural 0.01, ISL's 0.0011 — PLoT #387)
- * · the ±1 clamp on the MEAN stays (a system contract: CEE StrengthSchema, CEE clamp, PLoT clamp).
+ * Finite explicit means are now preserved too (Class 2); legacy weight ratings remain bounded.
  * The route-level row on A's served price twin is `edge-std-no-ceiling.route.test.ts`.
  */
 import { describe, expect, it } from 'vitest';
@@ -61,9 +61,9 @@ describe('AIQ 5869431686 §2: an edge std above 0.4 reaches ISL as stated', () =
     expect(run({ mean: 1, std: 0.005 }, structural, 'O', 'F').std).toBe(0.01);
   });
 
-  it('CONTROL (mean contract, unchanged): a mean of 1.5 is still clamped to 1 with CLAMP_STRENGTH_MEAN', () => {
+  it('a finite mean of 1.5 is preserved without a clamp repair', () => {
     const r = run({ mean: 1.5, std: 0.5 });
-    expect(r.mean).toBe(1);
-    expect(r.warnings.filter((x) => x.code === REPAIR_CODES.CLAMP_STRENGTH_MEAN)).toHaveLength(1);
+    expect(r.mean).toBe(1.5);
+    expect(r.warnings.filter((x) => x.code === REPAIR_CODES.CLAMP_STRENGTH_MEAN)).toHaveLength(0);
   });
 });

@@ -229,9 +229,9 @@ describe('HTTP normalisation parity: /v2/run vs /v1/validate-patch', () => {
       ],
       edges: [
         // exists_probability > 1 → CLAMP_EXISTS_PROBABILITY
-        // mean > 1 → CLAMP_STRENGTH_MEAN
+        // legacy weight > 1 → CLAMP_STRENGTH_MEAN
         // std < 0.05 → CLAMP_STRENGTH_STD
-        { from: 'a', to: 'goal', exists_probability: 1.5, strength: { mean: 2.0, std: 0.001 } },
+        { from: 'a', to: 'goal', exists_probability: 1.5, weight: 2.0, strength_std: 0.001 },
         // Missing std → DEFAULT_STRENGTH_STD
         { from: 'b', to: 'goal', exists_probability: 0.8, strength: { mean: 0.5 } },
       ],

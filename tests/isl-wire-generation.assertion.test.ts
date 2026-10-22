@@ -194,6 +194,27 @@ describe('ISL wire-generation assertion on /v2/run (spec §2.1)', () => {
     expect(markers[0].severity).toBe('info');
   }, 60_000);
 
+  it('a producer-explained optional omission is not an older wire generation', async () => {
+    const body = await run((c) => {
+      delete c.robustness.edge_e_values;
+      c.inference_warnings = [{ code: 'E_VALUES_UNAVAILABLE', field: 'robustness.edge_e_values', severity: 'warning',
+        detail: { reason: 'coefficient_outside_search_domain', message: 'The optional edge search cannot represent this coefficient.' } }];
+    });
+    expect(body._meta.evidence.isl_wire_generation_ok).toBe(true);
+    expect(body.analysis_status).toBe('computed');
+    expect(body.inference_warnings.some((w: any) => w.code === 'E_VALUES_UNAVAILABLE')).toBe(true);
+    expect(body.inference_warnings.some((w: any) => w.code === 'EDGE_E_VALUES_UNAVAILABLE_V2_WIRE')).toBe(false);
+  }, 60_000);
+
+  it('a code without an explanation does not hide an unexplained missing location', async () => {
+    const body = await run((c) => {
+      delete c.robustness.edge_e_values;
+      c.inference_warnings = [{ code: 'E_VALUES_UNAVAILABLE' }];
+    });
+    expect(body._meta.evidence.isl_wire_generation_ok).toBe(false);
+    expect(body.inference_warnings.some((w: any) => w.code === 'EDGE_E_VALUES_UNAVAILABLE_V2_WIRE')).toBe(true);
+  }, 60_000);
+
   it('edge_e_values present but EMPTY (computed-empty) → honest empty, NO wire-gap marker, ok true', async () => {
     const body = await run((c) => {
       c.robustness.edge_e_values = [];

@@ -108,7 +108,16 @@ export function assessIslWireGeneration(islResult: unknown): IslWireGenerationAs
     const r = robustness as Record<string, unknown>;
     // Location probes: Array.isArray (not non-empty) — an empty array proves
     // the location exists on this wire; absence proves it does not.
-    if (!Array.isArray(r.edge_e_values)) missing.push('robustness.edge_e_values');
+    // A producer-declared omission proves this feature is understood; it is
+    // not evidence of an older wire generation. Its reason is shown separately.
+    const eValuesUnavailable = Array.isArray(env.inference_warnings) && env.inference_warnings.some((raw) => {
+      if (raw === null || typeof raw !== 'object') return false;
+      const warning = raw as Record<string, unknown>;
+      const detail = warning.detail as Record<string, unknown> | null | undefined;
+      return warning.code === 'E_VALUES_UNAVAILABLE' && (nonEmptyString(warning.message)
+        || nonEmptyString(detail?.reason) || nonEmptyString(detail?.message));
+    });
+    if (!Array.isArray(r.edge_e_values) && !eValuesUnavailable) missing.push('robustness.edge_e_values');
     if (!Array.isArray(r.edge_sensitivity)) missing.push('robustness.edge_sensitivity');
   }
 
